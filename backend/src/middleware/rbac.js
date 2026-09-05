@@ -2,7 +2,7 @@ import { AppError, can } from '../lib/shared/index.js';
 
 /**
  * The single enforcement point. `requirePermission('payroll:compute')` reads the map in
- * src/lib/shared/src/permissions.js — so the API, the sidebar and the tests can never disagree.
+ * src/lib/shared/permissions.js — so the API, the sidebar and the tests can never disagree.
  */
 export function requirePermission(...needed) {
   const perms = needed.flat().filter(Boolean);

@@ -11,9 +11,16 @@ import { wrap } from '../middleware/wrap.js';
 /**
  * One declarative table per domain, one binder here. Every route gets auth → permission → row scope →
  * validation → audit → handler in the same order, so "what can this role do" is answered by reading
- * the table (and rules/access.js), not by hunting through handlers.
+ * src/lib/shared/permissions.js, not by hunting through handlers.
  *
  * entry: { m, p, perm?, any?, scope?, idem?, read?, rate?, download?, params?, query?, body?, h }
+ *
+ * In plain Express terms, one entry is this:
+ *   router.post('/payruns',
+ *     authenticate, requirePermission('payroll:payrun_create'), enforceScope(),
+ *     validate(wizardStep2, 'body'), audit('payrun.create'), idempotent(), handler);
+ * The table only exists so those six lines are written once instead of 151 times, and so the order of the
+ * middlewares — which is what makes a 403 beat a 400 — cannot drift between files.
  */
 export function bind(table, { prefix = '' } = {}) {
   const r = express.Router({ mergeParams: true });
@@ -21,8 +28,9 @@ export function bind(table, { prefix = '' } = {}) {
     const mw = [(_req, _res, next) => { _req.valid = { params: {}, query: {}, body: {}, ...(_req.valid || {}) }; next(); }];
     if (!e.public) {
       mw.push(authenticate());
-      if (e.download) mw.push((req, res, next) => next()); // download links may pass through with a scoped token
-      else mw.push(forbidDownloadToken);
+      // A download route may be opened by a five-minute signed link (a plain <a> cannot send a header),
+      // so it is the one place that does not demand the usual bearer token.
+      if (!e.download) mw.push(forbidDownloadToken);
     }
     if (e.perm) mw.push(requirePermission(e.perm));
     if (e.any) mw.push(requireAnyPermission(...e.any));

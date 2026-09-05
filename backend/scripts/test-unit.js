@@ -405,7 +405,17 @@ t('multi-role logins union their powers', () => {
 t('nav follows the mockup for an HR manager (no Payroll dashboard, no User Access)', () => {
   const labels = navFor(['HR_MANAGER']).map((n) => n.label);
   assert.deepEqual(labels, ['Dashboard', 'Employees', 'Contracts', 'Attendance', 'Time Off', 'Payroll']);
-  assert.deepEqual(navFor(['EMPLOYEE']).map((n) => n.to), ['/portal', '/attendance', '/time-off/my-requests', '/payslips']);
+  assert.deepEqual(navFor(['EMPLOYEE']).map((n) => n.to), ['/portal', '/attendance', '/time-off/my-requests', '/portal/payslips']);
+});
+// The bug this guards: a nav link to a screen the role cannot open, which answered with "not part of your role".
+t('nav never offers a screen the role cannot open', () => {
+  const payroll = navFor(['HR_MANAGER']).find((n) => n.key === 'payroll');
+  assert.deepEqual(payroll.children.map((c) => c.label), ['Structures'], 'an HR manager may not open salary rules');
+  const manager = navFor(['HR_PAYROLL_MANAGER']);
+  assert.ok(manager.some((n) => n.key === 'settings'), 'the payroll admin keeps the company settings screen');
+  assert.ok(!manager.some((n) => typeof n === 'string'), 'a nav entry is never left as a bare string');
+  assert.ok(navFor(['HR_PAYROLL_USER']).find((n) => n.key === 'payroll').children.some((c) => c.to === '/payruns'));
+  assert.ok(!navFor(['EMPLOYEE']).some((n) => n.to === '/payruns'), 'an employee has no payroll screens at all');
 });
 
 console.log(`\n${fails.length ? `FAILED ${fails.length}/${passed + fails.length}` : `all ${passed} unit tests passed`}`);

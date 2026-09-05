@@ -8,6 +8,7 @@ import { KeyValue, ErrorPanel } from '../../components/ui/Feedback.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
+import { downloadSlip } from '../../utils/download.js';
 import { inr, num, date, time, periodLabel } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
 
@@ -66,7 +67,7 @@ export function MyPortalPage() {
               </div>
               <div className="flex gap-2">
                 <Link to="/portal/payslips" className="btn-ghost btn-sm">All payslips</Link>
-                <button className="btn-primary btn-sm" onClick={() => downloadSlip(data.current.id, data.employee?.employee_code, data.current.period_key, toast)}>Download PDF</button>
+                <button className="btn-primary btn-sm" onClick={() => downloadSlip(data.current.id, data.employee?.employee_code, data.current.period_key).catch((e) => toast.error(e.message))}>Download PDF</button>
               </div>
             </div>
           ) : <p className="text-sm text-slate-500">Your first payslip will appear here as soon as payroll runs.</p>}
@@ -95,15 +96,3 @@ export function MyPortalPage() {
 }
 
 /** A plain <a href> cannot send the JWT, so the API mints a 5-minute single-purpose link. */
-export async function downloadSlip(id, code, period, toast) {
-  try {
-    const { auth } = await import('../../api/endpoints.js');
-    const out = await auth.slipToken(id);
-    const link = document.createElement('a');
-    link.href = out.url;
-    link.download = `payslip-${code || 'me'}-${period || ''}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  } catch (e) { toast?.error(e.message); }
-}

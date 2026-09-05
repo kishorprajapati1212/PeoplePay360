@@ -1,4 +1,10 @@
-/** Every form control in the app is one of these five, so spacing never has to be repeated in pages. */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+/**
+ * Every form control in the app is one of these six, so spacing and error text never have to be repeated
+ * in a page. `Field` owns the label + hint + error line; the rest are the inputs themselves.
+ */
 export function Field({ label, hint, error, required, children, className = '' }) {
   return (
     <label className={'block ' + className}>
@@ -21,14 +27,85 @@ export function Textarea({ value, onChange, rows = 3, ...rest }) {
   return <textarea className="input" rows={rows} value={value ?? ''} onChange={(e) => onChange?.(e.target.value)} {...rest} />;
 }
 
-/** `options` accepts ['A','B'] or [{ value, label }] — pages should not have to normalise. */
-export function Select({ value, onChange, options = [], placeholder, className = '', ...rest }) {
-  const items = options.map((o) => (typeof o === 'object' ? o : { value: o, label: String(o) }));
+/**
+ * A dropdown that behaves like the rest of the app instead of the operating system: a filter box plus a
+ * scrollable list, so a 200-employee picker can actually be searched. The list is painted into
+ * document.body and flipped upwards when it would fall off the bottom of the screen, which is what keeps a
+ * long list inside a scrolling dialog from being cut off.
+ *
+ * `options` accepts ['A','B'] or [{ value, label, hint }] — pages should not have to normalise.
+ */
+export function Select({ value, onChange, options = [], placeholder, className = '', disabled }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const [box, setBox] = useState({});
+  const button = useRef(null);
+
+  const items = useMemo(() => options.map((o) => (typeof o === 'object' ? o : { value: o, label: String(o) })), [options]);
+  const chosen = items.find((o) => String(o.value) === String(value ?? ''));
+  const shown = useMemo(() => {
+    const t = term.trim().toLowerCase();
+    return t ? items.filter((o) => (o.label || '').toLowerCase().includes(t)) : items;
+  }, [items, term]);
+
+  /** Height of the list itself: nine rows, or fewer when there are fewer options. */
+  const listHeight = Math.min(items.length + (placeholder ? 1 : 0), 9) * 34 + 8;
+  function place() {
+    const r = button.current.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom;
+    setBox({ left: r.left, width: Math.max(r.width, 240),
+             ...(below < listHeight + 60 && r.top > below ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }) });
+  }
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const close = (e) => { if (!e.target.closest('[data-pop]')) setOpen(false); };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const shrink = () => setOpen(false);   // scrolling anything (the dialog body, the page) would leave it behind
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', key);
+    window.addEventListener('resize', shrink);
+    window.addEventListener('scroll', shrink, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', key);
+      window.removeEventListener('resize', shrink);
+      window.removeEventListener('scroll', shrink, true);
+    };
+  }, [open, items.length]);
+
   return (
-    <select className={'input ' + className} value={value ?? ''} onChange={(e) => onChange?.(e.target.value)} {...rest}>
-      {placeholder && <option value="">{placeholder}</option>}
-      {items.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    <>
+      <button type="button" data-pop ref={button} disabled={disabled}
+              className={'input flex items-center justify-between gap-2 text-left ' + className}
+              onClick={() => { setOpen((v) => !v); setTerm(''); }}>
+        <span className={chosen ? 'text-slate-100' : 'text-slate-500'}>{chosen ? chosen.label : (placeholder || 'Choose…')}</span>
+        <span className="text-xs text-slate-500">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && createPortal(
+        <div data-pop className="fixed z-[100] rounded-lg border border-line bg-ink-900 shadow-panel" style={box}>
+          {items.length > 7 && (
+            <input autoFocus className="m-2 w-[calc(100%-1rem)] rounded-md border border-line bg-ink-850 px-2 py-1 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+                   placeholder="Type to filter…" value={term} onChange={(e) => setTerm(e.target.value)} />
+          )}
+          <div className="overflow-y-auto py-1" style={{ maxHeight: listHeight }} >
+            {placeholder && (
+              <button type="button" className="block w-full px-3 py-1.5 text-left text-sm text-slate-400 hover:bg-ink-800"
+                      onClick={() => { onChange?.(''); setOpen(false); }}>{placeholder}</button>
+            )}
+            {shown.map((o) => (
+              <button key={String(o.value)} type="button"
+                      className={'block w-full px-3 py-1.5 text-left text-sm hover:bg-ink-800 '
+                                 + (String(o.value) === String(value ?? '') ? 'text-brand-300' : 'text-slate-200')}
+                      onClick={() => { onChange?.(o.value); setOpen(false); }}>
+                {o.label}
+                {o.hint && <span className="ml-2 text-xs text-slate-500">{o.hint}</span>}
+              </button>
+            ))}
+            {!shown.length && <p className="px-3 py-2 text-sm text-slate-500">Nothing matches “{term}”.</p>}
+          </div>
+        </div>, document.body)}
+    </>
   );
 }
 

@@ -13,10 +13,9 @@ import { today } from '../../utils/format.js';
 const PERSONAL = [
   { key: 'name', label: 'Full name', required: true },
   { key: 'work_email', label: 'Work email', required: true, placeholder: 'name@company.com' },
-  { key: 'phone', label: 'Phone' },
+  { key: 'phone', label: 'Phone', type: 'phone', hint: '10 digits — no +91, no spaces.' },
   { key: 'date_of_birth', label: 'Date of birth', type: 'date' },
   { key: 'gender', label: 'Gender', type: 'select', options: ['MALE', 'FEMALE', 'OTHER'].map((v) => ({ value: v, label: v })) },
-  { key: 'employee_code', label: 'Employee code', hint: 'Left blank, the next EMP00xx is used.' },
   { key: 'address', label: 'Address', type: 'textarea', rows: 2 },
   { key: 'city', label: 'City' },
   { key: 'state', label: 'State' },
@@ -51,7 +50,8 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
   const [password, setPassword] = useState('Password@123');
   const [role, setRole] = useState('EMPLOYEE');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const fields = useMemo(() => {
     const byTab = { personal: PERSONAL, job: JOB, salary: SALARY }[tab];
@@ -64,7 +64,7 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
   const setValue = (key, value) => setValues({ ...current, [key]: value });
 
   async function save() {
-    setSaving(true); setError(null);
+    setSaving(true); setError(''); setFieldErrors({});
     const contract = { wage: Number(current.basic_salary || 0), start_date: current['contract.start_date'] || current.date_of_joining };
     if (current['contract.end_date']) contract.end_date = current['contract.end_date'];
     if (current.salary_structure_id) contract.salary_structure_id = current.salary_structure_id;
@@ -79,12 +79,11 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
       bank_account_number: current.bank_account_number || undefined, bank_ifsc: current.bank_ifsc || undefined,
       bank_name: current.bank_name || undefined, pan_number: current.pan_number || undefined,
       uan_number: current.uan_number || undefined, esi_number: current.esi_number || undefined,
-      employee_code: current.employee_code || undefined,
       contract,
       ...(withLogin ? { user: { password, roles: [role] } } : {}),
     };
     try { await employees.create(body); onSaved?.(); }
-    catch (e) { setError(e.message); }
+    catch (e) { setError(e.message); setFieldErrors(e.fieldErrors || {}); }
     finally { setSaving(false); }
   }
 
@@ -98,8 +97,11 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
            </>}>
       <Tabs tabs={[{ key: 'personal', label: '1 · Personal' }, { key: 'job', label: '2 · Job & schedule' }, { key: 'salary', label: '3 · Salary, contract, bank' }]}
             active={tab} onChange={setTab} />
+      {/* The code is not asked for: employees, contracts and payslips are matched on it, so the database
+          hands out the next free EMP00xx and this screen only shows it back afterwards. */}
+      <p className="mt-3 text-xs text-slate-500">Employee code: the next free one (EMP00xx) is generated when you save.</p>
       <div className="mt-4">
-        <SchemaForm fields={fields} values={current} onChange={setValue} />
+        <SchemaForm fields={fields} values={current} onChange={setValue} errors={fieldErrors} />
       </div>
       {tab === 'salary' && (
         <div className="mt-4 rounded-lg border border-line bg-ink-850/60 p-3">
@@ -117,7 +119,9 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
           )}
         </div>
       )}
-      {error && <p className="mt-3 rounded-lg border border-bad/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</p>}
+      {error && (
+        <p className="mt-3 rounded-lg border border-bad/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</p>
+      )}
     </Modal>
   );
 }

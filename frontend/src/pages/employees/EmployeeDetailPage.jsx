@@ -197,7 +197,7 @@ export function EmployeeDetailPage() {
 const EDIT_FIELDS = [
   { key: 'name', label: 'Full name', required: true },
   { key: 'work_email', label: 'Work email', required: true },
-  { key: 'phone', label: 'Phone' },
+  { key: 'phone', label: 'Phone', type: 'phone', hint: '10 digits.' },
   { key: 'job_position', label: 'Job position' },
   { key: 'department_id', label: 'Department id', hint: 'Paste the id, or use the employee list action for a picker.' },
   { key: 'employee_type', label: 'Employment type', type: 'select', options: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].map((v) => ({ value: v, label: v.replace('_', ' ') })) },

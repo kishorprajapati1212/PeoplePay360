@@ -30,15 +30,24 @@ export function UsersPage() {
   const [create, setCreate] = useState(null);
   const [edit, setEdit] = useState(null);
   const [reset, setReset] = useState(null);   // the API needs a new password, so ask for one instead of firing an empty POST
+  const [error, setError] = useState('');               // the reason a save was refused, kept in the dialog
+  const [fieldErrors, setFieldErrors] = useState({});
   const { run, busy } = useAction();
 
   const list = useApi(useCallback(() => users.list(table.params), [table.params]), [table.params]);
   const people = useApi(useCallback(() => employees.list({ page: 1, page_size: 300 }), []), []);
 
   async function saveCreate() {
-    const body = { name: create.name, work_email: create.work_email, password: create.password,
-                   roles: create.roles.length ? create.roles : ['EMPLOYEE'], employee_id: create.employee_id || undefined };
-    await run('create', () => users.create(body)).then(() => { setCreate(null); list.reload(); toast.success('User created'); }).catch((e) => toast.error(e.message));
+    setError(''); setFieldErrors({});
+    try {
+      // No password is sent: the API gives the new login the demo password from the server config, which is
+      // the same one every other demo account uses.
+      await users.create({ name: create.name, work_email: create.work_email, role: create.role, employee_id: create.employee_id || undefined });
+      setCreate(null); list.reload(); toast.success('User created — sign-in works with the demo password');
+    } catch (e) {
+      setError(e.message);
+      setFieldErrors(e.fieldErrors || {});
+    }
   }
   async function saveEdit() {
     await run('roles', () => users.setRoles(edit.id, { roles: edit.roles })).then(() => { setEdit(null); list.reload(); toast.success('Roles updated'); }).catch((e) => toast.error(e.message));
@@ -48,7 +57,7 @@ export function UsersPage() {
   return (
     <>
       <PageHeader title="User access" subtitle="Who can sign in, and which of the four modules they see."
-                  actions={mayCreate && <button className="btn-primary btn-sm" onClick={() => setCreate({ name: '', work_email: '', password: 'Password@123', roles: ['EMPLOYEE'], employee_id: '' })}>+ New user</button>} />
+                  actions={mayCreate && <button className="btn-primary btn-sm" onClick={() => { setError(''); setFieldErrors({}); setCreate({ name: '', work_email: '', role: 'EMPLOYEE', employee_id: '' }); }}>+ New user</button>} />
       <Panel pad={false}>
         <DataTable rows={toRows(list.data)} loading={list.loading} error={list.error} onRetry={list.reload}
           toolbar={<SearchInput className="w-64" value={table.term} onChange={table.onSearch} placeholder="Name or email…" />}
@@ -71,26 +80,28 @@ export function UsersPage() {
           empty={<EmptyState title="No users" />} />
       </Panel>
 
+      {/* Three answers to create a login — name, work email, role. The employee link is optional, and the
+          password is not asked for because the server hands out the demo one. */}
       <Modal open={!!create} onClose={() => setCreate(null)} width="max-w-lg" title="Create user"
              subtitle="A login can exist on its own, but linking it to an employee is what gives the person a payslip portal."
              footer={<><button className="btn-ghost" onClick={() => setCreate(null)}>Cancel</button>
                       <button className="btn-primary" disabled={!!busy} onClick={saveCreate}>{busy === 'create' ? 'Creating…' : 'Create user'}</button></>}>
         {create && (
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Name" required><Input value={create.name} onChange={(v) => setCreate({ ...create, name: v })} /></Field>
-            <Field label="Work email" required><Input value={create.work_email} onChange={(v) => setCreate({ ...create, work_email: v })} /></Field>
-            <Field label="Initial password" required hint="Hand it over out of band."><Input value={create.password} onChange={(v) => setCreate({ ...create, password: v })} /></Field>
-            <Field label="Employee record"><Select value={create.employee_id} onChange={(v) => setCreate({ ...create, employee_id: v })} placeholder="No link"
-                   options={toRows(people.data).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} /></Field>
-            <div className="sm:col-span-2">
-              <p className="label">Roles</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {ROLES.map((role) => (
-                  <Checkbox key={role} checked={create.roles.includes(role)} label={human(role)}
-                            hint={ROLE_HINT[role]} onChange={(on) => setCreate({ ...create, roles: on ? [...create.roles, role] : create.roles.filter((x) => x !== role) })} />
-                ))}
-              </div>
-            </div>
+            <Field label="Name" required error={fieldErrors.name}><Input value={create.name} onChange={(v) => setCreate({ ...create, name: v })} /></Field>
+            <Field label="Work email" required error={fieldErrors.work_email} hint="This is what they type at the sign-in box.">
+              <Input type="email" value={create.work_email} onChange={(v) => setCreate({ ...create, work_email: v })} />
+            </Field>
+            <Field label="Role" required hint={ROLE_HINT[create.role]}>
+              <Select value={create.role} onChange={(v) => setCreate({ ...create, role: v })} options={ROLES.map((r) => ({ value: r, label: human(r) }))} />
+            </Field>
+            <Field label="Employee record" error={fieldErrors.employee_id} hint="Optional — needed for payslips and attendance.">
+              <Select value={create.employee_id} onChange={(v) => setCreate({ ...create, employee_id: v })} placeholder="No link"
+                      options={toRows(people.data).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} />
+            </Field>
+            {error && (
+              <p className="rounded-lg border border-bad/40 bg-red-950/40 px-3 py-2 text-sm text-red-200 sm:col-span-2">{error}</p>
+            )}
           </div>
         )}
       </Modal>

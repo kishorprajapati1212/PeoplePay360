@@ -2,17 +2,27 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  *  THE ONE PLACE ACCESS CONTROL IS DEFINED
  *  ------------------------------------------------------------------------
- *  • backend  : requirePermission('employee:write')            (middleware/rbac.js)
- *  • frontend : <Can perm="payroll:validate">, nav filtering     (src/rbac/)
- *  • menus    : ROLE_NAV                                        (drives the top bar)
+ *  • API      : every route declares `perm: 'employee:write'`; src/routes/_bind.js wires that into
+ *               requirePermission (src/middleware/rbac.js) and enforceScope (src/middleware/scope.js).
+ *  • frontend : src/rbac/permissions.js reads the `permissions` array of GET /api/auth/me, so a
+ *               button or a whole screen disappears when its permission is not in the list.
+ *  • menus    : ROLE_NAV below, sent to the browser as `menus` — a link is only shown for a screen
+ *               the role can open, so nobody clicks into a "not part of your role" panel.
+ *
+ *  Deny wins over allow, `*` means everything, `resource:*` means every action on a resource.
  *
  *  TO CHANGE WHO CAN DO WHAT → edit ROLE_PERMISSIONS below. Nothing else.
- *  Deny wins over allow, `*` means everything, `resource:*` means every action on a resource,
- *  and `@own` on a permission means "row-level scope: only your own records" (enforced by
- *  src/middleware/scope.js — see the note on each role).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-import { ROLES } from './enums.js';
+/** The five roles the app knows, in ascending order of power, and the words used for them on screen. */
+export const ROLES = ['EMPLOYEE', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER', 'ADMIN'];
+export const ROLE_LABEL = {
+  EMPLOYEE: 'Employee',
+  HR_MANAGER: 'Hr Manager',
+  HR_PAYROLL_USER: 'Hr Payroll User',
+  HR_PAYROLL_MANAGER: 'Hr Payroll Admin',
+  ADMIN: 'Admin',
+};
 
 /** Catalogue of every permission: label + what it actually unlocks (shown in the Roles screen). */
 export const PERMISSIONS = {
@@ -139,54 +149,59 @@ export const SCOPE = {
   ADMIN: 'company',
 };
 
-/** Top navigation — order and labels follow the mockup (Employees / Contracts / Attendance / Time Off / Payroll). */
+/**
+ * Top navigation — order and labels follow the mockup (Employees / Contracts / Attendance / Time Off / Payroll).
+ * Every entry says which permission its screen needs (`perm`, or `any` when the API accepts a choice), and
+ * `navFor` throws away anything the signed-in role cannot open — that is what keeps a "not part of your
+ * role" screen out of the sidebar in the first place.
+ */
 export const ROLE_NAV = {
   EMPLOYEE: [
     { key: 'portal', label: 'My Portal', to: '/portal', perm: 'profile:read' },
     { key: 'attendance', label: 'Attendance', to: '/attendance', perm: 'attendance:read_own' },
     { key: 'timeoff', label: 'Time Off', to: '/time-off/my-requests', perm: 'timeoff:read_own' },
-    { key: 'payslips', label: 'Payslips', to: '/payslips', perm: 'payslip:read_own' },
+    { key: 'payslips', label: 'Payslips', to: '/portal/payslips', perm: 'payslip:read_own' },
   ],
   HR_MANAGER: [
     { key: 'dashboard', label: 'Dashboard', to: '/dashboard', perm: 'dashboard:hr' },
-    { key: 'employees', label: 'Employees', to: '/employees', children: [
-      { label: 'Directory', to: '/employees' },
-      { label: 'Departments', to: '/departments' },
-      { label: 'Working Schedules', to: '/working-schedules' },
-      { label: 'Holidays', to: '/holidays' },
+    { key: 'employees', label: 'Employees', to: '/employees', perm: 'employee:read', children: [
+      { label: 'Directory', to: '/employees', perm: 'employee:read' },
+      { label: 'Departments', to: '/departments', perm: 'department:read' },
+      { label: 'Working Schedules', to: '/working-schedules', perm: 'schedule:read' },
+      { label: 'Holidays', to: '/holidays', perm: 'holiday:read' },
     ] },
-    { key: 'contracts', label: 'Contracts', to: '/contracts' },
+    { key: 'contracts', label: 'Contracts', to: '/contracts', perm: 'contract:read' },
     { key: 'attendance', label: 'Attendance', to: '/attendance', perm: 'attendance:read' },
     { key: 'timeoff', label: 'Time Off', to: '/time-off', perm: 'timeoff:approve', children: [
-      { label: 'Dashboard', to: '/time-off' },
-      { label: 'Time Off Requests', to: '/time-off/requests' },
-      { label: 'Time Off Types', to: '/time-off/types' },
-      { label: 'Allocations', to: '/time-off/allocations' },
+      { label: 'Dashboard', to: '/time-off', perm: 'timeoff:approve' },
+      { label: 'Time Off Requests', to: '/time-off/requests', any: ['timeoff:approve', 'timeoff:request'] },
+      { label: 'Time Off Types', to: '/time-off/types', any: ['timeoff:approve', 'timeoff:type_write'] },
+      { label: 'Allocations', to: '/time-off/allocations', perm: 'timeoff:approve' },
     ] },
-    { key: 'payroll', label: 'Payroll', to: '/payroll', perm: 'salary:structure_read', children: [
-      { label: 'Structures', to: '/salary/structures' },
-      { label: 'Rules', to: '/salary/rules' },
+    { key: 'payroll', label: 'Payroll', to: '/salary/structures', perm: 'salary:structure_read', children: [
+      { label: 'Structures', to: '/salary/structures', perm: 'salary:structure_read' },
+      { label: 'Rules', to: '/salary/rules', perm: 'salary:rule_read' },
     ] },
   ],
-  HR_PAYROLL_USER: ['+payroll_user'],  // '+name' = inherit that role's nav, then apply OVERRIDES
-  HR_PAYROLL_MANAGER: ['+payroll_user', 'payrun_admin'],
-  ADMIN: ['*'],
+  HR_PAYROLL_USER: ['+payroll_user'],        // '+name' = take that group from NAV_OVERRIDES
+  HR_PAYROLL_MANAGER: ['+payroll_user', '+payrun_admin'],
+  ADMIN: ['*'],                              // '*' = every group
 };
 /** Payroll additions layered on top of the HR nav (the mockup's Payroll menu). */
 export const NAV_OVERRIDES = {
   payroll_user: [
-    { key: 'payroll', label: 'Payroll', to: '/payroll', children: [
-      { label: 'Dashboard', to: '/payroll' },
-      { label: 'Payruns', to: '/payruns' },
-      { label: 'Payslips', to: '/payslips' },
-      { label: 'Structures', to: '/salary/structures' },
-      { label: 'Rules', to: '/salary/rules' },
+    { key: 'payroll', label: 'Payroll', to: '/payroll', perm: 'dashboard:payroll', children: [
+      { label: 'Dashboard', to: '/payroll', perm: 'dashboard:payroll' },
+      { label: 'Payruns', to: '/payruns', perm: 'payroll:payrun_read' },
+      { label: 'Payslips', to: '/payslips', perm: 'payslip:read_all' },
+      { label: 'Structures', to: '/salary/structures', perm: 'salary:structure_read' },
+      { label: 'Rules', to: '/salary/rules', perm: 'salary:rule_read' },
     ] },
   ],
   payrun_admin: [
-    { key: 'settings', label: 'Settings', to: '/company', children: [
-      { label: 'Company', to: '/company' },
-      { label: 'Salary Rules Help', to: '/salary/rules' },
+    { key: 'settings', label: 'Settings', to: '/company', perm: 'settings:read', children: [
+      { label: 'Company', to: '/company', perm: 'settings:read' },
+      { label: 'Salary Rules Help', to: '/salary/rules', perm: 'salary:rule_read' },
     ] },
   ],
 };
@@ -229,35 +244,47 @@ export function isDenied(perm, roles = []) {
 function grantedByRoles(perm, roles) {
   return roles.some((r) => (ROLE_PERMISSIONS[r] || []).some((p) => matches(p, perm)));
 }
-/** Expand a role's nav spec ('+other_role' inherits, '*' = everything) into concrete menus. */
+/**
+ * Expand a role's nav spec into concrete menus, keeping only what that role may open: a child the role
+ * cannot open disappears, and a group whose children all disappear disappears with it.
+ */
 export function navFor(roles = []) {
-  if (roles.includes('ADMIN')) return fullNav();
+  const perms = permissionsFor(roles);
+  const groups = roles.includes('ADMIN') ? fullNav() : merge(roles);
+  const ordered = (roles.includes('ADMIN') ? FULL_NAV_ORDER : [...FULL_NAV_ORDER, ...groups.map((g) => g.key)])
+    .filter((k, i, all) => all.indexOf(k) === i)
+    .map((k) => groups.find((g) => g.key === k))
+    .filter(Boolean);
+  return ordered.map((g) => visibleGroup(g, perms)).filter(Boolean);
+}
+/** '+other' pulls a group from NAV_OVERRIDES; a plain object is that role's own group. Later roles win. */
+function merge(roles) {
   const out = new Map();
   for (const role of roles) {
-    let spec = ROLE_NAV[role];
-    if (!spec) continue;
-    for (const item of spec) {
-      if (typeof item === 'string' && item.startsWith('+')) {
-        for (const x of NAV_OVERRIDES[item.slice(1)] || []) out.set(x.key, x);
-        continue;
-      }
-      if (item === '*') return fullNav();
-      out.set(item.key, item);
+    for (const item of ROLE_NAV[role] || []) {
+      if (typeof item !== 'string') { out.set(item.key, item); continue; }
+      for (const extra of NAV_OVERRIDES[item.slice(1)] || []) out.set(extra.key, extra);
     }
   }
-  const perms = permissionsFor(roles);
-  return [...out.values()].filter((n) => canPerm(n.perm, roles, perms));
+  return [...out.values()];
 }
-function canPerm(perm, roles, perms) {
-  if (!perm) return true;
-  return perms.all || perms.list.some((p) => matches(p, perm));
+function visibleGroup(node, perms) {
+  if (!canOpen(node, perms)) return null;
+  if (!node.children) return node;
+  const allowed = node.children.filter((c) => canOpen(c, perms));
+  return allowed.length ? { ...node, children: allowed } : null;
 }
-const FULL_NAV_ORDER = ['dashboard', 'employees', 'contracts', 'attendance', 'timeoff', 'payroll', 'settings', 'users'];
+/** A nav entry with no permission on it is open to everyone; `any` means the API accepts a choice. */
+function canOpen(node, perms) {
+  if (perms.all) return true;
+  const wanted = [node.perm, ...(node.any || [])].filter(Boolean);
+  return wanted.length === 0 || wanted.some((p) => perms.list.some((held) => matches(held, p)));
+}
+const FULL_NAV_ORDER = ['portal', 'dashboard', 'employees', 'contracts', 'attendance', 'timeoff', 'payroll', 'payslips', 'settings', 'users'];
 function fullNav() {
   const base = new Map();
-  for (const role of ['HR_MANAGER']) for (const n of ROLE_NAV[role]) base.set(n.key, n);
-  for (const n of NAV_OVERRIDES.payroll_user) base.set(n.key, n);
-  for (const n of NAV_OVERRIDES.payrun_admin) base.set(n.key, n);
+  for (const n of ROLE_NAV.HR_MANAGER) base.set(n.key, n);
+  for (const n of [...NAV_OVERRIDES.payroll_user, ...NAV_OVERRIDES.payrun_admin]) base.set(n.key, n);
   base.set('users', { key: 'users', label: 'User Access', to: '/users', perm: 'user:read' });
   return FULL_NAV_ORDER.filter((k) => base.has(k)).map((k) => base.get(k));
 }

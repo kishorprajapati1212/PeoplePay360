@@ -15,6 +15,7 @@ import { z } from 'zod';
 export const portalRoutes = bind([
   get('/summary', { h: c.portalSummary, audit: false }),
   get('/payslips', { h: c.portalPayslips, audit: false }),
+  get('/payslips/:id', { perm: 'payslip:read_own', params: idParam(), h: c.portalPayslip, read: true, audit: false }),
   get('/payslips/:id/pdf', { perm: 'payslip:download_own', params: idParam(), h: ps.pdf, download: true, audit: false }),
   get('/attendance', { h: c.portalAttendance, audit: false }),
   get('/calendar', { h: c.portalCalendar, audit: false }),

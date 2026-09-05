@@ -5,7 +5,7 @@ import { useTable } from '../../hooks/useTable.js';
 import { CrudPage } from '../../components/crud/CrudPage.jsx';
 import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
-import { Field, Input } from '../../components/ui/controls.jsx';
+import { Field, Input, Select } from '../../components/ui/controls.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { num } from '../../utils/format.js';
@@ -16,14 +16,21 @@ export function AllocationsPage() {
   const toast = useToast();
   const mayWrite = useCan('timeoff:allocation_write');
   const [carry, setCarry] = useState({ from_year: new Date().getFullYear(), to_year: new Date().getFullYear() + 1, cap: 5, type_id: '' });
+  const [tick, setTick] = useState(0);   // bumped after a carry-forward so the table below refetches
   const { run, busy } = useAction();
   const people = useApi(useCallback(() => employees.list({ page: 1, page_size: 300 }), []), []);
   const types = useApi(useCallback(() => timeOff.types.list({}), []), []);
   const employeeOptions = useMemo(() => toRows(people.data).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })), [people.data]);
   const typeOptions = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation).map((t) => ({ value: t.id, label: t.name })), [types.data]);
+  // Only types that both grant days per year and allow carrying can be pushed forward — offering the rest
+  // would just produce "Annual Leave does not carry forward".
+  const carryOptions = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation && t.carry_forward)
+    .map((t) => ({ value: t.id, label: t.name })), [types.data]);
 
   async function carryForward() {
-    await run('carry', () => timeOff.carryForward(carry)).then(() => toast.success('Carry-forward applied')).catch((e) => toast.error(e.message));
+    await run('carry', () => timeOff.carryForward(carry))
+      .then((out) => { toast.success(`${out.employees} employee(s) moved, ${out.days} day(s) carried into ${out.toYear}`); setTick((n) => n + 1); })
+      .catch((e) => toast.error(e.message));
   }
 
   return (
@@ -32,10 +39,7 @@ export function AllocationsPage() {
         <Panel title="Carry forward" subtitle="Move last year's unused balance into the new year, capped per type." className="mb-4">
           <div className="grid items-end gap-3 sm:grid-cols-4">
             <Field label="Leave type" required>
-              <select className="input" value={carry.type_id} onChange={(e) => setCarry({ ...carry, type_id: e.target.value })}>
-                <option value="">Choose…</option>
-                {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+              <Select value={carry.type_id} onChange={(v) => setCarry({ ...carry, type_id: v })} options={carryOptions} placeholder="Choose a type…" />
             </Field>
             <Field label="From year"><Input type="number" value={carry.from_year} onChange={(v) => setCarry({ ...carry, from_year: Number(v) })} /></Field>
             <Field label="To year"><Input type="number" value={carry.to_year} onChange={(v) => setCarry({ ...carry, to_year: Number(v) })} /></Field>
@@ -50,6 +54,7 @@ export function AllocationsPage() {
         api={timeOff.allocations}
         readPerm="timeoff:allocation_read" writePerm="timeoff:allocation_write"
         search={false}
+        reloadOn={tick}
         canDelete={() => false}
         columns={[
           { key: 'employee', label: 'Employee', render: (r) => (<div><p className="text-slate-100">{r.employee}</p><p className="text-xs text-slate-500">{r.employee_code}</p></div>) },

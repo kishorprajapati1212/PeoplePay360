@@ -38,6 +38,8 @@ export function ContractsPage() {
   const [editing, setEditing] = useState(null);
   const [ending, setEnding] = useState(null);   // the API needs the last working day, so ask for it
   const [values, setValues] = useState({});
+  const [error, setError] = useState('');              // why the API refused this save, shown inside the dialog
+  const [fieldErrors, setFieldErrors] = useState({});  // … and which box it belongs to
   const { run, busy } = useAction();
 
   const list = useApi(useCallback(() => contracts.list(table.params), [table.params]), [table.params]);
@@ -51,15 +53,24 @@ export function ContractsPage() {
     : f.key === 'working_schedule_id' ? { ...f, options: toRows(opts[2]).map((s) => ({ value: s.id, label: s.name })) } : f);
 
   async function save() {
-    const body = { ...values, wage: Number(values.wage || 0), employee_id: values.employee_id, start_date: values.start_date };
+    setError(''); setFieldErrors({});
+    const body = { ...values, wage: Number(values.wage || 0) };
     for (const k of ['end_date', 'salary_structure_id', 'department_id', 'working_schedule_id', 'job_position', 'notes']) if (!body[k]) delete body[k];
-    await run('save', () => (editing?.id ? contracts.update(editing.id, body) : contracts.create(body)))
-      .then(() => { setEditing(null); list.reload(); toast.success('Contract saved'); })
-      .catch((e) => toast.error(e.message));
+    try {
+      await run('save', () => (editing?.id ? contracts.update(editing.id, body) : contracts.create(body)));
+      setEditing(null); list.reload(); toast.success('Contract saved');
+    } catch (e) {
+      // "This employee already has a contract covering these dates" is the answer you want to read while
+      // the dialog is still open, not a toast that faded away — so it is written into the form.
+      setError(e.message); setFieldErrors(e.fieldErrors || {});
+    }
   }
 
-  function openNew() { setEditing({ id: null }); setValues({ start_date: today(), wage: '' }); }
-  function openEdit(row) { setEditing(row); setValues(valuesFromRow(FIELDS, row)); }
+  function openNew() { setError(''); setFieldErrors({}); setEditing({ id: null }); setValues({ start_date: today(), wage: '' }); }
+  function openEdit(row) {
+    setError(''); setFieldErrors({}); setEditing(row);
+    setValues({ ...valuesFromRow(FIELDS, row), employee_id: row.employee_id, contract_number: row.contract_number });
+  }
 
   async function act(row, what) {
     await run(what + row.id, () => contracts.renew(row.id, { start_date: today() }))
@@ -84,6 +95,7 @@ export function ContractsPage() {
                     options={[{ value: 'RUNNING', label: 'Running' }, { value: 'DRAFT', label: 'Draft' }, { value: 'EXPIRED', label: 'Expired' }, { value: 'TERMINATED', label: 'Terminated' }]} placeholder="Any status" />
           </>}
           columns={[
+            { key: 'contract_number', label: 'Contract no.', render: (r) => <span className="font-mono text-xs text-slate-300">{r.contract_number}</span> },
             { key: 'employee', label: 'Employee', render: (r) => (<div><p className="text-slate-100">{r.employee || r.employee_name}</p><p className="text-xs text-slate-500">{r.employee_code}</p></div>) },
             { key: 'wage', label: 'Wage', align: 'right', render: (r) => inr(r.wage) },
             { key: 'start_date', label: 'Starts', render: (r) => date(r.start_date) },
@@ -118,7 +130,13 @@ export function ContractsPage() {
              title={editing?.id ? 'Edit contract' : 'New contract'} subtitle="A contract sets the wage and the period it applies to; the structure decides how it is split."
              footer={<><button className="btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
                       <button className="btn-primary" disabled={!!busy} onClick={save}>{busy === 'save' ? 'Saving…' : 'Save contract'}</button></>}>
-        <SchemaForm fields={fields} values={values} onChange={(k, v) => setValues((s) => ({ ...s, [k]: v }))} />
+        <SchemaForm fields={fields} values={values} onChange={(k, v) => setValues((s) => ({ ...s, [k]: v }))} errors={fieldErrors} />
+        {editing?.id && (
+          <p className="mt-4 text-xs text-slate-500">Contract number <span className="font-mono text-slate-300">{values.contract_number}</span> — it is given out when the contract is created and never changes.</p>
+        )}
+        {error && (
+          <p className="mt-3 rounded-lg border border-bad/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</p>
+        )}
       </Modal>
     </>
   );

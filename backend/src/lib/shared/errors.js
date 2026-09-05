@@ -35,9 +35,19 @@ function friendlyUnique(c = '', m = '') {
   if (c.includes('uq_payruns_')) return 'A Payrun with this name/period already exists for the structure';
   if (c.includes('work_email') || c.includes('users_work_email')) return 'That work email is already in use';
   if (c.includes('attendance_employee_id_day')) return 'Attendance for this employee and date already exists';
+  if (c.includes('contract_period') || c.includes('uq_contract')) return 'This employee already has a contract covering those dates — change the period, or edit the existing contract';
+  if (c.includes('employee_documents') && c.includes('file_name')) return 'This employee already has a file with that name — pick another name to keep both, or replace the existing one';
+  if (c.includes('employee_bank_accounts')) return 'That bank account is already saved for this employee';
+  if (c.includes('users_work_email') || c === 'work_email') return 'That work email already has a login';
+  if (c.includes('employee_code')) return 'That employee code is already taken — leave it blank and the next free one is used';
+  if (c.includes('time_off_type')) return 'A leave type with that code or name already exists';
+  if (c.includes('salary_rules')) return 'This structure already has a rule with that code or name';
+  if (c.includes('pkey') || c.includes('_id_key')) return 'That record already exists';
   if (c.includes('task_queue_dedupe_key')) return 'This job is already queued';
   if (c.includes('uq_contract_one_primary')) return 'Only one primary contract is allowed per employee';
-  return m.split('\n')[0] || 'Duplicate value';
+  // Postgres' own wording is for the developer, not the user: it is kept in `details` (see the mapper
+  // below) and the screen gets one plain sentence instead of a DETAIL line.
+  return 'That value is already used by another record — check for a duplicate before saving again.';
 }
 function friendlyCheck(m) {
   if (m.includes('ck_alloc_never_negative')) return 'Leave balance would go negative';

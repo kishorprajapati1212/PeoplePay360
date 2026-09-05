@@ -34,7 +34,7 @@ export async function create(data, { auth } = {}) {
     }
     const user = await repo.createUser({ name: data.name, work_email: email, password_hash: await hashPassword(password),
       role: roles.includes('ADMIN') ? 'ADMIN' : roles[0], is_active: data.is_active !== false,
-      must_change_pw: !!data.must_change_pw || !data.password }, q);
+      must_change_pw: !!data.must_change_pw }, q);
     await repo.setRoles(user.id, roles, auth?.userId, q);
     if (employeeId) await repo.linkEmployee(user.id, employeeId, q);
     return repo.getUser(user.id, q);

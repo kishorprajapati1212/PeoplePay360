@@ -9,6 +9,7 @@ import { StatCard } from '../components/ui/StatCard.jsx';
 import { StatusChip } from '../components/ui/StatusChip.jsx';
 import { ErrorPanel } from '../components/ui/Feedback.jsx';
 import { Select } from '../components/ui/controls.jsx';
+import { useCan } from '../rbac/Can.jsx';
 import { inr, inrCompact, num, date, periodLabel, pct } from '../utils/format.js';
 import { useTheme } from '../theme.js';
 import { useAuth } from '../auth/useAuth.js';
@@ -31,6 +32,7 @@ export function DashboardPage({ mode = 'hr' }) {
   const panels = data?.panels || {};
   const deptOptions = useMemo(() => toRows(departments).map((d) => ({ value: d.id, label: d.name })), [departments]);
   const payrollFirst = mode === 'payroll';
+  const mayRunPayroll = useCan('payroll:payrun_create');
 
   return (
     <>
@@ -38,7 +40,10 @@ export function DashboardPage({ mode = 'hr' }) {
         title={payrollFirst ? 'Payroll dashboard' : 'HR dashboard'}
         subtitle={data ? `${data.period?.label || ''} · ${user?.scope === 'own' ? 'your records only' : 'filtered by the month and department below'}` : 'Loading the month…'}
         actions={
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            {payrollFirst && mayRunPayroll && (
+              <Link to="/payruns" className="btn-primary btn-sm">Payruns</Link>
+            )}
             <label className="text-right">
               <span className="label">Month</span>
               <input type="month" className="input mt-1 w-40" value={month} onChange={(e) => setMonth(e.target.value)} />
@@ -47,7 +52,7 @@ export function DashboardPage({ mode = 'hr' }) {
               <span className="label">Department</span>
               <Select className="mt-1 w-44" value={departmentId} onChange={setDepartmentId} options={deptOptions} placeholder="All departments" />
             </label>
-            <button className="btn-ghost btn-sm mb-0.5" onClick={reload} disabled={loading}>{loading ? '…' : 'Refresh'}</button>
+            <button className="btn-ghost btn-sm" onClick={reload} disabled={loading}>{loading ? '…' : 'Refresh'}</button>
           </div>
         }
       />

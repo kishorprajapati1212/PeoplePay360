@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { payroll, auth } from '../../api/endpoints.js';
+import { payroll, portal, auth } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
 import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
@@ -10,7 +10,7 @@ import { Modal } from '../../components/ui/Modal.jsx';
 import { Field, Input, Textarea } from '../../components/ui/controls.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
-import { download } from '../../utils/download.js';
+import { download, downloadSlip } from '../../utils/download.js';
 import { inr, num, date, datetime, periodLabel } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
 
@@ -23,14 +23,21 @@ export function PayslipDetailPage() {
   const toast = useToast();
   const { run, busy } = useAction();
   const [adjust, setAdjust] = useState(null);
-  const [arrear, setArrear] = useState({ amount: '', reason: '' });
+  const [arrear, setArrear] = useState(null);   // null = the dialog is closed; an object means "open with these values"
 
   const mayEdit = useCan('payslip:edit_lines');
   const mayArrear = useCan('payslip:arrear');
   const mayCompute = useCan('payroll:compute');
   const mayPdf = useCan('payroll:pdf');
+  /* An employee may open this screen for their own slip only, and their reads go through /api/portal —
+     which is the same payload with the ownership check already applied. One boolean, decided here. */
+  const mayReadAll = useCan('payslip:read_all');
 
-  const load = useCallback(() => Promise.all([payroll.payslips.one(id), payroll.payslips.history(id).catch(() => []), payroll.payslips.downloads(id).catch(() => [])]), [id]);
+  const load = useCallback(() => Promise.all([
+    (mayReadAll ? payroll.payslips.one(id) : portal.payslip(id)),
+    mayReadAll ? payroll.payslips.history(id).catch(() => []) : Promise.resolve([]),
+    mayReadAll ? payroll.payslips.downloads(id).catch(() => []) : Promise.resolve([]),
+  ]), [id, mayReadAll]);
   const { data, loading, error, reload } = useApi(load, [id]);
   const [slip = {}, h = [], d = []] = data || [];
   const history = toRows(h); const downloads = toRows(d);
@@ -44,7 +51,7 @@ export function PayslipDetailPage() {
   }
   async function raiseArrear() {
     await run('arr', () => payroll.payslips.arrear(id, { amount: Number(arrear.amount), reason: arrear.reason }))
-      .then(() => { setArrear({ amount: '', reason: '' }); reload(); toast.success('Arrear slip raised'); }).catch((e) => toast.error(e.message));
+      .then(() => { setArrear(null); reload(); toast.success('Arrear slip raised'); }).catch((e) => toast.error(e.message));
   }
 
   if (loading) return <Panel><p className="text-sm text-slate-400">Loading the slip…</p></Panel>;
@@ -57,7 +64,7 @@ export function PayslipDetailPage() {
         subtitle={`${slip.employee_code} · ${slip.department || ''} · ${slip.payrun || ''} · document v${num(slip.document_version || 1)}`}
         actions={<>
           <button className="btn-ghost btn-sm" onClick={() => run('pv', () => auth.slipToken(id)).then((out) => window.open(out.url, '_blank')).catch((e) => toast.error(e.message))}>Preview</button>
-          <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => run('dl', () => download(`/payslips/${id}/pdf`, `payslip-${slip.employee_code}-${slip.period_key}.pdf`)).catch((e) => toast.error(e.message))}>
+          <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => run('dl', () => mayReadAll ? download(`/payslips/${id}/pdf`, `payslip-${slip.employee_code}-${slip.period_key}.pdf`) : downloadSlip(id, slip.employee_code, slip.period_key)).catch((e) => toast.error(e.message))}>
             {slip.pdf_hash ? 'Download PDF' : 'Render & download'}
           </button>
           {mayPdf && !slip.pdf_hash && <button className="btn-ghost btn-sm" onClick={() => run('q', () => payroll.payslips.print(id)).then(() => { toast.success('PDF queued to the worker'); setTimeout(reload, 1500); }).catch((e) => toast.error(e.message))}>Queue PDF</button>}
@@ -104,6 +111,7 @@ export function PayslipDetailPage() {
           </div>
         </Panel>
 
+        {mayReadAll && (
         <div className="space-y-4">
           <Panel title="Document" subtitle="what the employee receives">
             <KeyValue columns={1} rows={[
@@ -148,6 +156,7 @@ export function PayslipDetailPage() {
             </ul>
           </Panel>
         </div>
+        )}
       </div>
 
       <Modal open={!!adjust} onClose={() => setAdjust(null)} width="max-w-md" title="Add a manual line"
@@ -170,10 +179,12 @@ export function PayslipDetailPage() {
              subtitle="Positive pays the difference now; negative recovers it."
              footer={<><button className="btn-ghost" onClick={() => setArrear(null)}>Cancel</button>
                       <button className="btn-danger" disabled={!!busy} onClick={raiseArrear}>{busy === 'arr' ? 'Raising…' : 'Raise arrear'}</button></>}>
-        <div className="flex flex-col gap-3">
-          <Field label="Amount" required><Input type="number" step="0.01" value={arrear.amount} onChange={(v) => setArrear({ ...arrear, amount: v })} /></Field>
-          <Field label="Reason" required><Textarea rows={2} value={arrear.reason} onChange={(v) => setArrear({ ...arrear, reason: v })} /></Field>
-        </div>
+        {arrear && (
+          <div className="flex flex-col gap-3">
+            <Field label="Amount" required><Input type="number" step="0.01" value={arrear.amount} onChange={(v) => setArrear({ ...arrear, amount: v })} /></Field>
+            <Field label="Reason" required><Textarea rows={2} value={arrear.reason} onChange={(v) => setArrear({ ...arrear, reason: v })} /></Field>
+          </div>
+        )}
       </Modal>
     </>
   );

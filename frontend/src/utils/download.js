@@ -1,4 +1,5 @@
 import { API_BASE, TOKEN_KEY } from '../config/app.js';
+import { auth } from '../api/endpoints.js';
 
 /**
  * Streaming endpoints (PDF, CSV, ZIP) answer with bytes, so they cannot go through the JSON client.
@@ -18,6 +19,22 @@ export async function download(path, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/**
+ * A payslip PDF is streamed, and a plain <a> cannot carry a bearer token — so the API hands out a
+ * five-minute link for exactly one slip and we click that instead. The backend chooses which path the
+ * link uses (the payroll screen's for staff, /api/portal/… for the employee the slip belongs to),
+ * which is why no page here has to know about roles.
+ */
+export async function downloadSlip(id, code, period) {
+  const out = await auth.slipToken(id);
+  const link = document.createElement('a');
+  link.href = out.url;
+  link.download = `payslip-${code || 'me'}-${period || ''}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 function nameFromHeaders(header) {

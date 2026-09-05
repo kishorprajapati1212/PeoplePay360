@@ -36,8 +36,8 @@ html.dark {
   --slate-200: 226 232 240;
   --slate-300: 203 213 225;
   --slate-400: 148 163 184;
-  --slate-500: 100 116 139;
-  --slate-600: 71 85 105;
+  --slate-500: 133 149 173;   /* the app's muted-text level: hints, secondary lines, table captions */
+  --slate-600: 106 123 148;    /* the faintest grey we use for real text (an empty cell, a locked row) */
   --slate-700: 51 65 85;
   --slate-800: 30 41 59;
   --slate-900: 15 23 42;
@@ -89,13 +89,13 @@ html.dark {
 }
 
 html.light {
-  --ink-950: 244 246 251;
-  --ink-900: 255 255 255;
-  --ink-850: 248 250 252;
-  --ink-800: 238 242 247;
-  --ink-700: 226 232 240;
-  --ink-600: 203 213 225;
-  --line: 219 227 239;
+  --ink-950: 243 246 251;   /* page background — grey enough that a white panel reads as a panel */
+  --ink-900: 255 255 255;   /* panel / sidebar        */
+  --ink-850: 248 250 253;   /* inputs, recessed rows  */
+  --ink-800: 226 234 246;   /* hover — visible on white, this is what a row looks like when you touch it */
+  --ink-700: 203 216 236;   /* active row / selected tab */
+  --ink-600: 176 194 220;   /* raised border          */
+  --line: 205 216 232;      /* every hairline         */
   --brand-50: 238 242 255;
   --brand-100: 224 231 255;  /* tints stay pale — they are used behind text, not as text */
   --brand-200: 55 48 163;    /* the shades used as *text* flip to dark indigo … */
@@ -110,15 +110,15 @@ html.light {
   --good: 22 163 74;
   --warn: 180 83 9;
   --bad: 220 38 38;
-  --panel-shadow: 0 1px 0 0 rgba(15, 23, 42, 0.04) inset, 0 10px 24px -20px rgba(15, 23, 42, 0.35);
-  --scroll-thumb: 203 213 225;
+  --panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 28px -22px rgba(15, 23, 42, 0.35);
+  --scroll-thumb: 186 200 220;
   --slate-50: 2 6 23;
   --slate-100: 15 23 42;
   --slate-200: 30 41 59;
   --slate-300: 51 65 85;
   --slate-400: 71 85 105;
   --slate-500: 100 116 139;
-  --slate-600: 148 163 184;
+  --slate-600: 96 112 136;    /* the faintest grey the app uses for real text — still passes on white */
   --slate-700: 203 213 225;
   --slate-800: 226 232 240;
   --slate-900: 241 245 249;

@@ -78,7 +78,7 @@ Practical consequences: adding a permission to a role in that one file changes t
 ## Endpoints consumed (generated from the live router)
 
 Every row below is what the router actually registers — `node backend/scripts/routes-list.js` prints the same list
-(150 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
+(151 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
 `frontend/src/api/endpoints.js`.
 
 | area | endpoints |
@@ -95,7 +95,7 @@ Every row below is what the router actually registers — `node backend/scripts/
 | **employees** (12) | `GET employees` `GET employees/:id` `GET employees/:id/attendance` `GET employees/:id/contracts` `GET employees/:id/payslips` `GET employees/:id/summary` `GET employees/:id/time-off` `GET employees/me` `PATCH employees/:id` `POST employees` `POST employees/:id/terminate` `POST employees/import` |
 | **meta** (1) | `GET meta` |
 | **payslips** (11) | `GET payslips` `GET payslips/:id` `GET payslips/:id/downloads` `GET payslips/:id/history` `GET payslips/:id/pdf` `GET payslips/:id/preview-pdf` `PATCH payslips/:id/inputs` `PATCH payslips/:id/lines` `POST payslips/:id/arrear` `POST payslips/:id/compute` `POST payslips/:id/print` |
-| **employee portal** (10) | `GET portal/attendance` `GET portal/balances` `GET portal/calendar` `GET portal/contracts` `GET portal/payslips` `GET portal/payslips/:id/pdf` `GET portal/summary` `GET portal/time-off` `POST portal/time-off` `POST portal/time-off/:id/cancel` |
+| **employee portal** (11) | `GET portal/attendance` `GET portal/balances` `GET portal/calendar` `GET portal/contracts` `GET portal/payslips` `GET portal/payslips/:id` `GET portal/payslips/:id/pdf` `GET portal/summary` `GET portal/time-off` `POST portal/time-off` `POST portal/time-off/:id/cancel` |
 | **reports / exports** (4) | `GET reports/attendance.csv` `GET reports/payroll-summary.csv` `GET reports/payslips.zip` `GET reports/salary-register.csv` |
 | **system / queues** (6) | `GET system/audit` `GET system/audit/:type/:id` `GET system/jobs` `GET system/tasks` `POST system/reclaim` `POST system/tasks/:id/retry` |
 | **users** (8) | `GET users` `GET users/:id` `PATCH users/:id` `POST users` `POST users/:id/activate` `POST users/:id/deactivate` `POST users/:id/reset-password` `POST users/:id/roles` |
@@ -117,7 +117,7 @@ Pages that are not a plain list (employee detail, pay-run wizard, payslip detail
 
 ## Deliberate omissions
 
-* No automated browser test yet — behaviour is proven through the API (`node backend/scripts/smoke.js` drives all 150 endpoints), so the UI layer is thin by design.
+* No automated browser test yet — behaviour is proven through the API (`node backend/scripts/smoke.js` drives all 151 endpoints), so the UI layer is thin by design.
 * `CrudPage` does not offer a page-size selector for endpoints that return a plain array (departments, schedules, structures, time-off types have no server-side paging).
 * The chart on the dashboard is the only bespoke SVG; everything else is tables, chips and forms.
 * Dark mode, i18n, and the per-day attendance *edit* grid in the sketch's exact 2-column form were simplified into a dialog + table.

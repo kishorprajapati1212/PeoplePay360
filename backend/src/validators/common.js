@@ -25,3 +25,14 @@ export const statusEnum = (values, name) => z.enum(values).optional().nullable()
 export const timeStr = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, 'Use HH:MM');
 export const dtStr = z.string().min(4, 'Pick a date and time');
 export const dow = z.coerce.number().int().min(1).max(7);
+
+/**
+ * Indian mobile number: 10 digits, nothing else. Spaces, dashes and a leading +91 are cleaned away first,
+ * because people paste numbers in however their phone shows them — a wrong digit count is still refused.
+ */
+export const mobile = z.preprocess(tenDigits, z.string().regex(/^\d{10}$/, 'Mobile number must be exactly 10 digits').optional());
+function tenDigits(v) {
+  const digits = String(v ?? '').replace(/\D/g, '');
+  if (!digits) return undefined;
+  return digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+}

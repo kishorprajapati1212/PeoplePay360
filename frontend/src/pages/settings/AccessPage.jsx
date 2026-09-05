@@ -42,7 +42,7 @@ export function AccessPage() {
                         ? <span className="chip border-emerald-500/30 bg-emerald-500/10 text-emerald-300">✓</span>
                         : cellFor(data, p.key || p, r) === 'star'
                         ? <span className="chip border-brand-500/30 bg-brand-500/10 text-brand-200">all</span>
-                        : <span className="text-slate-700">·</span>}
+                        : <span className="text-slate-500">·</span>}
                     </td>
                   ))}
                 </tr>

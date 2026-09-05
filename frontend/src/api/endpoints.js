@@ -91,6 +91,8 @@ export const timeOff = {
   balances: (employeeId) => api.get(`/time-off/balances/${employeeId}`),
   overview: (query) => api.get('/time-off/overview', query),
   countDays: (body) => api.post('/time-off/count-days', body),
+  /** HR pushes last year's unused days into the new year; the API writes the allocation rows itself. */
+  carryForward: (body) => api.post('/time-off/carry-forward', body),
 };
 
 export const salary = {
@@ -149,6 +151,7 @@ export const dashboard = { get: (query) => api.get('/dashboard', query) };
 export const portal = {
   summary: () => api.get('/portal/summary'),
   payslips: (query) => api.get('/portal/payslips', query),
+  payslip: (id) => api.get(`/portal/payslips/${id}`),        // one own slip, lines included
   attendance: (query) => api.get('/portal/attendance', query),
   timeOff: (query) => api.get('/portal/time-off', query),
   balances: () => api.get('/portal/balances'),

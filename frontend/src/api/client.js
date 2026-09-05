@@ -41,11 +41,20 @@ function clean(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== ''));
 }
 function safeJson(text) { try { return JSON.parse(text); } catch { return { message: text.slice(0, 200) }; } }
+/**
+ * The API reports a refused request as { error: { code, message, details } }, and for a rejected form
+ * `details.fields` lists what is wrong with each box. That list is turned into { field: message } here, so
+ * a dialog can write the reason under the field it belongs to — and the headline text says what to fix
+ * instead of only "Some fields need attention".
+ */
 function toApiError(res, data) {
   const payload = data && (data.error || data);
   const code = payload?.code || payload?.error?.code;
-  const message = payload?.message || payload?.error || `Request failed with status ${res.status}`;
-  const fieldErrors = payload?.details?.fieldErrors || payload?.fieldErrors || null;
+  const fields = Array.isArray(payload?.details?.fields) ? payload.details.fields : [];
+  const fieldErrors = fields.length ? Object.fromEntries(fields.map((f) => [f.field, f.message]))
+    : (payload?.details?.fieldErrors || payload?.fieldErrors || null);
+  const named = fields.map((f) => (f.field === '(root)' ? '' : f.field + ': ') + f.message).join(' · ');
+  const message = named || payload?.message || payload?.error || `Request failed with status ${res.status}`;
   return new ApiError(typeof message === 'string' ? message : JSON.stringify(message), { status: res.status, code, details: payload?.details, fieldErrors });
 }
 

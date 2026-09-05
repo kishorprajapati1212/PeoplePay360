@@ -7,24 +7,39 @@
 
 /* The mockup is a dense dark admin: a handful of component classes keeps the pages readable. */
 @layer components {
-  .panel { @apply rounded-xl border border-line bg-ink-900/80 shadow-panel; }
+  .panel { @apply rounded-xl border border-line bg-ink-900 shadow-panel; }
   .panel-pad { @apply p-4 sm:p-5; }
   .label { @apply block text-[11px] font-medium uppercase tracking-wider text-slate-400; }
   .input { @apply w-full rounded-lg border border-line bg-ink-850 px-3 py-2 text-sm text-slate-100
-            placeholder:text-slate-500 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25; }
+            placeholder:text-slate-500 outline-none transition-colors
+            focus:border-brand-500 focus:bg-ink-900 focus:ring-2 focus:ring-brand-500/25; }
   .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium
-          transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+          transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50
+          disabled:cursor-not-allowed disabled:opacity-50; }
   .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-500; }
   .btn-ghost { @apply btn border border-line bg-transparent text-slate-300 hover:bg-ink-800; }
   .btn-danger { @apply btn border border-bad/40 bg-bad/10 text-red-300 hover:bg-bad/20; }
   .btn-sm { @apply px-2.5 py-1.5 text-xs; }
   .chip { @apply inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium; }
-  .th { @apply px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
-  .td { @apply px-3 py-2 text-sm text-slate-200; }
-  .row { @apply border-t border-line/70 hover:bg-ink-800/60; }
+  /* px-4 everywhere: the toolbar above a table uses it too, so filters line up with the first column. */
+  .th { @apply px-4 py-2 text-left align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
+  .td { @apply px-4 py-2 align-middle text-sm text-slate-200; }
+  .row { @apply border-t border-line/70 transition-colors hover:bg-ink-800; }
   .link { @apply text-brand-300 hover:text-brand-200 hover:underline; }
 }
 
+/* The light theme is a real theme, not a dark one with the colours forgotten: these three rules are what
+   makes a control look pressable on white instead of washed out. */
+html.light .panel { border-color: rgba(15, 23, 42, 0.10); }
+html.light aside { border-color: rgba(15, 23, 42, 0.12); }
+html.light .fixed.inset-0 { background: rgba(15, 23, 42, 0.35); }   /* a white app does not need a black scrim */
+/* which nav item is current: the tint alone is too pale on white, so the active one gets a brand bar */
+nav a[aria-current='page'] { box-shadow: inset 2px 0 0 rgb(var(--brand-500)); }
+html.light .input { box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.04); }
+html.light .row { @apply border-line; }
+
 html, body, #root { height: 100%; }
+:focus-visible { outline: 2px solid rgb(var(--brand-500)); outline-offset: 1px; }
+::selection { background: rgb(var(--brand-500) / 0.3); }
 body { background: rgb(var(--ink-950)); color: rgb(var(--slate-200)); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }

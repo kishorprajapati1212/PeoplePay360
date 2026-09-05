@@ -52,14 +52,11 @@ export function can(user, permission, { anyOf = false } = {}) {
 }
 
 /**
- * Backend nav (menus) filtered against the current user — used by the sidebar.
- * A parent with children disappears when none of its children survived the filter.
+ * What the sidebar shows. GET /api/auth/me already sent only the groups and links this role may open — the
+ * filtering lives in backend/src/lib/shared/permissions.js, next to the permissions themselves — so the UI
+ * hands these straight to the Sidebar instead of keeping a second copy of the rules.
  */
-export function visibleNav(user) {
-  return (user?.menus || [])
-    .map((item) => ({ ...item, children: (item.children || []).filter((child) => can(user, child.perm)) }))
-    .filter((item) => can(user, item.perm) && (!item.children?.length || item.children.length > 0));
-}
+export const visibleNav = (user) => user?.menus || [];
 
 /** The catalogue behind the Access screen — fetched, never hard-coded. */
 export function useAccessMatrix() {

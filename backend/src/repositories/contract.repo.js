@@ -53,5 +53,3 @@ export const expiring = (days = 30) =>
          from contracts c join employees e on e.id = c.employee_id
          where c.end_date is not null and c.end_date between current_date and current_date + ($1)::int and c.status = 'RUNNING'
          order by c.end_date`, [days]).then((r) => r.rows);
-export const demoteExpired = () =>
-  query(`update contracts set status = 'EXPIRED' where status = 'RUNNING' and end_date is not null and end_date < current_date`).then((r) => r.rowCount);

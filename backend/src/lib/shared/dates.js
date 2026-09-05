@@ -12,13 +12,6 @@ export const fmtDate = (d) => {
   if (Number.isNaN(x.getTime())) return String(d);
   return `${pad(x.getDate())}-${MONTHS[x.getMonth()]}-${x.getFullYear()}`;
 };
-export const fmtTime = (d, opts = {}) => {
-  if (!d) return '—';
-  const x = new Date(d);
-  if (Number.isNaN(x.getTime())) return String(d).slice(11, 16);
-  const h = x.getHours(), m = pad(x.getMinutes());
-  return opts.h12 ? `${((h % 12) || 12)}:${m} ${h < 12 ? 'AM' : 'PM'}` : `${pad(h)}:${m}`;
-};
 export const addDays = (d, n) => { const x = new Date(toIso(d) + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return toIso(x); };
 export const daysInMonth = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
 export const monthStart = (d) => { const x = new Date(d); return `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-01`; };
@@ -26,10 +19,6 @@ export const monthEnd = (d) => { const x = new Date(d); const y = x.getUTCFullYe
 export const eachDay = (from, to) => { const out = []; let c = toIso(from); const end = toIso(to); let guard = 0; while (c <= end && guard++ < 400) { out.push(c); c = addDays(c, 1); } return out; };
 /** ISO weekday: 1=Mon .. 7=Sun */
 export const isoDow = (d) => { const x = new Date(`${toIso(d)}T00:00:00Z`); return x.getUTCDay() === 0 ? 7 : x.getUTCDay(); };
-export const fiscalYearOf = (d, startMonth = 4) => {
-  const x = new Date(d); const y = x.getUTCFullYear(); const m = x.getUTCMonth() + 1;
-  return m >= startMonth ? y : y - 1;
-};
 export const HALF = { FIRST: { start: 1, end: 15 }, SECOND: { start: 16, end: null } };
 /** Which half of the month does [start,end] represent (if any)? */
 export function halfOf(start, end) {

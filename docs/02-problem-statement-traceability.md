@@ -77,7 +77,7 @@ Every requirement extracted from the PDF (sections 4A/4B, 7, 8), mapped to how w
 
 | Deliverable | Plan |
 | --- | --- |
-| Functional platform with representative data | `npm run seed`: 45 employees, 3 structures, 2 schedules, 6 months of attendance + 6 monthly payruns + leave history, deliberately seeded anomalies |
+| Functional platform with representative data | `npm run db:seed`: 13 employees, 5 staff logins (one per role) plus a login per employee, 3 structures, 3 schedules, 6 months of attendance, half-month and monthly payruns, leave history, deliberately seeded anomalies |
 | 5-min live demo, two end-to-end scenarios | Script in `09-build-plan-phases.md` §Demo. Scenario 1 hire→payslip→PDF→email. Scenario 2 allocation→request→approval→LOP on payslip. |
 | Future roadmap slide | 1-page: tax filing/Form 16, employer cost & accruals, loans/advances, multi-currency, ESIC/PF challans, biometric integration, audit diff view, mobile app |
 | Mockup reference | `https://app.excalidraw.com/l/65VNwvy7c4X/17vHpCNFjex` — open it once and mirror layout so UI matches the brief's mental model |

@@ -2,11 +2,11 @@
 /**
  * Demo seeder. Zero arguments needed — it reads the same config as the API (root .env, defaults baked in).
  *
- *   node db/seed/seed.js                 idempotent: refuses to touch a company that already has employees
- *   node db/seed/seed.js --if-empty      do nothing (successfully) when data is already there — docker compose uses this
- *   node db/seed/seed.js --force         top up / re-run over existing data (re-uses what is already there)
+ *   node db/seed/seed.js                 seed what is missing; stop if the demo company is already there
+ *   node db/seed/seed.js --force         re-run the demo data over an existing company (upserts, so safe)
  *   node db/seed/seed.js --reset         truncate the app tables first (dev only, obviously)
  *   node db/seed/seed.js --skip-payroll  master data only, no payruns (fast for API smoke tests)
+ *   node db/seed/seed.js --if-empty      used by docker compose: same as the default, but says nothing
  *
  * Payslip money is NOT written here: the seeder drives the real services (payrun create → compute →
  * validate → mark paid, time-off apply → approve) so the demo company is produced by the same code the
@@ -28,7 +28,6 @@ const pad = (s, n = 22) => String(s).padEnd(n);
 const monthOf = (iso) => iso.slice(0, 7);
 // day 0 of the *next* month index = last day of this month
 const monthEnd = (iso) => `${iso.slice(0, 7)}-${String(new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7), 0)).getUTCDate()).padStart(2, '0')}`;
-async function finishSkipped() { await pool.end().catch(() => {}); process.exit(0); }
 
 const shift = (mins) => `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 const hhmm = (s) => { const [h, m] = String(s).split(':').map(Number); return h * 60 + m; };
@@ -47,14 +46,19 @@ async function reset() {
   await query(`truncate table ${RESET_TABLES.map((t) => `"${t}"`).join(', ')} restart identity cascade`);
   log(`  truncated ${RESET_TABLES.length} tables`);
 }
-async function guardExisting() {
+/**
+ * Has the demo company been created already? Everything below this check is an upsert, so re-running is
+ * safe — we still stop, because recomputing six months of payroll for nothing is slow. `--force` continues
+ * anyway, and `--reset` is the way to start over.
+ */
+async function alreadySeeded() {
   const n = await query(`select count(*) as n from employees`).then((r) => Number(r.rows[0].n));
   if (!n) return false;
-  if (!has('--force')) {
-    if (has('--if-empty')) { log(`  ${n} employee(s) already seeded — nothing to do`); await finishSkipped(); return; }
-    throw new Error(`${n} employee(s) already exist. Re-run with --force to top up, --reset to start over, or --if-empty to skip.`);
+  if (has('--force')) { log(`  ${n} employees already there — topping up where something is missing`); return false; }
+  if (!has('--if-empty')) {
+    log(`\n  ${n} employee(s) and their payruns are already in this database — nothing else to do.`);
+    log('  (--force tops up the demo data, --reset truncates the app tables and starts over)');
   }
-  log(`  ${n} employees already there — topping up where something is missing`);
   return true;
 }
 async function seedCompany() {
@@ -173,7 +177,7 @@ async function seedEmployees({ depts, schedules, structures, users }) {
                                             work_location, department_id, job_position, employee_type, working_schedule_id, date_of_joining, date_of_exit, status,
                                             employment_tag, basic_salary, bank_account_number, bank_ifsc, bank_name, pan_number, uan_number, esi_number, notes)
                                      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) returning id`,
-        [code, userId, e.name, e.email, `+91 98${(25000000 + i * 12345).toString().slice(0, 8)}`, e.gender,
+        [code, userId, e.name, e.email, `98${(25000000 + i * 12345).toString().slice(0, 8)}`, e.gender,
          `199${4 + (i % 4)}-0${(i % 8) + 1}-1${(i % 9) + 1}`, `${101 + i * 3} Sadan Road`, e.city, 'Gujarat', `3800${(15 + i).toString().padStart(2, '0')}`,
          e.city, deptId, e.position, e.type, schedule.id, e.joining, e.exit || null, 'ACTIVE',
          e.type === 'INTERN' ? 'Internship' : e.type === 'CONTRACT' ? 'Fixed term' : 'Permanent', e.wage,
@@ -389,6 +393,11 @@ async function summary() {
     'salary rules': r.rules, payruns: r.payruns, 'paid payslips': r.paid_slips, 'net paid': `₹${Number(r.paid_net).toLocaleString('en-IN')}`,
     'leave awaiting HR': r.pending_leave })) console.log(`│ ${pad(k, 20)} ${String(v).padStart(12)} │`);
   console.log('└────────────────────────────────────────────────────────┘');
+  printLogins();
+}
+/** The sign-in details, printed after a seed *and* when a seed was already done — that is the moment
+ *  someone needs them. */
+function printLogins() {
   banner([
     ['API', `http://localhost:${config.port}/api`],
     ['Web', `http://localhost:${config.webPort}`],
@@ -399,14 +408,17 @@ async function summary() {
 }
 async function main() {
   await assertMigrated();
-  await reset0();
-  await guardExisting();
+  if (has('--reset')) await reset();
+  // Company settings and the demo logins run first and run always. Both are upserts, so re-running costs
+  // nothing but guarantees that every address printed at the bottom works — even in a database that was
+  // seeded before a login was added.
   await seedCompany();
+  const users = await seedUsers();
+  if (await alreadySeeded()) { if (!has('--if-empty')) printLogins(); return; }
   const depts = await seedDepartments();
   const schedules = await seedSchedules();
   await seedHolidays();
   const structures = await seedStructures();
-  const users = await seedUsers();
   const empMap = await seedEmployees({ depts, schedules, structures, users });
   await seedAttendance({ empMap });
   const auth = { userId: users.ids.admin, roles: ['ADMIN'], scope: 'company', name: 'Seeder' };
@@ -415,7 +427,6 @@ async function main() {
   await seedWrinkles();
   await summary();
 }
-async function reset0() { if (has('--reset')) await reset(); else await query('select 1'); }
 main().then(() => pool.end().catch(() => {})).then(() => process.exit(0)).catch(async (e) => {
   console.error('\n✗ seed failed:', e.code ? `${e.code}: ` : '', e.message);
   if (e.details) console.error('  ', JSON.stringify(e.details).slice(0, 400));

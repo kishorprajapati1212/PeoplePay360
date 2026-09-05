@@ -5,46 +5,45 @@ Everything below runs with defaults you never have to type: Postgres `postgres/p
 
 ```
 peoplepay360/
-├── backend/           Express API + worker + migrations + seeder   ← the whole back half lives here
-│   ├── db/            migrations/ (11 .sql, applied in order) and seed/ (demo data)
+├── backend/                     Express API + worker + migrations + seeder  ← the whole back half
+│   ├── db/                      migrations/ (11 .sql, applied in order) and seed/ (demo data)
 │   ├── src/
-│   │   ├── index.js   starts the API (port 4000)
-│   │   ├── app.js     the Express app: helmet → cors → routes → 404 → error handler
-│   │   ├── config.js  one place for every environment variable, with defaults
+│   │   ├── index.js             starts the API (port 4000)        ├── app.js  helmet → cors → routes → 404 → error handler
+│   │   ├── config.js            one place for every env var, with defaults
 │   │   ├── lib/shared/permissions.js   ★ the one file that defines roles, permissions and the menu
-│   │   ├── db/        pool + transaction helpers
-│   │   ├── middleware/  auth · requirePerm · scope · validate · rateLimit · errorHandler
-│   │   ├── repositories/  raw SQL only (one file per table)
-│   │   ├── services/      business rules (payroll engine, attendance, time-off, users…)
-│   │   ├── controllers/   HTTP: parse → call service → status codes
-│   │   ├── routes/        one file per resource, mounted in src/routes/index.js
-│   │   ├── domain/        zod request validators, one per resource
-│   │   ├── jobs/          queue definitions + BullMQ workers
-│   │   ├── lib/pdf/       the payslip PDF (no headless Chrome needed)
-│   │   ├── utils/         money, date, csv, logger, banner, clickable urls
-│   │   └── worker/        standalone process (port 4100) draining the Redis queues
-│   ├── scripts/       smoke test · unit tests · route list · import checker
-│   ├── test/          the two engine test files (node:test)
-│   ├── storage/       generated pdfs / mail previews / uploads (git-ignored)
-│   └── .env           defaults already point at local Postgres + Redis
-├── frontend/          Vite + React + Tailwind
+│   │   ├── lib/payroll/         the salary engine (rules, periods, formula)   · lib/pdf/ the payslip
+│   │   ├── lib/formula/ lib/mailer/    expression evaluator · Gmail/SMTP transport
+│   │   ├── db/                  pool + transaction helpers        · queue/  Redis connection + BullMQ queues
+│   │   ├── repositories/        raw SQL only, one file per table
+│   │   ├── services/            business rules (payroll engine, attendance, time-off, users…)
+│   │   ├── controllers/         HTTP only: read req.valid, call a service, pick a status code
+│   │   ├── routes/              one file per resource, mounted in src/routes/index.js
+│   │   ├── validators/          zod request schemas, one file per resource
+│   │   ├── middleware/           auth · rbac · scope · validate · idempotency · rate-limit · error handler
+│   │   ├── worker/              the standalone process (port 4100) that drains the queues
+│   │   └── utils/               money, dates, csv, logger, banner, clickable urls
+│   ├── scripts/                 smoke test · unit tests · route list · import checker
+│   ├── test/                    the engine tests (node:test)
+│   ├── storage/                 generated pdfs / mail previews / uploads (git-ignored)
+│   └── .env                     defaults already point at local Postgres + Redis
+├── frontend/                    Vite + React + Tailwind
 │   └── src/
-│       ├── config/    what the app talks to (API base, cookie, token lifetime)
-│       ├── api/       endpoints.js (every call, grouped like the backend) + client.js (the only fetch)
-│       ├── theme.js   light/dark toggle · theme.css the two palettes
-│       ├── auth/      login state, tokens, <Authorized>, useCan
-│       ├── rbac/      reads the menu/permissions the API returned — nothing hard-coded here
-│       ├── hooks/     useApi · useCrud · usePagedQuery · useSession
-│       ├── components/{ui,data,crud}   inputs, tables, filters, the generic CRUD page
-│       ├── layout/    AppShell (sidebar + topbar), PageHeader
-│       ├── pages/     one folder per screen area (employees, org, attendance, timeoff,
-│       │              salary, payroll, settings, portal) — this is where you will spend your time
-│       ├── utils/     money/date formatting, CSV, downloads
-│       └── App.jsx    the route table, with the permission each page needs
-├── docs/              00-INDEX.md is the map of all 12 design documents
-├── scripts/           dev.js (runs all three processes) and check-syntax.sh
-├── docker-compose.yml postgres + redis + api + worker + web + a one-shot migrate/seed
-└── package.json       npm run setup / dev / check (they just call the folders above)
+│       ├── config/app.js        what the app talks to (API base, token key, page size)
+│       ├── api/                 client.js (the only fetch) + endpoints.js (every call, grouped like the backend)
+│       ├── theme.js / theme.css light + dark toggle · the two palettes as colour variables
+│       ├── auth/                login state, tokens, the refresh timer
+│       ├── rbac/                reads the permissions + menus the API sent — no role table is copied here
+│       ├── hooks/               useApi (fetch once, reload on demand) · useTable (search, filters, paging)
+│       ├── components/          ui/ (inputs, table, chips, modal, toast) · data/ · crud/ (the generic list+form page)
+│       ├── layout/              AppShell (sidebar + top bar), PageHeader, MobileNav
+│       ├── pages/               one folder per area: employees, org, attendance, timeoff, salary,
+│       │                        payroll, settings, portal  ← where you will spend your time
+│       ├── utils/               money/date formatting, query helpers, downloads
+│       └── App.jsx              the route table, one line per screen
+├── docs/                        00-INDEX.md maps the five design documents
+├── scripts/                     dev.js (runs api + worker + web) and check-syntax.sh
+├── docker-compose.yml           postgres + redis + api + worker + web + a one-shot migrate/seed
+└── package.json                 npm run setup / dev / check (they only call the folders above)
 ```
 
 ★ = if you want to change who can see or do what, that single file is the only place you edit.
@@ -98,13 +97,13 @@ Every account uses the same password: **`Password@123`**
 | sign in as | email | what you can do |
 |---|---|---|
 | Admin | `admin@oxp.com` | everything, plus Settings (users, roles, company, queues, audit) |
-| HR Manager | `hr@oxp.com` | employees, org, attendance, time-off, and the payroll screens |
+| HR Manager | `hr@oxp.com` | employees, org, attendance, time-off, and salary structures (not the rules, not the money) |
 | HR user | `hr2@oxp.com` | the same screens, minus what the role is denied (see below) |
 | Payroll Manager | `payroll-admin@oxp.com` | salary structures, rules, pay runs, payslips, exports |
 | Payroll user | `payroll@oxp.com` | runs and payslips, but cannot approve a run, mark it paid, or void it |
 | Employee | `aarav.mehta@oxp.com` (or any employee's work email) | only My pay: own profile, own attendance, own requests, own payslips |
 
-Log out with the avatar menu (top right). The access token (`localStorage`, key `pp360.token`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh
+Log out with the avatar menu (top right) — it opens on click, so it works from the keyboard and from a phone. The access token (`localStorage`, key `pp360.token`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh
 token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloading never logs you out —
 `api/client.js` calls `/api/auth/refresh` on a 401 and retries the request once.
 
@@ -126,12 +125,26 @@ token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloadin
 ## 5b · Light and dark
 
 The toggle sits in the sidebar footer (and in the top bar on small screens). `html.dark` is the default because that
-is what the mockup shows; `html.light` is the same screens on paper. Both themes are one block of colour variables in
+is what the mockup shows; `html.light` is the same screens on paper — with its own hover, selected-row,
+input and border values, because a pale grey hover that is perfect on navy is invisible on white, and every
+button has a focus ring so the keyboard can see where it is. Both themes are one block of colour variables in
 [`frontend/src/theme.css`](frontend/src/theme.css), and `tailwind.config.js` points every colour utility at them — so
 no page knows which theme is on, and a new screen is themed for free. Your choice is remembered (`pp360.theme`), and
 `index.html` applies it before the first paint.
 
-## 5c · Real payslip emails (Gmail in two minutes)
+## 5c · What the forms insist on — and what they fill in for you
+
+| Field / action | Rule | Where |
+| --- | --- | --- |
+| Mobile number | exactly 10 digits. Spaces, dashes and a leading `+91` are cleaned first, then the length is checked — on the screen *and* in the API, so a bad number never reaches the database | `backend/src/validators/common.js` (`mobile`) |
+| Employee code | you never type one. `EMP0001`, `EMP0002`… come from a Postgres sequence, and the form says so instead of asking | `backend/src/repositories/employee.repo.js` (`nextEmployeeCode`) |
+| Contract number | same idea: `CT0001` …, assigned when the contract row is created, shown read-only afterwards | `db/migrations/003_employees.sql` |
+| Create a user | three answers: name, work email, role. No password to invent (the API hands out the demo password from `.env`) and the employee link is optional | `frontend/src/pages/settings/UsersPage.jsx` |
+| A duplicate record | 409 with a sentence, not SQL: "This employee already has a contract covering those dates…". It stays on screen inside the dialog and the offending field is underlined | `backend/src/lib/shared/errors.js` → `frontend/src/api/client.js` |
+| A dropdown with 200 entries | filter box + scrollable list that flips upward near the bottom of the screen, so nothing is cut off inside a dialog | `frontend/src/components/ui/controls.jsx` (`Select`) |
+| Anything else | only lengths and formats that a human can get wrong by accident (dates, money ≥ 0, one running contract per employee, no leave beyond the balance). No password-strength theatre, no regex for Indian pincode | `backend/src/validators/*.js` |
+
+## 5d · Real payslip emails (Gmail in two minutes)
 
 1. Google account → Security → 2-Step Verification → **App passwords** → create one (16 characters).
 2. Put both values in [`backend/.env`](backend/.env): `EMAIL_NAME=you@gmail.com`, `EMAIL_PASSWORD=abcd efgh ijkl mnop`.
@@ -143,7 +156,7 @@ instead, so the demo works offline. `GET http://localhost:4100/health` prints wh
 rejected send is stored on the payslip (`email_status = FAILED` + the provider's own message in the task row) so you can
 see *why* in Settings → System. Note Google's own limit: ~500 recipients/day on a personal account, `550 5.4.5` above it.
 
-## 5d · Queues: the worker, Redis and why PDFs stall
+## 5e · Queues: the worker, Redis and why PDFs stall
 
 PDF generation, payslip mail, imports and exports are BullMQ jobs, so the API and the worker must dial the *same*
 Redis. Both read the same three settings from [`backend/.env`](backend/.env): `REDIS_URL` (optional — a full
@@ -161,7 +174,7 @@ side is wrong; fix `.env`, then `docker compose restart api worker` (or `npm run
 ```bash
 cd backend && node scripts/test-unit.js        # 43 payroll-engine, leave and RBAC tests, no database needed
 cd backend && node --test test/                # guards every perm: token against the catalogue, and the nav map
-cd backend && node scripts/smoke.js            # drives all 150 endpoints against the API
+cd backend && node scripts/smoke.js            # drives all 151 endpoints against the API
 cd frontend && npm run build                   # real production build (also proves every import)
 bash scripts/check-syntax.sh                   # syntax of all .js/.jsx in ~1 s, no build
 ```
@@ -170,7 +183,7 @@ bash scripts/check-syntax.sh                   # syntax of all .js/.jsx in ~1 s,
 so out loud when it is missing, rather than quietly checking only half the files.
 
 At the repo root, `npm run check` does all four in one go (JSX/JS syntax → every backend module loads →
-43 unit tests → the 150-route inventory), and `npm run build` runs the real production build of the front end.
+44 unit tests → the 151-route inventory), and `npm run build` runs the real production build of the front end.
 Other root shortcuts: `npm run setup`, `npm run dev`, `npm run smoke`, `npm run db:reset`, `npm run up` / `down` / `logs`.
 
 ## 7 · Change the rules, not the code
@@ -196,5 +209,5 @@ static serving off if you would rather the API be API-only.
 ## 8 · Data and files
 
 * generated PDFs, mail previews and uploads → `backend/storage/` (`pp_storage` volume on Docker; git-ignored, delete it any time, it is recreated). The API serves a slip with `GET /api/payslips/:id/pdf` — there is no public URL for the folder itself.
-* the seeder is idempotent: `node backend/db/seed/seed.js --if-empty` (add `--reset` to start over in dev)
+* the seeder is safe to re-run: `node backend/db/seed/seed.js` tops up the company settings and the demo logins, stops before touching a full company, and takes `--force` (re-run the demo data over the top) or `--reset` (empty the app tables first)
 * no SMTP is configured, so "Send payslip by email" writes a `.eml` file into `backend/storage/mail/` and the UI shows that instead of pretending to deliver

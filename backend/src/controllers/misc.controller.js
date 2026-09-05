@@ -1,4 +1,5 @@
 import * as portal from '../services/portal.service.js';
+import * as payslips from '../services/payslip.service.js';
 import * as dashboard from '../services/dashboard.service.js';
 import * as company from '../services/company.service.js';
 import * as delivery from '../services/delivery.service.js';
@@ -14,6 +15,8 @@ const selfEmployee = (req) => {
 };
 export const portalSummary = async (req, res) => ok(res, await portal.summary(selfEmployee(req), { month: req.query.month }));
 export const portalPayslips = async (req, res) => ok(res, await portal.myPayslips(req.auth.employeeId, filters(req.query)));
+// One slip with its lines, for the employee it belongs to — payslip.service.read() refuses anything else.
+export const portalPayslip = async (req, res) => ok(res, await payslips.read(req.params.id, { auth: req.auth }));
 export const portalAttendance = async (req, res) => ok(res, await portal.myAttendance(req.auth.employeeId, { month: req.query.month }));
 export const portalCalendar = async (req, res) => ok(res, await portal.myCalendar(req.auth.employeeId, { month: req.query.month }));
 export const portalContracts = async (req, res) => ok(res, { rows: await portal.myContracts(req.auth.employeeId) });
