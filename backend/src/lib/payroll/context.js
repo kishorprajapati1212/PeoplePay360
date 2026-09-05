@@ -112,6 +112,12 @@ export function leaveStats({ requests = [], from, to, expectedDays, typesById = 
  */
 export function buildFormulaContext({ employee, contract, period, expected, attendance, leaves, worksheet, inputs, run: runMeta, structure, prior }) {
   const r = (v) => Number(fromPaise(toPaise(v)));
+  // Every formula variable has to exist, even on a preview where nobody passed attendance or leave stats:
+  // an undefined identifier is a hard error in the expression evaluator, so `overtime_hours > 0` on an
+  // empty period would surface as RULE_ERROR instead of simply being false.
+  const att = { present: 0, absent: 0, late: 0, halfDay: 0, onLeave: 0, holiday: 0, workedHours: 0, overtimeHours: 0, shortfall: 0, missingCheckout: 0, manual: 0, ...(attendance || {}) };
+  const lv = { total: 0, paid: 0, unpaid: 0, lop: 0, sick: 0, compOff: 0, byType: {}, detail: [], ...(leaves || {}) };
+  const exp = { days: 0, hours: 0, calendarDays: 0, ...(expected || {}) };
   const ws = {};
   for (const [code, paise] of Object.entries(worksheet || {})) ws[code] = r(paise);
   return {
@@ -122,20 +128,20 @@ export function buildFormulaContext({ employee, contract, period, expected, atte
     total_deductions: r(worksheet?.TOTAL_DEDUCTIONS ?? 0),
     wage: r(contract?.wage ?? employee?.basic_salary ?? 0),
     basic: r(contract?.wage ?? employee?.basic_salary ?? 0),
-    days: expected.days,
-    expected_days: expected.days,
-    paid_days: round2(expected.days - leaves.lop),
-    present_days: round2(attendance.present),
-    absent_days: attendance.absent,
-    leave_days: leaves.total,
-    unpaid_days: leaves.lop,
-    lop_days: leaves.lop,
-    half_days: attendance.halfDay,
-    period_days: expected.calendarDays,
+    days: exp.days,
+    expected_days: exp.days,
+    paid_days: round2(exp.days - lv.lop),
+    present_days: round2(att.present),
+    absent_days: att.absent,
+    leave_days: lv.total,
+    unpaid_days: lv.lop,
+    lop_days: lv.lop,
+    half_days: att.halfDay,
+    period_days: exp.calendarDays,
     month_days: daysInMonth(new Date(period.to).getUTCFullYear(), new Date(period.to).getUTCMonth() + 1),
-    worked_hours: attendance.workedHours,
-    scheduled_hours: expected.hours,
-    overtime_hours: attendance.overtimeHours,
+    worked_hours: att.workedHours,
+    scheduled_hours: exp.hours,
+    overtime_hours: att.overtimeHours,
     overtime_earnings: r(inputs?.overtime_earnings ?? 0),
     allowance: 0,
     bonus: r(inputs?.bonus_amount ?? 0),
@@ -147,12 +153,12 @@ export function buildFormulaContext({ employee, contract, period, expected, atte
     professional_tax: 0,
     pf_employee: 0, pf_employer: 0, esi_employee: 0, esi_employer: 0,
     attendance: {
-      days: expected.days, present: attendance.present, absent: attendance.absent, late: attendance.late,
-      half_days: attendance.halfDay, on_leave: attendance.onLeave, worked_hours: attendance.workedHours,
-      overtime_hours: attendance.overtimeHours, shortfall: attendance.shortfall,
-      missing_checkout: attendance.missingCheckout, manual_edits: attendance.manual,
+      days: exp.days, present: att.present, absent: att.absent, late: att.late,
+      half_days: att.halfDay, on_leave: att.onLeave, worked_hours: att.workedHours,
+      overtime_hours: att.overtimeHours, shortfall: att.shortfall,
+      missing_checkout: att.missingCheckout, manual_edits: att.manual,
     },
-    timeoff: { paid: leaves.paid, unpaid: leaves.lop, total: leaves.total, by_type: leaves.byType },
+    timeoff: { paid: lv.paid, unpaid: lv.lop, total: lv.total, by_type: lv.byType },
     employee: {
       id: employee.id, code: employee.employee_code, name: employee.name, status: employee.status,
       employee_type: employee.employee_type, job_position: employee.job_position, department: employee.department,

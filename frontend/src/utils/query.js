@@ -1,22 +1,20 @@
-/** Small helpers for building the ?query an API list endpoint expects. */
-export function toQuery(params = {}) {
-  const usp = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue;
-    usp.set(key, String(value));
-  }
-  const s = usp.toString();
-  return s ? `?${s}` : '';
+/**
+ * `toRows(answer)` — the list endpoints come back in two shapes: paged ones `{ rows, total, page }`,
+ * plain lookups (departments, schedules, structures, leave types, PT slabs) as a bare array or `{ rows }`.
+ * Every screen that iterates an API answer goes through this, so a shape change on one endpoint cannot
+ * white-screen a page. Also tolerates null (the first render, before the fetch resolves).
+ */
+export function toRows(x) {
+  if (Array.isArray(x)) return x;
+  if (Array.isArray(x?.rows)) return x.rows;
+  if (Array.isArray(x?.items)) return x.items;
+  if (Array.isArray(x?.data)) return x.data;
+  return [];
 }
-/** Turn a form object into a PATCH body: only keys that actually changed. */
-export function changedKeys(initial, next) {
-  const out = {};
-  for (const [key, value] of Object.entries(next)) {
-    const before = initial[key] ?? '';
-    if (String(before) !== String(value ?? '')) out[key] = value === '' ? null : value;
-  }
-  return out;
-}
+/** The matching total, for the few screens that show "N rows" without paging. */
+export const totalOf = (x, fallback = 0) => Number(x?.total ?? x?.count ?? (Array.isArray(x) ? x.length : fallback)) || 0;
+
+/** Keep typing from from hammering the API. */
 export function debounce(fn, ms = 350) {
   let timer;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };

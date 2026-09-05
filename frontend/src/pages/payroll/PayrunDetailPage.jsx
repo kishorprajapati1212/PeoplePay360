@@ -13,6 +13,7 @@ import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { download } from '../../utils/download.js';
 import { inr, num, date, datetime, periodLabel } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * The payrun workflow, exactly as the mockup describes it:
@@ -38,9 +39,10 @@ export function PayrunDetailPage() {
 
   const load = useCallback(() => Promise.all([payroll.payruns.one(id), payroll.payruns.warnings(id).catch(() => []), payroll.payruns.tasks(id).catch(() => []), payroll.payruns.emails(id).catch(() => [])]), [id]);
   const { data, loading, error, reload } = useApi(load, [id]);
-  const [run0, warnings, tasks, emails] = data || [{}, [], [], []];
+  const [run0 = {}, w = [], t = [], e = []] = data || [];
   const status = run0.status;
-  const slips = run0.payslips || [];
+  const warnings = toRows(w); const tasks = toRows(t); const emails = toRows(e);
+  const slips = toRows(run0.payslips);
 
   const act = (key, fn, message) => run(key, fn).then(() => { toast.success(message); reload(); }).catch((e) => toast.error(e.message));
 
@@ -91,7 +93,7 @@ export function PayrunDetailPage() {
 
         <div className="space-y-4">
           <Panel title="Warnings" subtitle="nothing here blocks you, but read them before locking">
-            {(warnings || []).length ? (
+            {warnings.length ? (
               <ul className="space-y-2 text-sm">
                 {warnings.map((w, i) => (
                   <li key={i} className="flex gap-2 rounded-lg bg-amber-500/5 px-2.5 py-2 text-amber-100/90 ring-1 ring-amber-500/20">
@@ -105,21 +107,21 @@ export function PayrunDetailPage() {
 
           <Panel title="Queue" subtitle="PDF and email jobs this run pushed to Redis" pad={false}>
             <ul className="divide-y divide-line/70 text-sm">
-              {(tasks || []).slice(0, 8).map((t) => (
+              {tasks.slice(0, 8).map((t) => (
                 <li key={t.id} className="flex items-center gap-2 px-4 py-2">
                   <span className="text-xs text-slate-400">{t.task_type === 'GENERATE_PDF' ? 'PDF' : 'Email'}</span>
                   <StatusChip value={t.status} />
                   <span className="ml-auto text-xs text-slate-500">{t.attempts > 0 ? `${t.attempts} attempt${t.attempts > 1 ? 's' : ''} · ` : ''}{datetime(t.updated_at || t.created_at)}</span>
                 </li>
               ))}
-              {!(tasks || []).length && <li className="px-4 py-3 text-sm text-slate-500">Nothing queued yet.</li>}
+              {!tasks.length && <li className="px-4 py-3 text-sm text-slate-500">Nothing queued yet.</li>}
             </ul>
           </Panel>
 
-          {(emails || []).length > 0 && (
+          {emails.length > 0 && (
             <Panel title="Delivery log" pad={false}>
               <ul className="divide-y divide-line/70 text-sm">
-                {(emails || []).slice(0, 10).map((e) => (
+                {emails.slice(0, 10).map((e) => (
                   <li key={e.id} className="flex items-center gap-2 px-4 py-2">
                     <span className="min-w-0 flex-1 truncate text-slate-300">{e.recipient}</span>
                     <StatusChip value={e.status} />

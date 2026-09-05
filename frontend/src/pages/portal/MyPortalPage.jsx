@@ -9,6 +9,7 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, num, date, time, periodLabel } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** Employee home: the two things people actually look for — did my punch land, and what did I get paid. */
 export function MyPortalPage() {
@@ -36,8 +37,8 @@ export function MyPortalPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[['Net this month', inr(data.current?.net_amount), data.current ? periodLabel(data.current.period_key) : 'no payslip yet'],
           ['Attendance this month', num(data.monthly?.present ?? data.stats?.present) + ' present', `${num(data.monthly?.absent ?? data.stats?.absent)} absent · ${num(data.monthly?.late ?? data.stats?.late)} late`],
-          ['Leave balance', num(data.leave_balance ?? data.stats?.leave_remaining) + ' days', (data.balances || []).map((b) => `${b.type} ${b.remaining}`).join(' · ') || 'annual + sick'],
-          ['Payslips', num(data.stats?.payslips ?? (data.payslips || []).length), `${num(data.stats?.paid ?? 0)} paid · YTD ${inr(data.stats?.ytd_net)}`]]
+          ['Leave balance', num(data.leave_balance ?? data.stats?.leave_remaining) + ' days', toRows(data.balances).map((b) => `${b.type} ${b.remaining}`).join(' · ') || 'annual + sick'],
+          ['Payslips', num(data.stats?.payslips ?? toRows(data.payslips).length), `${num(data.stats?.paid ?? 0)} paid · YTD ${inr(data.stats?.ytd_net)}`]]
           .map(([label, value, hint]) => (
           <div key={label} className="panel panel-pad">
             <p className="label">{label}</p>
@@ -73,14 +74,14 @@ export function MyPortalPage() {
 
         <Panel title="My recent punches">
           <ul className="space-y-2 text-sm">
-            {(today.data?.rows || []).map((a) => (
+            {toRows(today.data).map((a) => (
               <li key={a.id} className="flex items-center gap-2 rounded-lg bg-ink-850/60 px-2.5 py-1.5">
                 <span className="text-slate-300">{date(a.day)}</span>
                 <span className="text-xs text-slate-500">{time(a.check_in)} → {time(a.check_out)}</span>
                 <span className="ml-auto"><StatusChip value={a.status} /></span>
               </li>
             ))}
-            {!(today.data?.rows || []).length && <li className="text-sm text-slate-500">Nothing marked this month yet.</li>}
+            {!toRows(today.data).length && <li className="text-sm text-slate-500">Nothing marked this month yet.</li>}
           </ul>
           <div className="mt-3 flex gap-2 text-xs">
             <Link to="/time-off/my-requests" className="link">Request leave</Link>

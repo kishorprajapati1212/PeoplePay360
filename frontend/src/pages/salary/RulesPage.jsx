@@ -9,6 +9,7 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * The salary rules library. A rule is one line on the payslip: what it is called, whether it is an
@@ -24,7 +25,7 @@ export function RulesPage() {
   const [test, setTest] = useState({ formula: '', wage: 50000, days: 26 });
   const { run, busy } = useAction();
   const structures = useApi(useCallback(() => salary.structures.list({}), []), []);
-  const options = useMemo(() => (structures.data || []).map((s) => ({ value: s.id, label: s.name })), [structures.data]);
+  const options = useMemo(() => toRows(structures.data).map((s) => ({ value: s.id, label: s.name })), [structures.data]);
 
   async function validate() {
     await run('test', () => salary.rules.validate({ formula: test.formula, wage: Number(test.wage), days: Number(test.days) }))
@@ -88,10 +89,12 @@ export function RulesPage() {
           { key: 'cap_amount', label: 'Cap per period', type: 'money', hint: 'e.g. PF employer capped at ₹1,500' },
           { key: 'annual_cap', label: 'Cap per year', type: 'money' },
           { key: 'condition_expr', label: 'Apply only when', placeholder: 'days >= 15', hint: 'Optional formula that must be true for the rule to fire.' },
-          { key: 'evaluation_period', label: 'Evaluation window', type: 'select', options: ['PERIOD', 'MONTH', 'MONTH_ONCE', 'FISCAL_YEAR'].map((v) => ({ value: v, label: v.replace('_', ' ').toLowerCase() })) },
-          { key: 'rounding_mode', label: 'Rounding', type: 'select', options: [{ value: 'half_up', label: 'Half up (Indian payroll)' }, { value: 'down', label: 'Down' }, { value: 'up', label: 'Up' }] },
+          { key: 'evaluation_period', label: 'Evaluation window', type: 'select', options: ['PERIOD', 'MONTH', 'MONTH_ONCE', 'FISCAL_YEAR'].map((v) => ({ value: v, label: v.replace('_', ' ').toLowerCase() })),
+            hint: 'Month / fiscal year is the window the caps below are measured against. "month once" charges the rule on the first slip of the calendar month only — what a half-month run needs so a monthly amount is not paid twice.' },
+          { key: 'rounding_mode', label: 'Rounding', type: 'select', options: [{ value: 'half_up', label: 'Exact (paise, half up)' }, { value: 'down', label: 'Down to the rupee' }, { value: 'up', label: 'Up to the rupee' }],
+            hint: 'Down/up floor or ceiling this line to a whole rupee; exact keeps every paisa and lets "Round net to rupee" in company settings do the rounding.' },
           { key: 'pro_rata', label: 'Pro-rata', type: 'checkbox', checkboxLabel: 'Scale by days worked in the period' },
-          { key: 'is_taxable', label: 'Taxable', type: 'checkbox' },
+          { key: 'is_taxable', label: 'Taxable', type: 'checkbox', checkboxLabel: 'Counted in taxable gross', hint: 'Turn off for reimbursements and exemptions — the payslip and its PDF then report a lower taxable gross.' },
           { key: 'statutory', label: 'Statutory', type: 'checkbox', checkboxLabel: 'PF / ESI / PT / LWF' },
           { key: 'appears_on_payslip', label: 'Print on payslip', type: 'checkbox' },
           { key: 'is_report_only', label: 'Report only', type: 'checkbox', checkboxLabel: 'Shown in registers, not on the slip' },

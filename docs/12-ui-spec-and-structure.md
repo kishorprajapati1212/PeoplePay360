@@ -41,7 +41,8 @@ backend/src/<layer>/<resource>.js         frontend/src/<layer>/<resource>.jsx
   domain/payroll.schema.js                   hooks/useCan.js  ← reads the API
 ```
 
-* The API puts *all* raw SQL in `src/repositories/`; nothing above it opens a cursor. The front end puts *all* HTTP in `src/api/`; nothing below it calls `fetch`.
+* The API puts *all* raw SQL in `src/repositories/`; nothing above it opens a cursor. The front end puts *all* HTTP in `src/api/` — `client.js` (the only `fetch` in the app) and `endpoints.js` (every call, grouped the way the backend groups its routes) — so a page never builds a URL by hand.
+* `src/utils` holds the three things screens keep needing (formatters, the query-string builder, the blob download) and `src/theme.js` + `src/theme.css` hold the light/dark palettes.
 * `src/components/ui` is the design system (inputs, chips, modal, tabs, chart). `src/components/data` knows about tables, filters and charts. `src/components/crud` is the generic list/editor (`CrudPage`) that most admin screens are, so those screens are 20 lines of config rather than 200 lines of JSX.
 * Pages are grouped by *area*, one folder each, because that is how a human navigates this product: `employees/ org/ attendance/ timeoff/ salary/ payroll/ settings/ portal/`.
 
@@ -74,22 +75,30 @@ Practical consequences: adding a permission to a role in that one file changes t
 4. `logout` calls `/api/auth/logout` (cookie cleared, row revoked) and drops local state.
 5. Downloads that the browser starts itself (PDF, CSV, ZIP) cannot set a header, so the frontend either fetches through `utils/download.js` (blob + `a[download]`) or mints a short-lived `/api/auth/token-for-payslip/:id` URL and opens that — `middleware/auth.js` accepts `?t=` with a `download` scope.
 
-## Endpoints consumed (the contract the frontend was written against)
+## Endpoints consumed (generated from the live router)
 
-| area | calls |
+Every row below is what the router actually registers — `node backend/scripts/routes-list.js` prints the same list
+(150 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
+`frontend/src/api/endpoints.js`.
+
+| area | endpoints |
 |---|---|
-| auth | `/api/auth/login` `/refresh` `/logout` `/me` `/access-matrix` `/change-password` `/token-for-payslip/:id` |
-| dashboard | `/api/dashboard/summary?month=YYYY-MM` |
-| employees | `/api/employees` (+`/export.csv`) `/:id` `POST` `PATCH` `DELETE` `/:id/{contracts,attendance,time-off,payslips,summary,terminate}` `/api/imports/employees{,/template,/parse,:id/commit,:id/rollback}` |
-| org | `/api/org/{departments,working-schedules,holidays}` (+`/holidays/generate`, `POST/PATCH/DELETE /:id`) |
-| contracts | `/api/contracts` (+`/:id`, `/confirm`, `/reassign-manager`) |
-| attendance | `/api/attendance{,/grid}` `POST` `/:id` `DELETE` `/clock` `/overtime/:id/approve` |
-| time-off | `/api/time-off/{types,requests,allocations}` `POST/PATCH` `/:id/{approve,refuse,cancel}` `/balance/:empId` `/overview` `/carry-forward` |
-| salary | `/api/salary/{structures,rules}` (+`POST/PATCH/DELETE /:id`, `/rules/validate`, `/structures/:id/impact`) |
-| payroll | `/api/payruns{,/:id}` `POST` `/compute` `/validate` `/generate-pdfs` `/mark-paid` `/send` `/void` `/:id/{employees,preview,export.csv}` `/api/payruns/zip/:id` `/api/payslips{,/:id}` `/:id/{pdf,preview-pdf,lines,inputs,arrear,compute,print,history,downloads,emails}` `PATCH /:id/lines/:lid` `POST /:id/{inputs,lines,lines/:lid}` `DELETE /:id/{lines/:lid,inputs/:iid}` |
-| portal | `/api/portal/{summary,attendance,time-off,time-off/:id(DELETE),payslips,profile}` `POST /api/portal/time-off` |
-| settings | `/api/company` (GET/PATCH) · `/api/users{,/:id/roles,/:id/reset-password,/:id/activate,/:id/deactivate}` |
-| system | `/api/system/{audit,audit/:type/:id,jobs,tasks,tasks/:id/retry,reclaim}` |
+| **attendance** (9) | `DELETE attendance/:id` `GET attendance` `GET attendance/exceptions` `GET attendance/export.csv` `PATCH attendance/:id` `POST attendance` `POST attendance/:id/overtime` `POST attendance/clock` `POST attendance/import` |
+| **company** (5) | `DELETE company/pt-slabs/:id` `GET company` `GET company/pt-slabs` `PATCH company` `POST company/pt-slabs` |
+| **org** (15) | `DELETE org/departments/:id` `DELETE org/holidays/:id` `DELETE org/working-schedules/:id` `GET org/departments` `GET org/holiday-templates` `GET org/holidays` `GET org/working-schedules` `GET org/working-schedules/:id` `PATCH org/departments/:id` `PATCH org/holidays/:id` `PATCH org/working-schedules/:id` `POST org/departments` `POST org/holidays` `POST org/holidays/generate` `POST org/working-schedules` |
+| **pay runs** (17) | `DELETE payruns/:id` `GET payruns` `GET payruns/:id` `GET payruns/:id/emails` `GET payruns/:id/export.csv` `GET payruns/:id/tasks` `GET payruns/:id/warnings` `GET payruns/employees` `GET payruns/zip/:payrunId` `POST payruns` `POST payruns/:id/compute` `POST payruns/:id/generate-pdfs` `POST payruns/:id/mark-paid` `POST payruns/:id/send` `POST payruns/:id/validate` `POST payruns/:id/void` `POST payruns/preview` |
+| **salary** (16) | `DELETE salary/pt-slabs/:id` `DELETE salary/rules/:id` `DELETE salary/structures/:id` `GET salary/pt-slabs` `GET salary/rules` `GET salary/rules/:id` `GET salary/structures` `GET salary/structures/:id` `GET salary/structures/:id/impact` `PATCH salary/rules/:id` `PATCH salary/structures/:id` `POST salary/preview` `POST salary/pt-slabs` `POST salary/rules` `POST salary/rules/validate` `POST salary/structures` |
+| **time off** (20) | `DELETE time-off/requests/:id` `DELETE time-off/types/:id` `GET time-off/allocations` `GET time-off/balances/:employeeId` `GET time-off/overview` `GET time-off/requests` `GET time-off/requests/:id` `GET time-off/types` `GET time-off/types/:id` `PATCH time-off/allocations/:id` `PATCH time-off/requests/:id` `PATCH time-off/types/:id` `POST time-off/allocations` `POST time-off/carry-forward` `POST time-off/count-days` `POST time-off/requests` `POST time-off/requests/:id/approve` `POST time-off/requests/:id/cancel` `POST time-off/requests/:id/refuse` `POST time-off/types` |
+| **auth + access** (7) | `GET auth/access-matrix` `GET auth/me` `GET auth/token-for-payslip/:id` `POST auth/change-password` `POST auth/login` `POST auth/logout` `POST auth/refresh` |
+| **contracts** (8) | `GET contracts` `GET contracts/:id` `GET contracts/employee/:employeeId` `GET contracts/expiring` `PATCH contracts/:id` `POST contracts` `POST contracts/:id/renew` `POST contracts/:id/terminate` |
+| **dashboard** (1) | `GET dashboard` |
+| **employees** (12) | `GET employees` `GET employees/:id` `GET employees/:id/attendance` `GET employees/:id/contracts` `GET employees/:id/payslips` `GET employees/:id/summary` `GET employees/:id/time-off` `GET employees/me` `PATCH employees/:id` `POST employees` `POST employees/:id/terminate` `POST employees/import` |
+| **meta** (1) | `GET meta` |
+| **payslips** (11) | `GET payslips` `GET payslips/:id` `GET payslips/:id/downloads` `GET payslips/:id/history` `GET payslips/:id/pdf` `GET payslips/:id/preview-pdf` `PATCH payslips/:id/inputs` `PATCH payslips/:id/lines` `POST payslips/:id/arrear` `POST payslips/:id/compute` `POST payslips/:id/print` |
+| **employee portal** (10) | `GET portal/attendance` `GET portal/balances` `GET portal/calendar` `GET portal/contracts` `GET portal/payslips` `GET portal/payslips/:id/pdf` `GET portal/summary` `GET portal/time-off` `POST portal/time-off` `POST portal/time-off/:id/cancel` |
+| **reports / exports** (4) | `GET reports/attendance.csv` `GET reports/payroll-summary.csv` `GET reports/payslips.zip` `GET reports/salary-register.csv` |
+| **system / queues** (6) | `GET system/audit` `GET system/audit/:type/:id` `GET system/jobs` `GET system/tasks` `POST system/reclaim` `POST system/tasks/:id/retry` |
+| **users** (8) | `GET users` `GET users/:id` `PATCH users/:id` `POST users` `POST users/:id/activate` `POST users/:id/deactivate` `POST users/:id/reset-password` `POST users/:id/roles` |
 
 ## Shape of a CRUD screen (this is the pattern to copy)
 
@@ -112,3 +121,49 @@ Pages that are not a plain list (employee detail, pay-run wizard, payslip detail
 * `CrudPage` does not offer a page-size selector for endpoints that return a plain array (departments, schedules, structures, time-off types have no server-side paging).
 * The chart on the dashboard is the only bespoke SVG; everything else is tables, chips and forms.
 * Dark mode, i18n, and the per-day attendance *edit* grid in the sketch's exact 2-column form were simplified into a dialog + table.
+
+## Two audiences, one screen (and the employee's PDF)
+
+`/attendance` and `/payslips` are deliberately shared. The guard in `AppShell` accepts a **list** of permissions
+(`PAGE_PERMISSIONS['/attendance'] = ['attendance:read', 'attendance:read_own']`), and the screen then asks which
+one it got: with `attendance:read` it lists everyone and offers the correction dialog, with only `attendance:read_own`
+it loads `/api/portal/attendance` (already limited to that person by the API) and hides every write button. No
+"employee mode" flag exists in the frontend — it is derived, so a role change in the permissions file moves the UI.
+
+The payslip PDF is the same story: `POST /api/auth/token-for-payslip/:id` mints a 5-minute `?t=` link, and the
+controller picks the **path** from the caller's permissions — `/api/payslips/:id/pdf` for payroll and admin,
+`/api/portal/payslips/:id/pdf` for the employee. Both then stream the stored file from `backend/storage/pdfs/`,
+and every download is written to `payslip_downloads` so HR can see who fetched what.
+
+## Themes
+
+`html.dark` (default, the mockup's navy) and `html.light` are two variable blocks in `src/theme.css`;
+`tailwind.config.js` points every colour utility at those variables, so no page, table or chip mentions the theme.
+`src/theme.js` owns the toggle (localStorage key `pp360.theme`), and `index.html` re-applies the saved choice before
+the first paint so a reload never flashes the wrong one. The dashboard charts are the only exception — Recharts takes
+literal colours, so they read `useTheme().palette`.
+
+## Rendering and payload contracts (what was fixed, and why it stays fixed)
+
+**A dialog is never inside the page that opened it.** `components/ui/Modal.jsx` renders through
+`createPortal(…, document.body)` at `z-[80]`. Before that it lived in the DOM subtree of the opener, and the sticky
+top bar (`z-20`) had created a stacking context — so a dialog opened from there sat *under* the page it came from.
+Anything that must cover the app belongs to `body`, and `AppShell` keeps a lower `z-30` drawer / `z-20` scrim pair.
+
+**A bad panel cannot white-screen a screen.** `components/ui/ErrorBoundary.jsx` wraps `<Outlet/>` and is keyed by
+`location.pathname`, so a throw in one panel prints a "This panel could not be drawn" card with *Try again* /
+*Reload*, and navigating clears it.
+
+**List envelopes are normalised once, not per page.** The API answers in three shapes — a bare array,
+`{ rows }`, or `{ rows, total, page }` — and `pg` hands back aggregates as strings. `utils/query.js` exports
+`toRows(x)` (array · `x.rows` · `x.items` · `x.data` · `[]`) and `totalOf(x, fallback)`; every page maps through
+them and `DataTable` calls `toRows` on its `rows` prop, so `(x || []).map is not a function` cannot come back.
+
+**Screens send what the route validates.** Two buttons used to POST an empty body and always 400: Users → *Reset pw*
+(`passwordBody` needs `password`) and Contracts → *End* (`terminateBody` needs `date_of_exit`). Both now open a
+small dialog that collects the field, and the client-side minimum (10 characters) matches the service, so a
+disabled button — not a server error — is what tells you a password is too short.
+
+**There is no self-service password screen.** The problem statement has no such flow, so the change-password dialog
+and its `api.changePassword` helper were removed; `POST /api/auth/change-password` still exists for an admin with a
+token, and login has never gated on `must_change_password`, so nobody can be locked out by it.

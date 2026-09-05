@@ -8,7 +8,6 @@ export const auth = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   logout: () => api.post('/auth/logout', {}),
   me: () => api.get('/auth/me'),
-  changePassword: (currentPassword, newPassword) => api.post('/auth/change-password', { currentPassword, newPassword }),
   accessMatrix: () => api.get('/auth/access-matrix'),
   /** 5-minute signed link so a plain <a> can stream the payslip PDF. */
   slipToken: (payslipId) => api.get(`/auth/token-for-payslip/${payslipId}`),

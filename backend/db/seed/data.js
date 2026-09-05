@@ -65,7 +65,7 @@ export const HOLIDAY_TEMPLATES = [
   { name: 'Christmas Day', month: 12, day: 25, type: 'PUBLIC' },
 ];
 
-/** The rule set behind the validated fixture: ₹85,000 wage → ₹62,350 gross → ₹60,350 net for a full month. */
+/** The rule set behind the validated fixture: ₹85,000 wage → ₹63,350 gross → ₹61,350 net for a full month. */
 const standardRules = (over = {}) => ([
   { code: 'BASIC', name: 'Basic Salary', category: 'BASIC', line_kind: 'EARNING', sequence: 1,
     computation_type: 'PERCENTAGE', percentage: 40, base_code: 'CONTRACT_WAGE', pro_rata: true, is_taxable: true },
@@ -77,8 +77,10 @@ const standardRules = (over = {}) => ([
     computation_type: 'FIXED', amount: 1600, pro_rata: true, is_taxable: false },
   { code: 'PERB', name: 'Performance Bonus', category: 'ALLOWANCE', line_kind: 'EARNING', sequence: 5,
     computation_type: 'PERCENTAGE', percentage: 10, base_code: 'CONTRACT_WAGE', pro_rata: false, evaluation_period: 'MONTH_ONCE', is_taxable: true },
+  // MONTH_ONCE, not FISCAL_YEAR: LTA is a monthly quantum, and a half-month run must pay it once for the
+  // month — an FISCAL_YEAR marker without an annual_cap would happily charge ₹1,000 in each half.
   { code: 'LTA', name: 'Leave Travel Allowance', category: 'REIMBURSEMENT', line_kind: 'EARNING', sequence: 6,
-    computation_type: 'FIXED', amount: 1000, pro_rata: false, evaluation_period: 'FISCAL_YEAR', appears_on_payslip: false, is_taxable: false, ...over.lta },
+    computation_type: 'FIXED', amount: 1000, pro_rata: false, evaluation_period: 'MONTH_ONCE', appears_on_payslip: false, is_taxable: false, ...over.lta },
   { code: 'OT', name: 'Overtime', category: 'ALLOWANCE', line_kind: 'EARNING', sequence: 7,
     computation_type: 'FORMULA', statutory: true, pro_rata: false, condition_expr: 'overtime_hours > 0' },
   { code: 'GROSS', name: 'Gross Earnings', category: 'GROSS', line_kind: 'REPORT', sequence: 100,
@@ -117,6 +119,9 @@ export const STRUCTURES = [
         computation_type: 'FIXED', amount: 0, statutory: true, pro_rata: false },
       { code: 'ESI', name: 'ESI (Employee)', category: 'DEDUCTION', line_kind: 'DEDUCTION', sequence: 120,
         computation_type: 'PERCENTAGE', percentage: 0.75, base_code: 'CONTRACT_WAGE', statutory: true, pro_rata: false },
+      { code: 'ESI_EMPLOYER', name: 'ESI (Employer)', category: 'DEDUCTION', line_kind: 'REPORT', sequence: 125,
+        computation_type: 'PERCENTAGE', percentage: 3.25, base_code: 'CONTRACT_WAGE', statutory: true, pro_rata: false,
+        appears_on_payslip: false, notes: 'Employer share — reported as cost, never deducted from net pay.' },
       { code: 'NET', name: 'Net Pay', category: 'NET', line_kind: 'REPORT', sequence: 200,
         computation_type: 'FIXED', amount: 0, is_report_only: true },
     ] },

@@ -28,7 +28,15 @@ export function computePayslip(input) {
   const stats = { prorated: 0, skipped: 0, formula: 0, statutory: 0 };
 
   const earningsSoFar = () => lines.filter((l) => l.line_kind === 'EARNING').reduce((a, l) => a + l.amount, 0);
-  const ordered = [...rules].filter((rl) => rl.active !== false && isRuleActive(rl, period)).sort((a, b) => a.sequence - b.sequence || (CAT_ORDER[a.category] ?? 9) - (CAT_ORDER[b.category] ?? 9));
+  const ordered = orderRules([...rules].filter((rl) => rl.active !== false && isRuleActive(rl, period))
+    .sort((a, b) => a.sequence - b.sequence || (CAT_ORDER[a.category] ?? 9) - (CAT_ORDER[b.category] ?? 9)));
+  const inStructure = new Set(ordered.map((rl) => rl.code));
+  for (const rl of ordered) {
+    for (const dep of (rl.depends_on || []).map((x) => String(x).toUpperCase())) {
+      if (!inStructure.has(dep)) warnings.push({ severity: 'WARN', code: 'DEPENDENCY_MISSING', rule: rl.code,
+        message: `${rl.name} depends on ${dep}, which is not in this structure — anything measured against it will be 0.` });
+    }
+  }
 
   for (const rule of ordered) {
     const code = rule.code;
@@ -40,7 +48,8 @@ export function computePayslip(input) {
                       message: `${rule.name}: ${e instanceof FormulaError ? e.message : e.message}` });
       res = { paise: 0, log: `ERROR: ${e.message}`, error: true };
     }
-    let paise = Math.round(Number(res.paise) || 0);
+    let paise = applyRoundingMode(Math.round(Number(res.paise) || 0), rule.rounding_mode);
+    if (rule.rounding_mode === 'down' || rule.rounding_mode === 'up') res.log = `${res.log ?? ''}${res.log ? ' · ' : ''}₹${round2p(Math.round(Number(res.paise) || 0))} rounded ${rule.rounding_mode} to ₹${round2p(paise)}`;
     const isReport = rule.category === 'GROSS' || rule.category === 'NET' || rule.is_report_only || res.reportOnly;
     const kind = isReport ? 'REPORT' : (rule.category === 'DEDUCTION' || rule.line_kind === 'DEDUCTION' ? 'DEDUCTION' : (EarningCat.has(rule.category) ? 'EARNING' : rule.line_kind || 'EARNING'));
 
@@ -51,6 +60,7 @@ export function computePayslip(input) {
     lines.push({
       rule_id: rule.id ?? null, rule_code: code, rule_name: rule.name, category: rule.category, line_kind: kind,
       sequence: rule.sequence, amount: paise, base_amount: res.base ?? null, quantity: res.quantity ?? null,
+      is_taxable: rule.is_taxable !== false, in_report: rule.appears_in_report !== false,
       is_hidden: rule.appears_on_payslip === false || (paise === 0 && rule.hide_zero !== false && !isReport),
       computation_log: res.log ?? null,
     });
@@ -68,6 +78,12 @@ export function computePayslip(input) {
                                   is_hidden: false, computation_log: a.log });
   }
   const gross = lines.filter((l) => l.line_kind === 'EARNING').reduce((a, l) => a + l.amount, 0);
+  // is_taxable is what the exemption table is measured against, so it is computed here rather than guessed
+  // downstream: reimbursements and conveyance are flagged false in the seeded structures on purpose.
+  const taxableGross = lines.filter((l) => l.line_kind === 'EARNING' && l.is_taxable !== false).reduce((a, l) => a + l.amount, 0);
+  const inReport = lines.filter((l) => l.in_report !== false && l.line_kind !== 'REPORT');
+  const reportGross = inReport.filter((l) => l.line_kind === 'EARNING').reduce((a, l) => a + l.amount, 0);
+  const reportDeductions = inReport.filter((l) => l.line_kind === 'DEDUCTION').reduce((a, l) => a + l.amount, 0);
   const deductions = lines.filter((l) => l.line_kind === 'DEDUCTION').reduce((a, l) => a + l.amount, 0);
   let adjustments = lines.filter((l) => l.line_kind === 'ADJUSTMENT').reduce((a, l) => a + l.amount, 0);
   let net = gross - deductions + adjustments;
@@ -102,7 +118,7 @@ export function computePayslip(input) {
   ctx.total_deductions = round2p(deductions);
   ctx.net = round2p(net);
   return {
-    lines, totals: { gross, deductions, adjustments, net, employerCost: gross + employer }, warnings, stats,
+    lines, totals: { gross, deductions, adjustments, net, employerCost: gross + employer, taxableGross, reportGross, reportDeductions }, warnings, stats,
     context: ctx,
     meta: {
       expected_working_days: period.expectedSliceDays ?? 0,
@@ -121,6 +137,8 @@ export function computePayslip(input) {
         expectedSliceDays: period.expectedSliceDays, expectedMonthDays: period.expectedMonthDays,
         divisorDays: Math.max(1, period.expectedMonthDays || settings.divisorFor(period)),
         proratedLines: stats.prorated, skippedLines: stats.skipped,
+        taxableGross: round2p(taxableGross), nonTaxableEarnings: round2p(gross - taxableGross),
+        reportGross: round2p(reportGross), reportDeductions: round2p(reportDeductions),
         monthEquivalentNet: period.monthEquivalent?.net ? round2p(period.monthEquivalent.net) : null,
         advanceFrom: period.advanceFrom ?? null,
         rules: lines.map((l) => ({ code: l.rule_code, seq: l.sequence, kind: l.line_kind, amount: round2p(l.amount), log: l.computation_log })),
@@ -153,6 +171,9 @@ function evaluateRule({ rule, contract, employee, period, settings, prior, ptSla
       const qty = quantityOf(rule, ctx);
       let paise = Math.round(rupees * qty);
       if (rule.pro_rata && factor < 1 && period.factor != null) paise = Math.round(paise * factor);
+      // caps and the once-per-month marker apply to fixed rules too: a per-day allowance with a quantity
+      // expression (₹500 × paid_days, capped at 10 days) and any half-month "month once" rule are FIXED.
+      paise = capPaise(paise, { rule, prior, period, settings });
       return { paise, base: rupees, quantity: qty,
                log: `₹${round2p(rupees)} fixed${qty !== 1 ? ` × ${qty}` : ''}${rule.pro_rata && factor < 1 ? ` × factor ${factor.toFixed(4)}` : ''}${rule.pro_rata && factor < 1 ? ` = ₹${round2p(paise)}` : ''}`,
                allowNegative: true };
@@ -218,6 +239,32 @@ function capPaise(paise, { rule, prior, period }) {
     const allowed = Math.max(0, yearCap - Math.round((prior?.ytd_by_rule?.[rule.code] ?? already) * 100));
     if (allowed < out) out = allowed;
   }
+  return out;
+}
+/**
+ * `half_up` keeps every paisa the rules produced (the default, and what the payslip prints today).
+ * `down` / `up` floor or ceiling the line to a whole rupee — used for allowances an admin wants paid in
+ * clean rupee amounts (e.g. a conveyance of ₹1,600.67 that should stay ₹1,600).
+ */
+function applyRoundingMode(paise, mode) {
+  if (mode === 'down') return Math.floor(paise / 100) * 100;
+  if (mode === 'up') return Math.ceil(paise / 100) * 100;
+  return paise;
+}
+/** sequence order, with depends_on pulling a later-numbered dependency in front so no rule reads an empty worksheet. */
+function orderRules(rules) {
+  const byCode = new Map(rules.map((r) => [r.code, r]));
+  const out = []; const done = new Set(); const visiting = new Set();
+  const visit = (r) => {
+    if (done.has(r.code) || visiting.has(r.code)) return;
+    visiting.add(r.code);
+    for (const dep of (r.depends_on || []).map((x) => String(x).toUpperCase())) {
+      const d = byCode.get(dep);
+      if (d && Number(d.sequence) > Number(r.sequence)) visit(d);
+    }
+    visiting.delete(r.code); done.add(r.code); out.push(r);
+  };
+  for (const r of rules) visit(r);
   return out;
 }
 const maxSeq = (lines) => lines.reduce((m, l) => Math.max(m, l.sequence || 0), 0);

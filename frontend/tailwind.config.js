@@ -1,18 +1,36 @@
-/** Tailwind is configured by hand (no CLI init) — these are the only tokens the app uses. */
+/**
+ * Tailwind is configured by hand (no CLI init) — these are the only tokens the app uses.
+ *
+ * Every colour points at a variable defined in src/theme.css instead of a literal hex. That is the whole
+ * light/dark mechanism: `bg-ink-900` is one class everywhere, and the variable behind `--ink-900` is a
+ * different colour under html.dark than under html.light, so nothing in src/pages mentions the theme.
+ * The `rgb(… / <alpha-value>)` form is what keeps modifiers like `bg-ink-800/60` working.
+ */
+const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+const ramp = (family, shades) => Object.fromEntries(shades.map((s) => [s, v(`${family}-${s}`)]));
+
+const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
+  darkMode: 'class', // html.dark / html.light — set by src/theme.js
   theme: {
     extend: {
       colors: {
-        ink: { 950: '#080d16', 900: '#0b1220', 850: '#0f1828', 800: '#131f33', 700: '#1c2b44', 600: '#2a3d5c' },
-        line: '#1e2c45',
-        brand: { 50: '#eef2ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
-        good: '#22c55e',
-        warn: '#f59e0b',
-        bad: '#ef4444',
+        ink: ramp('ink', [950, 900, 850, 800, 700, 600]),
+        line: { DEFAULT: v('line') },
+        brand: { ...ramp('brand', SHADES), DEFAULT: v('brand-500') },
+        good: { DEFAULT: v('good') },
+        warn: { DEFAULT: v('warn') },
+        bad: { DEFAULT: v('bad') },
+        slate: ramp('slate', SHADES),
+        emerald: ramp('emerald', SHADES),
+        amber: ramp('amber', SHADES),
+        red: ramp('red', SHADES),
+        sky: ramp('sky', SHADES),
       },
       fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] },
-      boxShadow: { panel: '0 1px 0 0 rgba(255,255,255,.03) inset, 0 12px 30px -18px rgba(0,0,0,.8)' },
+      boxShadow: { panel: 'var(--panel-shadow)' },
     },
   },
   plugins: [],

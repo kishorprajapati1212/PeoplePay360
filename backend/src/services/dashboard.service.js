@@ -50,6 +50,5 @@ async function window(r) {
   const to = r.to || await query(`select (date_trunc('month', $1::date) + interval '1 month - 1 day')::date as d`, [from]).then((x) => toIso(x.rows[0].d));
   return [toIso(from), toIso(to)];
 }
-export const kpisOnly = (f) => repo.salaryKpis({ from: f.from, to: f.to });
 export const trend = (f) => repo.netTrend({ months: Number(f.months) || 12, departmentId: f.departmentId || null });
 export const attendance = (f) => repo.attendanceOverview({ from: f.from, to: f.to, departmentId: f.departmentId || null });

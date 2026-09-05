@@ -12,6 +12,7 @@ import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { download } from '../../utils/download.js';
 import { inr, num, date, datetime, periodLabel } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * One payslip, with its working: earnings, deductions, the totals the engine computed, and the buttons
@@ -31,8 +32,9 @@ export function PayslipDetailPage() {
 
   const load = useCallback(() => Promise.all([payroll.payslips.one(id), payroll.payslips.history(id).catch(() => []), payroll.payslips.downloads(id).catch(() => [])]), [id]);
   const { data, loading, error, reload } = useApi(load, [id]);
-  const [slip, history, downloads] = data || [{}, [], []];
-  const lines = slip.lines || slip.payslip_lines || [];
+  const [slip = {}, h = [], d = []] = data || [];
+  const history = toRows(h); const downloads = toRows(d);
+  const lines = toRows(slip.lines || slip.payslip_lines);
   const earnings = lines.filter((l) => l.line_kind === 'EARNING');
   const deductions = lines.filter((l) => l.line_kind === 'DEDUCTION' || l.line_kind === 'ADJUSTMENT');
 
@@ -81,8 +83,9 @@ export function PayslipDetailPage() {
             <LineTable title="Deductions & recoveries" rows={deductions} tone="red"
                        action={mayEdit ? <button className="btn-ghost btn-sm" onClick={() => setAdjust({ kind: 'DEDUCTION', name: '', rule_code: '', amount: '', reason: '' })}>+ line</button> : null} />
           </div>
-          <div className="grid grid-cols-2 gap-4 border-t border-line px-4 py-3 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 border-t border-line px-4 py-3 text-sm sm:grid-cols-5">
             <Total label="Gross" value={inr(slip.gross_amount)} />
+            <Total label="Taxable" value={slip.computation_summary?.taxableGross != null ? inr(slip.computation_summary.taxableGross) : '—'} />
             <Total label="Deductions" value={'− ' + inr(slip.total_deductions)} />
             <Total label="Adjustments" value={inr(slip.total_adjustments)} />
             <Total label="YTD net" value={inr(slip.ytd_net)} />
@@ -121,27 +124,27 @@ export function PayslipDetailPage() {
 
           <Panel title="Version history" pad={false}>
             <ul className="divide-y divide-line/70 text-sm">
-              {(history || []).slice(0, 8).map((h) => (
+              {history.slice(0, 8).map((h) => (
                 <li key={h.id || h.document_version} className="flex items-center gap-2 px-4 py-2">
                   <span className="chip border-line bg-ink-800 text-slate-300">v{num(h.document_version ?? h.version)}</span>
                   <span className="text-slate-400">{h.reason || h.action || 'change'}</span>
                   <span className="ml-auto text-xs text-slate-500">{datetime(h.created_at)}</span>
                 </li>
               ))}
-              {!(history || []).length && <li className="px-4 py-3 text-sm text-slate-500">Only version 1 exists.</li>}
+              {!history.length && <li className="px-4 py-3 text-sm text-slate-500">Only version 1 exists.</li>}
             </ul>
           </Panel>
 
           <Panel title="Download audit" pad={false}>
             <ul className="divide-y divide-line/70 text-sm">
-              {(downloads || []).slice(0, 6).map((d) => (
+              {downloads.slice(0, 6).map((d) => (
                 <li key={d.id} className="flex items-center gap-2 px-4 py-2 text-xs">
                   <span className="text-slate-300">{d.by || d.actor || 'employee'}</span>
                   <span className="text-slate-500">{datetime(d.downloaded_at || d.created_at)}</span>
                   <span className="ml-auto text-slate-500">v{num(d.document_version)}</span>
                 </li>
               ))}
-              {!(downloads || []).length && <li className="px-4 py-3 text-sm text-slate-500">Nobody has downloaded it.</li>}
+              {!downloads.length && <li className="px-4 py-3 text-sm text-slate-500">Nobody has downloaded it.</li>}
             </ul>
           </Panel>
         </div>

@@ -13,7 +13,6 @@ export const listTypes = ({ includeInactive = false } = {}) =>
                 (select count(distinct a.employee_id) from time_off_allocations a where a.time_off_type_id = t.id) as allocated_employees
          from time_off_types t ${includeInactive ? '' : "where t.is_active = 'ACTIVE'"} order by t.name`).then((r) => r.rows.map((x) => mapKeys(x, ['days_used', 'approved_requests', 'allocated_employees'])));
 export const getType = (id) => query(`select * from time_off_types where id = $1`, [id]).then((r) => r.rows[0] || null);
-export const getTypeByCode = (code) => query(`select * from time_off_types where code = $1`, [code]).then((r) => r.rows[0] || null);
 const upsertCols = (d, cols) => ({ keys: cols.filter((c) => d[c] !== undefined), vals: cols.filter((c) => d[c] !== undefined).map((c) => d[c]) });
 export const createType = (d) => {
   const { keys, vals } = upsertCols(d, TYPE_COLS);

@@ -313,6 +313,51 @@ t('an H1 manual edit is honoured by the H2 settlement', () => {
   assert.equal(meda.line_kind, 'DEDUCTION');
 });
 
+t('a fixed rule honours cap_amount (a per-day allowance capped per month)', () => {
+  const withCap = [...rules, { id: 'rcap', code: 'DAYA', name: 'Site Allowance', category: 'ALLOWANCE', line_kind: 'EARNING', sequence: 8,
+                               computation_type: 'FIXED', amount: 500, quantity_expr: 'expected_days', cap_amount: 5000 }];
+  const out = computePayslip({ employee, contract, rules: withCap, ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: {}, prior: {}, settings });
+  assert.equal(out.lines.find((l) => l.rule_code === 'DAYA').amount, 500000);   // ₹500 × 20 days = ₹10,000 → capped ₹5,000
+  const noCap = computePayslip({ employee, contract, rules: withCap.map((r) => (r.code === 'DAYA' ? { ...r, cap_amount: null } : r)),
+                                ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: {}, prior: {}, settings });
+  assert.equal(noCap.lines.find((l) => l.rule_code === 'DAYA').amount, 1000000);
+});
+t('a fixed rule marked month_once is charged once per calendar month', () => {
+  const monthlyOnce = [...rules, { id: 'rlta', code: 'LTA', name: 'Leave Travel Allowance', category: 'REIMBURSEMENT', line_kind: 'EARNING', sequence: 9,
+                                   computation_type: 'FIXED', amount: 1000, pro_rata: false, evaluation_period: 'MONTH_ONCE' }];
+  const first = computePayslip({ employee, contract, rules: monthlyOnce, ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: {}, prior: {}, settings });
+  const secondHalf = computePayslip({ employee, contract, rules: monthlyOnce, ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: {},
+                                     prior: { month_codes: ['LTA'], by_rule_month: { LTA: 1000 } }, settings });
+  assert.equal(first.lines.find((l) => l.rule_code === 'LTA').amount, 100000);
+  assert.equal(secondHalf.lines.find((l) => l.rule_code === 'LTA').amount, 0, 'the second half of the month must not pay it again');
+});
+t('rounding_mode floors or ceils a line to the rupee', () => {
+  const meda = (mode) => rules.map((r) => (r.code === 'MEDA' ? { ...r, amount: 1250.44, rounding_mode: mode } : r));
+  const calc = (rs) => computePayslip({ employee, contract, rules: rs, ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: {}, prior: {}, settings })
+    .lines.find((l) => l.rule_code === 'MEDA').amount;
+  assert.equal(calc(meda('down')), 125000);
+  assert.equal(calc(meda('up')), 125100);
+  assert.equal(calc(meda('half_up')), 125044, 'the default keeps every paisa');
+});
+t('taxable gross excludes allowances flagged non-taxable', () => {
+  const rs = rules.map((r) => (r.code === 'CONV' ? { ...r, is_taxable: false } : r));
+  const out = computePayslip({ employee, contract, rules: rs, ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: { bonus_rate: 0.1 }, prior: {}, settings });
+  assert.equal(out.totals.taxableGross, out.totals.gross - 160000);
+  assert.equal(out.meta.computation_summary.taxableGross, Number((out.totals.taxableGross / 100).toFixed(2)));
+});
+t('depends_on pulls a later-numbered dependency ahead instead of reading an empty worksheet', () => {
+  const rs = [...rules, { id: 'rspec', code: 'SPEC', name: 'Special Allowance', category: 'ALLOWANCE', line_kind: 'EARNING', sequence: 2,
+                           computation_type: 'PERCENTAGE', percentage: 10, base_code: 'LATE', depends_on: ['LATE'] },
+                        { id: 'rlate', code: 'LATE', name: 'Arrears Component', category: 'ALLOWANCE', line_kind: 'EARNING', sequence: 60, computation_type: 'FIXED', amount: 2000 }];
+  const out = computePayslip({ employee, contract, rules: rs, ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: { bonus_rate: 0.1 }, prior: {}, settings });
+  assert.equal(out.lines.find((l) => l.rule_code === 'SPEC').amount, 20000, '10% of the ₹2,000 dependency = ₹200');
+  assert.ok(!out.warnings.some((w) => w.code === 'RULE_ERROR'), 'no RULE_ERROR from a forward reference');
+  const orphan = computePayslip({ employee, contract, rules: [...rules, { id: 'rx', code: 'RX', name: 'Orphan', category: 'ALLOWANCE', line_kind: 'EARNING', sequence: 9, computation_type: 'FIXED', amount: 10, depends_on: ['NOPE'] }],
+                                  ptSlabs, period: monthPeriod(), attendance: {}, leaves: {}, inputs: { bonus_rate: 0.1 }, prior: {}, settings });
+  assert.ok(orphan.warnings.some((w) => w.code === 'DEPENDENCY_MISSING'));
+  assert.equal(out.warnings.filter((w) => w.code === 'RULE_ERROR').length, 0, 'no formula error from the forward reference');
+});
+
 // ── access control ─────────────────────────────────────────────────────────────────────────────
 console.log('\naccess control');
 const perms = (roles) => permissionsFor(roles).list;

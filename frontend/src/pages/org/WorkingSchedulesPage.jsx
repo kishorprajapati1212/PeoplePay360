@@ -11,6 +11,7 @@ import { ErrorPanel, EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { num } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 const DAYS = [
   { key: 'mon', label: 'Mon' }, { key: 'tue', label: 'Tue' }, { key: 'wed', label: 'Wed' },
@@ -28,7 +29,7 @@ export function WorkingSchedulesPage() {
   const reload = useApi(useCallback(() => org.schedules.list({}), []), []);
   const [editing, setEditing] = useState(null);
   const { run, busy } = useAction();
-  const rows = reload.data || [];
+  const rows = toRows(reload.data);
 
   async function save() {
     const body = {
@@ -122,7 +123,7 @@ function blank() {
 }
 function fromRow(r) {
   const days = {};
-  const byKey = Object.fromEntries((r.days || []).map((d) => [String(d.day).toLowerCase().slice(0, 3), d]));
+  const byKey = Object.fromEntries(toRows(r.days).map((d) => [String(d.day).toLowerCase().slice(0, 3), d]));
   for (const d of DAYS) {
     const src = byKey[d.key] || {};
     days[d.key] = { start: (src.start || '').slice(0, 5), end: (src.end || '').slice(0, 5), break: Number(src.break ?? 60), rest: !!src.rest || src.code === 'REST' };

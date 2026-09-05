@@ -46,11 +46,6 @@ export const queueEmail = (e, q = query) =>
        subject = excluded.subject, queued_at = now()
      returning *`,
     [e.payslip_id, e.payrun_id || null, e.document_version || 1, e.recipient, e.employee_name || null, e.subject, e.status, e.preview_url || null]);
-export const markEmail = (payslipId, documentVersion, { status, messageId, error, previewUrl }, q = query) =>
-  q(`update email_deliveries set status = $3, message_id = coalesce($4, message_id), error = $5, preview_url = coalesce($6, preview_url),
-           sent_at = case when $3 = 'SENT' then now() else sent_at end, attempts = attempts + 1
-     where payslip_id = $1 and document_version = $2 returning *`,
-    [payslipId, documentVersion, status, messageId || null, error || null, previewUrl || null]).then((r) => r.rows[0]);
 export const emailRowsFor = (payrunId, { onlyPending = true, documentVersion } = {}) =>
   query(`select p.id as payslip_id, p.document_version, p.email_status, e.work_email, e.name as employee, p.period_key, p.net_amount,
                 r.name as payrun, d.storage_path, d.sha256, d.version
@@ -63,17 +58,11 @@ export const emailRowsFor = (payrunId, { onlyPending = true, documentVersion } =
            ${onlyPending ? `and (p.email_status <> 'SENT' ${documentVersion ? `or p.document_version > ${Number(documentVersion)}` : ''})` : ''}
            and e.work_email is not null
          order by e.name`, [payrunId]).then((r) => r.rows.map((x) => mapKeys(x, ['net_amount'])));
-export const setEmailStatus = (payslipId, status, q = query) => q(`update payslips set email_status = $2 where id = $1`, [payslipId, status]);
 export const emailLedger = ({ payrunId, limit = 200 } = {}) =>
   query(`select m.*, p.period_key, e.name as employee from email_deliveries m
          join payslips p on p.id = m.payslip_id join employees e on e.id = p.employee_id
          ${payrunId ? 'where m.payrun_id = $1' : 'where true'} order by m.queued_at desc limit ${Number(limit)}`,
     payrunId ? [payrunId] : []).then((r) => r.rows);
-/** Gmail's 500/day and the company's own cap: count in Redis, refuse before queueing a doomed batch. */
-export async function mailQuota({ count = 1 } = {}) {
-  const key = `mail:day:${new Date().toISOString().slice(0, 10)}`;
-  return { key, limit: config.mail.dailyLimit };
-}
 export const listEmailsForPayrun = (payrunId) =>
   query(`select status, count(*) as n from email_deliveries where payrun_id = $1 group by status`, [payrunId])
     .then((r) => Object.fromEntries(r.rows.map((x) => [x.status, Number(x.n)])));

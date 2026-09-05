@@ -17,6 +17,5 @@ export async function update(patch, { auth } = {}) {
 }
 export const summary = () => repo.companySummary();
 export const ptSlabs = (state) => salaryRepo.ptSlabs(state);
-export const ptSlabUsage = (id) => salaryRepo.ruleUsage(id);
 export const addPtSlab = (d) => salaryRepo.createPtSlab(d);
 export const removePtSlab = (id) => salaryRepo.deletePtSlab(id);

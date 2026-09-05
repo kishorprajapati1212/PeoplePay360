@@ -28,8 +28,12 @@ export async function changePassword(req, res) {
 }
 export async function downloadToken(req, res) {
   const { downloadToken } = await import('../services/auth.service.js');
-  ok(res, { token: downloadToken(req.auth.userId, req.params.id), ttl_seconds: 300,
-            url: `/api/payslips/${req.params.id}/pdf?t=${downloadToken(req.auth.userId, req.params.id)}`,
+  const token = downloadToken(req.auth.userId, req.params.id);
+  // An employee must be pointed at the self-service route: /api/payslips/:id/pdf asks for payslip:read_all,
+  // so handing them that link would have produced a 403 in a new tab.
+  const canReadAll = req.auth.all === true || (req.auth.permissions || []).includes('payslip:read_all');
+  const path = canReadAll ? `/api/payslips/${req.params.id}/pdf` : `/api/portal/payslips/${req.params.id}/pdf`;
+  ok(res, { token, ttl_seconds: 300, url: `${path}?t=${token}`,
             note: 'Short-lived, single-purpose link so a browser can open the PDF without the SPA' });
 }
 export const publicConfig = async (_req, res) => ok(res, config.env === 'production' ? { env: 'production' } : { ...config.env && { env: config.env }, web_origin: config.webOrigin });

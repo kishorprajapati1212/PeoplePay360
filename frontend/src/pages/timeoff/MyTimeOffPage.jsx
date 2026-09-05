@@ -10,6 +10,7 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { date, num, today } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** The employee's own view of leave: balances, history, and a two-field request form. */
 export function MyTimeOffPage() {
@@ -71,7 +72,7 @@ export function MyTimeOffPage() {
           <div className="flex flex-col gap-3">
             <Field label="Leave type" required>
               <Select value={open.time_off_type_id} onChange={(v) => setOpen({ ...open, time_off_type_id: v })} placeholder="Choose…"
-                      options={(types.data || []).map((t) => ({ value: t.id, label: t.name + (t.is_unpaid ? ' (unpaid)' : '') }))} />
+                      options={toRows(types.data).map((t) => ({ value: t.id, label: t.name + (t.is_unpaid ? ' (unpaid)' : '') }))} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="From" required><Input type="date" value={open.start_date} onChange={(v) => setOpen({ ...open, start_date: v })} /></Field>

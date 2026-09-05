@@ -10,14 +10,6 @@ import { auth } from '../api/endpoints.js';
  * What this file owns: how a permission key is *rendered* (labels, icons, fallback copy).
  */
 
-/** Icon per nav key, so the sidebar can stay a one-liner. Mirrors the mockup's module order. */
-export const NAV_ICONS = {
-  dashboard: 'LayoutDashboard', portal: 'UserCircle', employees: 'Users', contracts: 'FileText',
-  attendance: 'Clock', timeoff: 'CalendarDays', payroll: 'Banknote', payslips: 'FileSpreadsheet',
-  payruns: 'Receipt', salary: 'SlidersHorizontal', settings: 'Settings', users: 'ShieldCheck',
-  access: 'KeyRound', system: 'Activity', holiday: 'PartyPopper', schedule: 'CalendarClock',
-  departments: 'Building2', audit: 'ScrollText',
-};
 
 /** A page may need a permission the menu does not carry — this maps screen → what it requires. */
 export const PAGE_PERMISSIONS = {
@@ -28,14 +20,16 @@ export const PAGE_PERMISSIONS = {
   '/working-schedules': 'schedule:read',
   '/holidays': 'holiday:read',
   '/contracts': 'contract:read',
-  '/attendance': 'attendance:read',
+  // A list of permissions means "any of these": the two screens below are deliberately shared between
+  // HR (everyone's rows) and an employee (their own rows) — which set the API returns is decided there.
+  '/attendance': ['attendance:read', 'attendance:read_own'],
   '/time-off': 'timeoff:type_read',
   '/time-off/requests': 'timeoff:approve',
   '/time-off/types': 'timeoff:type_read',
   '/time-off/allocations': 'timeoff:allocation_read',
   '/time-off/my-requests': 'timeoff:read_own',
   '/payruns': 'payroll:payrun_read',
-  '/payslips': 'payslip:read_all',
+  '/payslips': ['payslip:read_all', 'payslip:download_own'],
   '/salary/structures': 'salary:structure_read',
   '/salary/rules': 'salary:rule_read',
   '/company': 'settings:read',
@@ -56,9 +50,6 @@ export function can(user, permission, { anyOf = false } = {}) {
   const hit = (key) => list.includes(key) || (key.endsWith(':write') && list.includes(key.replace(':write', ':create')));
   return anyOf ? keys.some(hit) : keys.every(hit);
 }
-
-/** Read/write pair for the CRUD screens: the list needs read, the buttons need write. */
-export function crudPerms(read, write) { return { read, write }; }
 
 /**
  * Backend nav (menus) filtered against the current user — used by the sidebar.

@@ -9,6 +9,7 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, num } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * A salary structure is the ordered set of rules that turns one wage into a payslip.
@@ -21,7 +22,7 @@ export function StructuresPage() {
   const [open, setOpen] = useState(null);
   const detail = useApi(useCallback(() => (open ? salary.structures.one(open.id) : Promise.resolve(null)), [open]), [open]);
   const impact = useApi(useCallback(() => (open ? salary.structures.impact(open.id).catch(() => null) : Promise.resolve(null)), [open]), [open]);
-  const rows = detail.data?.rules || detail.data?.structure?.rules || [];
+  const rows = toRows(detail.data?.rules || detail.data?.structure?.rules);
 
   return (
     <>

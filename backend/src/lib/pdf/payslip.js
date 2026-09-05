@@ -53,6 +53,8 @@ export function renderPayslipPdf({ payslip, employee, company, lines, totals, me
 
   const summary = [
     ['Gross Earnings', fmt(totals.gross)],
+    // only when the rules declare taxability, so an older slip does not print a misleading ₹0.00
+    ...(Number(totals.taxable) ? [['Taxable Earnings', fmt(totals.taxable)]] : []),
     ['Total Deductions', fmt(totals.deductions)],
     ...(Number(totals.adjustments) ? [['Adjustments / Arrears', fmt(totals.adjustments)]] : []),
     ['NET PAY', fmt(totals.net)],

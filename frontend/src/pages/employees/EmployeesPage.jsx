@@ -13,6 +13,7 @@ import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, num, date } from '../../utils/format.js';
 import { EmployeeFormModal } from './EmployeeFormModal.jsx';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** Directory list from the mockup: search, two filters, a row per person, "+ New employee". */
 export function EmployeesPage() {
@@ -26,10 +27,11 @@ export function EmployeesPage() {
   const { data, loading, error, reload } = useApi(load, [load]);
   const options = useApi(useCallback(() => Promise.all([org.departments.list({}), org.schedules.list({}), salary.structures.list({})]), []), []);
 
-  const rows = data?.rows || [];
+  const rows = toRows(data);
   const [deptOptions, scheduleOptions, structureOptions] = useMemo(() => {
-    const [d, s, x] = options.data || [[], [], []];
-    return [d.map((o) => ({ value: o.id, label: o.name })), s.map((o) => ({ value: o.id, label: o.name })), x.map((o) => ({ value: o.id, label: o.name }))];
+    const [d = [], s = [], x = []] = options.data || [];
+    const asOption = (o) => ({ value: o.id, label: o.name });
+    return [toRows(d).map(asOption), toRows(s).map(asOption), toRows(x).map(asOption)];
   }, [options.data]);
 
   return (
@@ -70,7 +72,7 @@ export function EmployeesPage() {
                     options={[{ value: 'FULL_TIME', label: 'Full time' }, { value: 'PART_TIME', label: 'Part time' }, { value: 'CONTRACT', label: 'Contract' }, { value: 'INTERN', label: 'Intern' }]} placeholder="Any type" />
             <span className="ml-auto text-xs text-slate-500">{num(data?.total || 0)} people</span>
           </>}
-          pagination={{ page: table.page, size: table.size, total: data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+          pagination={{ page: table.page, size: table.size, total: totalOf(data, toRows(data).length), onPage: table.setPage, onSize: table.setSize }}
           empty={<EmptyState title="No employees match" hint="Clear the filters, or add the first employee. A new employee can get a login in the same dialog." />}
         />
       </Panel>

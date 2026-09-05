@@ -24,15 +24,12 @@ export function payslipWarnings({ employee, contract, period, attendance, leaves
   if (employee?.pan_number == null || String(employee.pan_number).trim() === '') push('WARN', 'MISSING_PAN', 'PAN is missing; the annual payslip is still generated but the tax report will be incomplete.');
   if (toPaise(totals.net) < 0) push('WARN', 'NEGATIVE_NET', `Net pay is negative (₹${round2p(totals.net)}) and will be carried to the next run as an arrear.`, { amountPaise: toPaise(totals.net) });
   if (inputs.arrears_applied) push('INFO', 'ARREAR_APPLIED', `₹${round2p(inputs.arrears_applied)} carried in from earlier periods.`);
+  // In a half-month run every slice is computed on its own, so a fixed amount that is deliberately not
+  // pro-rated ("₹1,000 a month") lands in BOTH halves unless the rule is marked once-per-month.
+  if (period?.half) {
+    const monthly = (rules || []).filter((r) => r.active !== false && !r.pro_rata && r.computation_type === 'FIXED'
+      && r.evaluation_period !== 'MONTH_ONCE' && Number(r.amount) > 0 && !r.statutory && r.evaluation_period !== 'PERIOD');
+    for (const r of monthly) push('WARN', 'HALF_MONTH_MONTHLY_RULE', `${r.name} is a fixed monthly amount on a half-month run: it pays in each half unless its evaluation window is "month once".`);
+  }
   return out;
-}
-/** One line per employee in the payrun "select employees" table (the mockup's 1–22 / 22 grid). */
-export function previewRow({ employee, contract, period, attendance, totals, warnings }) {
-  return {
-    employee_id: employee.id, employee: employee.name, employee_code: employee.employee_code, department: employee.department,
-    working_hours: attendance?.workedHours ?? 0, expected_hours: period.expectedSliceHours ?? 0,
-    start_date: employee.date_of_joining, wages: round2p(toPaise(contract?.wage ?? 0)),
-    net: round2p(totals?.net ?? 0), warnings: warnings.length,
-    has_error: warnings.some((w) => w.severity === 'ERROR'),
-  };
 }

@@ -18,7 +18,6 @@ export const sign = (payload, opts = {}) => jwt.sign(payload, config.jwt.secret,
 });
 export const hashPassword = (plain) => bcrypt.hash(plain, config.bcrypt.rounds);
 export const comparePassword = (plain, hash) => bcrypt.compare(plain, hash || '');
-export const tokenFingerprint = (t) => t.slice(-12);
 
 /**
  * Roles are read from the DB on every request (not baked into the token), so revoking an admin role

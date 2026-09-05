@@ -7,7 +7,7 @@ import { queueConnection } from '../redis.js';
 import { one, query, markTask, failTask } from '../db.js';
 import { payslipPackage } from './payslip-data.js';
 
-const mailer = createMailer({ ...config.mail, MAIL_DRIVER: config.mail.MAIL_DRIVER });
+const mailer = createMailer(config.mail);
 const DAY = 86_400_000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** ₹ with Indian digit grouping — the email is read on a phone, so "20070.55" is not good enough. */
@@ -92,11 +92,7 @@ export async function onEmailFailed(job, error) {
   await query(`update payslips set email_status = $2 where id = $1::uuid`, [payslipId, res?.retryable ? 'PENDING' : 'FAILED']);
   logger.error({ taskId, retryable: res?.retryable, err: error?.message }, 'email job failed');
 }
-export const emailJobName = 'payslip-email';
 export const mailCapabilities = async () => {
   const v = await mailer.verify();
-  return { ...v, pdf_renderer: config.pdf.renderer, preview_dir: config.mail.dir };
-};
-export const storageFootprint = async () => {
-  try { const s = await stat(config.pdf.dir); return { bytes: s.size, dir: config.pdf.dir }; } catch { return { bytes: 0, dir: config.pdf.dir }; }
+  return { ...v, ...mailer.status(), pdf_renderer: config.pdf.renderer, preview_dir: config.mail.dir };
 };

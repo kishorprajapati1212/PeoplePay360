@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth.js';
 import { visibleNav } from '../rbac/permissions.js';
 import { APP_NAME } from '../config/app.js';
+import { ThemeToggle } from './ThemeToggle.jsx';
 
 /**
  * The menu is not written here: it comes from `user.menus`, which the backend derives from
@@ -52,9 +53,8 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-line px-4 py-3 text-[11px] text-slate-500">
-        <p>API <span className="text-slate-400">/api</span> via the dev proxy</p>
-        <p className="mt-1">Queue health <Link className="link" to="/system">/system</Link></p>
+      <div className="border-t border-line px-4 py-2.5">
+        <ThemeToggle />
       </div>
     </aside>
   );

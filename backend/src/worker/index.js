@@ -49,7 +49,8 @@ async function main() {
     return;
   }
   const caps = await mailCapabilities().catch(() => ({ ok: true, driver: config.mail.MAIL_DRIVER }));
-  logger.info({ mail: caps.driver, mail_ok: caps.ok, pdf: config.pdf.renderer, dir: config.pdf.dir }, 'worker ready');
+  logger.info({ mail: caps.driver, mail_ok: caps.ok, pdf: config.pdf.renderer, dir: config.pdf.dir,
+                redis: `${config.redis.host}:${config.redis.port}/${config.redis.db}` }, 'worker ready');
   banner([
     ['Worker health', `http://localhost:${config.worker.port}/health`],
     ['Worker stats', `http://localhost:${config.worker.port}/stats`],

@@ -324,3 +324,38 @@ Two teaching points from this:
   and find it doesn't close.
 - PF base = **earned** basic (pro-rated), not contracted basic. That single decision is why
   `pro_rata` must be a per-rule flag.
+
+---
+
+## 9. What the shipped engine actually does (audited 5 Sep 2026)
+
+Every rule below is implemented in `backend/src/lib/payroll/`, is pure (no DB), and is covered by
+`npm run test:unit` in `backend/` (43 tests) plus an independent hand-arithmetic audit of the seeded
+structures. Numbers are from the seeded fixture: ₹85,000 wage, Mon–Fri 09:30–18:30 with a 60-minute
+block, September 2026 = 22 expected days, Gujarat PT slabs, OXP Standard Salaried structure.
+
+| Calculation | Rule as built | Verified value |
+| --- | --- | --- |
+| Calendar | `expected_days(from,to)` walks the schedule grid, skips rest days and holidays, clamps to joining/exit | Sept 22 days · Oct 21 (2 Oct is a Friday) · Aug 21 (15 Aug 2026 is a Saturday, so no extra loss) |
+| Earnings | `PERCENTAGE` off `CONTRACT_WAGE`/`BASIC`/any earlier rule code, `FIXED` × quantity, or `FORMULA` | Basic 34,000.00 (40%), HRA 17,000.00 (50% of Basic) |
+| Proration | factor = days in slice ÷ days in the **whole** month, per-rule `pro_rata` decides who scales | joiner on 14 Sep: factor 0.590909 → Basic 20,090.91, PF 1,063.64, bonus untouched (8,500.00) |
+| Overtime | approved hours only → rounded to `overtime_round_to` → `hours × (wage ÷ expected days ÷ hours/day) × multiplier`, skipped under `overtime_min_hours` | 3 h → 2,897.73 · 1.1 h bills as 1.00 h → 965.91 · 0.1 h → no line |
+| Loss of pay | `unpaid days × (month-equivalent gross ÷ divisor)` with divisor from `payroll_day_basis`; 2 half days = 1 day | 1 day absent → 2,879.55, PF and PT stay whole |
+| PF | 12% of `min(wage, pf_wage_ceiling)`, employee and employer each from their own setting | 1,800.00 deducted · 1,800.00 employer (report line, outside net) |
+| ESI | employee `esi_employee_pct` (0.75), employer 3.25, whole family exempt above `esi_wage_limit` | ₹20,000 stipend → 150.00 · ₹21,500 → 0.00 |
+| PT | state slab lookup by wage, `pt_charge_slice` decides which half carries it, annual cap trims the last slip | 200.00 · H1 0.00 + H2 200.00 (never twice) · ₹2,400 already booked → 100.00 left of ₹2,500 |
+| Caps & once-per-period | `cap_amount` (month) and `annual_cap` (fiscal year) measured against `prior.by_rule_*`; `MONTH_ONCE` zeroes the rule if the month already paid it | ₹500 × 22 days with a ₹5,000 cap → 5,000.00 · a `MONTH_ONCE` rule already paid → 0.00 — **on FIXED rules too**, not only percentages |
+| Rounding | per line `rounding_mode` (exact / down to ₹ / up to ₹), then `round_net_to_rupee` adds one residual `ROUND_OFF` line on the net only | 1,250.44 → 1,250.00 or 1,251.00 · net 61,361.90 → 61,362.00 |
+| Half month | `PRO_RATA`: each half on its own days. `ADVANCE_50`: H1 = advance % of the *whole-month* net, H2 = month − H1 actuals, residual on an adjustment line | month net 61,350.00 → H1 30,675.00 + H2 30,675.00; a +₹500 manual edit in H1 is recovered by H2 to the paise |
+| Taxes/summary | taxable gross = earnings whose rule says `is_taxable`, printed on the slip and in the PDF; `appears_in_report` keeps a rule out of the salary-register sums | taxable 60,761.90 = gross − LTA − conveyance |
+| Guards | `condition_expr` false → line skipped with a log; bad formula or unknown `base_code` → `RULE_ERROR` on the payrun (never a silent zero); `depends_on` reorders so a forward reference reads a filled worksheet; negative net → `NEGATIVE_NET` + arrear note unless `allow_negative_net` | — |
+
+Two bugs the audit caught, both fixed:
+
+- **Mid-month joiners and leavers were paid a full month.** `payroll.compute.js` divided the slice by a
+  month expectation that was *itself* clamped to the service dates, so the factor came out 1. The
+  denominator is now the unclamped month (`monthBase`), which is also the right divisor for OT and LOP.
+- **A FIXED rule's cap and "month once" window did nothing.** `capPaise()` only ran for `PERCENTAGE` and
+  `FORMULA`, so a half-month run paid a fixed monthly allowance twice and `cap_amount` on a per-day
+  fixed rule was ignored. FIXED lines now go through the same cap/once logic, and the seeded LTA rule
+  was re-marked `MONTH_ONCE` for exactly that reason.

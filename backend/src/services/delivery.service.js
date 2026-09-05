@@ -9,7 +9,6 @@ export const stats = async () => {
   const [db, redis, queues] = await Promise.all([repo.taskStats(), pingRedis(), queueStats().catch(() => ({}))]);
   return { db, redis: redis ? 'up' : 'down', queues };
 };
-export const byTask = (id) => repo.taskOf(id);
 export async function retry(taskId, { auth } = {}) {
   const t = await repo.taskOf(taskId);
   if (!t) throw AppError.notFound('Job not found');
@@ -35,4 +34,3 @@ export async function reclaim({ limit = 50 } = {}) {
   return { scanned: stuck.length, pushed };
 }
 export const emails = (payrunId) => repo.emailLedger({ payrunId, limit: 500 });
-export const queueHealth = async () => ({ redis: (await pingRedis()) ? 'up' : 'down', ...(await queueStats().catch(() => ({}))) });

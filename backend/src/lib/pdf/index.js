@@ -12,4 +12,3 @@ export async function generatePayslipPdf(input, { storageDir, key }) {
   await writeFile(path, buffer);
   return { path, sha256, bytes };
 }
-export async function renderPayslipPreview(input) { return renderPayslipPdf(input); }

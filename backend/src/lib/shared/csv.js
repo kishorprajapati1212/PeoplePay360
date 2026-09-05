@@ -33,9 +33,3 @@ export function csvToObjects(text, { minLines = 2 } = {}) {
     return row;
   });
 }
-/** Object rows → CSV text (used by every export endpoint). */
-export function toCsv(rows, columns) {
-  const cols = columns ?? Object.keys(rows[0] ?? {});
-  const esc = (v) => (v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  return [cols.join(',')].concat(rows.map((r) => cols.map((c) => esc(r[c])).join(','))).join('\n');
-}

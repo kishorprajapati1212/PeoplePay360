@@ -29,12 +29,6 @@ export function date(value) {
   if (parts.length !== 3) return String(value);
   return `${Number(parts[2])} ${MONTHS_SHORT[Number(parts[1]) - 1]} ${parts[0]}`;
 }
-export function monthLabel(value) {
-  if (!value) return '—';
-  const parts = String(value).slice(0, 10).split('-');
-  if (parts.length < 2) return String(value);
-  return `${MONTHS_LONG[Number(parts[1]) - 1]} ${parts[0]}`;
-}
 export function datetime(value) {
   if (!value) return '—';
   const dt = new Date(value);
@@ -45,8 +39,6 @@ export function time(value) {
   if (!value) return '—';
   return String(value).slice(0, 5);
 }
-export function range(a, b) { return a || b ? `${date(a)} – ${date(b)}` : '—'; }
-
 /** 'HR_PAYROLL_USER' → 'Hr Payroll User', so tables stay readable without a lookup table. */
 export function human(value) {
   if (value === null || value === undefined || value === '') return '—';
@@ -70,6 +62,5 @@ export function periodLabel(key) {
 export function initials(name) {
   return String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
 }
-export function plural(n, one, many) { return `${num(n)} ${n === 1 ? one : many || one + 's'}`; }
 export const today = () => new Date().toISOString().slice(0, 10);
 export const firstOfMonth = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;

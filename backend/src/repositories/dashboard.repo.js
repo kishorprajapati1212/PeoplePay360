@@ -157,7 +157,3 @@ export const monthlyAttendanceByEmployee = async ({ from, to, limit = 8 }) => {
     order by worked_hours desc limit $3`, [from, to, limit]);
   return rows.map((r) => mapKeys(r, ['worked_hours', 'absent', 'late', 'overtime_hours', 'expected_days']));
 };
-export const payrollHeadline = ({ monthAnchor } = {}) =>
-  query(`select to_char(p.month_anchor,'YYYY-MM') as month, coalesce(sum(p.net_amount),0) as net, count(*) as payslips
-         from payslips p where p.status = 'PAID' and p.month_anchor = $1 group by 1`, [monthAnchor])
-    .then((r) => mapKeys(r.rows[0], ['net', 'payslips']) || { month: monthAnchor, net: 0, payslips: 0 });

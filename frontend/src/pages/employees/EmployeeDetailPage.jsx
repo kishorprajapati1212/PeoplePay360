@@ -14,6 +14,7 @@ import { DataTable } from '../../components/data/DataTable.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, num, date, datetime, periodLabel, today } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** The employee record from the mockup: smart buttons on top, then tabs for each part of the file. */
 export function EmployeeDetailPage() {
@@ -152,10 +153,10 @@ export function EmployeeDetailPage() {
               { label: 'Payslips current', value: num(counts?.payslips_current) },
               { label: 'Pending requests', value: num(counts?.time_off_pending) },
             ]} />
-            {counts?.balances?.length > 0 && (
+            {toRows(counts?.balances).length > 0 && (
               <div className="mt-3 space-y-1.5">
                 <p className="label">Leave balances</p>
-                {counts.balances.map((b) => (
+                {toRows(counts.balances).map((b) => (
                   <div key={b.type} className="flex items-center justify-between rounded-lg bg-ink-850/70 px-2.5 py-1.5 text-xs">
                     <span className="text-slate-300">{b.type}</span>
                     <span className="text-slate-400">{b.taken} taken · <span className="text-slate-100">{b.remaining} left</span> of {b.allocated}</span>

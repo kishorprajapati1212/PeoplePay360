@@ -19,7 +19,6 @@ export const trimmed = (max = 200) => z.string().trim().min(1, 'Required').max(m
 export const optText = (max = 1000) => z.string().trim().max(max).optional().nullable().or(z.literal('').transform(() => null));
 export const boolish = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')]);
 export const intIn = (min, max) => z.coerce.number().int().min(min).max(max);
-export const idList = z.array(uuid).min(1, 'Select at least one').max(500);
 export const pagination = { page: intIn(1, 10000).optional(), page_size: intIn(1, 500).optional(), sort: z.string().max(40).optional(), dir: z.enum(['asc', 'desc']).optional() };
 export const statusEnum = (values, name) => z.enum(values).optional().nullable()
   .or(z.string().transform((v) => v.toUpperCase()).pipe(z.enum(values, { errorMap: () => ({ message: `${name} must be one of: ${values.join(', ')}` }) })).optional());

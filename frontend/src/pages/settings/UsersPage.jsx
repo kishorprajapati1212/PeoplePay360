@@ -12,6 +12,7 @@ import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { human, datetime, date } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * The mockup's "User Management" screen: the list on the left, "Create New User" on the right with a
@@ -28,6 +29,7 @@ export function UsersPage() {
   const table = useTable({});
   const [create, setCreate] = useState(null);
   const [edit, setEdit] = useState(null);
+  const [reset, setReset] = useState(null);   // the API needs a new password, so ask for one instead of firing an empty POST
   const { run, busy } = useAction();
 
   const list = useApi(useCallback(() => users.list(table.params), [table.params]), [table.params]);
@@ -35,8 +37,7 @@ export function UsersPage() {
 
   async function saveCreate() {
     const body = { name: create.name, work_email: create.work_email, password: create.password,
-                   roles: create.roles.length ? create.roles : ['EMPLOYEE'], employee_id: create.employee_id || undefined,
-                   must_change_pw: create.must_change_pw };
+                   roles: create.roles.length ? create.roles : ['EMPLOYEE'], employee_id: create.employee_id || undefined };
     await run('create', () => users.create(body)).then(() => { setCreate(null); list.reload(); toast.success('User created'); }).catch((e) => toast.error(e.message));
   }
   async function saveEdit() {
@@ -47,9 +48,9 @@ export function UsersPage() {
   return (
     <>
       <PageHeader title="User access" subtitle="Who can sign in, and which of the four modules they see."
-                  actions={mayCreate && <button className="btn-primary btn-sm" onClick={() => setCreate({ name: '', work_email: '', password: 'Password@123', roles: ['EMPLOYEE'], employee_id: '', must_change_pw: true })}>+ New user</button>} />
+                  actions={mayCreate && <button className="btn-primary btn-sm" onClick={() => setCreate({ name: '', work_email: '', password: 'Password@123', roles: ['EMPLOYEE'], employee_id: '' })}>+ New user</button>} />
       <Panel pad={false}>
-        <DataTable rows={list.data?.rows || []} loading={list.loading} error={list.error} onRetry={list.reload}
+        <DataTable rows={toRows(list.data)} loading={list.loading} error={list.error} onRetry={list.reload}
           toolbar={<SearchInput className="w-64" value={table.term} onChange={table.onSearch} placeholder="Name or email…" />}
           columns={[
             { key: 'name', label: 'User', render: (r) => (<div><p className="text-slate-100">{r.name}</p><p className="text-xs text-slate-500">{r.work_email}</p></div>) },
@@ -57,17 +58,16 @@ export function UsersPage() {
               <span className="flex flex-wrap gap-1">{(r.roles || [r.role]).filter(Boolean).map((x) => <span key={x} className="chip border-brand-500/30 bg-brand-500/10 text-brand-200">{human(x)}</span>)}</span>) },
             { key: 'employee', label: 'Linked employee', render: (r) => (r.employee_name ? `${r.employee_name} · ${r.employee_code}` : <span className="text-xs text-amber-300">not linked</span>) },
             { key: 'is_active', label: 'Status', render: (r) => <StatusChip value={r.is_active ? 'ACTIVE' : 'INACTIVE'} /> },
-            { key: 'must_change_pw', label: 'Next sign-in', render: (r) => (r.must_change_pw ? <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">must change password</span> : <span className="text-xs text-slate-500">normal</span>) },
             { key: 'last_login_at', label: 'Last seen', render: (r) => <span className="text-xs text-slate-500">{r.last_login_at ? datetime(r.last_login_at) : 'never'}</span> },
             { key: '_a', label: '', render: (r) => (
               <span className="flex flex-wrap gap-1.5">
                 {mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEdit({ id: r.id, name: r.name, roles: r.roles || [r.role] })}>Roles</button>}
-                {mayReset && <button className="btn-ghost btn-sm" onClick={() => act(r, 'reset', () => users.resetPassword(r.id, {}), 'Password reset — the user must change it at next sign-in')}>Reset pw</button>}
+                {mayReset && <button className="btn-ghost btn-sm" onClick={() => setReset({ id: r.id, name: r.name, password: 'Password@123' })}>Reset pw</button>}
                 {mayDeactivate && <button className={r.is_active ? 'btn-danger btn-sm' : 'btn-ghost btn-sm'}
                           onClick={() => act(r, 'toggle', () => (r.is_active ? users.deactivate(r.id) : users.activate(r.id)), r.is_active ? 'Deactivated' : 'Activated')}>{r.is_active ? 'Deactivate' : 'Activate'}</button>}
               </span>) },
           ]}
-          pagination={{ page: table.page, size: table.size, total: list.data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+          pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
           empty={<EmptyState title="No users" />} />
       </Panel>
 
@@ -81,7 +81,7 @@ export function UsersPage() {
             <Field label="Work email" required><Input value={create.work_email} onChange={(v) => setCreate({ ...create, work_email: v })} /></Field>
             <Field label="Initial password" required hint="Hand it over out of band."><Input value={create.password} onChange={(v) => setCreate({ ...create, password: v })} /></Field>
             <Field label="Employee record"><Select value={create.employee_id} onChange={(v) => setCreate({ ...create, employee_id: v })} placeholder="No link"
-                   options={(people.data?.rows || []).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} /></Field>
+                   options={toRows(people.data).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} /></Field>
             <div className="sm:col-span-2">
               <p className="label">Roles</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -91,8 +91,21 @@ export function UsersPage() {
                 ))}
               </div>
             </div>
-            <div className="sm:col-span-2"><Checkbox checked={create.must_change_pw} onChange={(v) => setCreate({ ...create, must_change_pw: v })} label="Force a password change at first sign-in" /></div>
           </div>
+        )}
+      </Modal>
+
+      <Modal open={!!reset} onClose={() => setReset(null)} width="max-w-md" title={'Reset the password for ' + (reset?.name || '')}
+             subtitle="Every session this user has is revoked, so sign them out of any device before you hand the new password over."
+             footer={<><button className="btn-ghost" onClick={() => setReset(null)}>Cancel</button>
+                      <button className="btn-primary" disabled={!!busy || (reset?.password || '').length < 10}
+                              onClick={() => act(reset, 'reset', () => users.resetPassword(reset.id, { password: reset.password, must_change_pw: false }), 'Password reset')}>
+                        {busy === 'reset' + (reset?.id || '') ? 'Saving…' : 'Set password'}</button></>}>
+        {reset && (
+          <Field label="New password" required hint="At least 10 characters."
+                 error={(reset.password || '').length < 10 ? 'Use at least 10 characters' : undefined}>
+            <Input value={reset.password} onChange={(v) => setReset({ ...reset, password: v })} />
+          </Field>
         )}
       </Modal>
 

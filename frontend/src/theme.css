@@ -1,0 +1,177 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   The two themes, as colour values only. `tailwind.config.js` maps every colour utility in the app
+   onto these variables, so a screen never mentions a theme — it says `bg-ink-900` and gets whatever
+   `ink-900` means right now. `.dark` on <html> is the default (it is what the mockup looks like);
+   `.light` swaps the ramp: surfaces go pale, text goes dark, tints keep their hue, and the solid
+   accent fills (brand-600, the primary button) stay put because white text sits on top of them.
+   Channels are stored as "R G B" so Tailwind's `/40` opacity modifiers still work.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+html.dark {
+  --ink-950: 8 13 22;    /* page background       */
+  --ink-900: 11 18 32;   /* panel / sidebar        */
+  --ink-850: 15 24 40;   /* inputs, recessed rows  */
+  --ink-800: 19 31 51;   /* hover                  */
+  --ink-700: 28 43 68;   /* active row             */
+  --ink-600: 42 61 92;   /* raised border          */
+  --line: 30 44 69;      /* every hairline         */
+  --brand-50: 238 242 255;
+  --brand-100: 224 231 255;
+  --brand-200: 199 210 254;
+  --brand-300: 165 180 252;
+  --brand-400: 129 140 248;
+  --brand-500: 99 102 241;
+  --brand-600: 79 70 229;
+  --brand-700: 67 56 202;
+  --brand-800: 55 48 163;
+  --brand-900: 49 46 129;
+  --brand-950: 30 27 75;
+  --good: 34 197 94;
+  --warn: 245 158 11;
+  --bad: 239 68 68;
+  --panel-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.03) inset, 0 12px 30px -18px rgba(0, 0, 0, 0.8);
+  --scroll-thumb: 34 49 77;
+  --slate-50: 248 250 252;
+  --slate-100: 241 245 249;
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225;
+  --slate-400: 148 163 184;
+  --slate-500: 100 116 139;
+  --slate-600: 71 85 105;
+  --slate-700: 51 65 85;
+  --slate-800: 30 41 59;
+  --slate-900: 15 23 42;
+  --slate-950: 2 6 23;
+  --emerald-50: 236 253 245;
+  --emerald-100: 209 250 229;
+  --emerald-200: 167 243 208;
+  --emerald-300: 110 231 183;
+  --emerald-400: 52 211 153;
+  --emerald-500: 16 185 129;
+  --emerald-600: 5 150 105;
+  --emerald-700: 4 120 87;
+  --emerald-800: 6 95 70;
+  --emerald-900: 6 78 59;
+  --emerald-950: 2 44 34;
+  --amber-50: 255 251 235;
+  --amber-100: 254 243 199;
+  --amber-200: 253 230 138;
+  --amber-300: 252 211 77;
+  --amber-400: 251 191 36;
+  --amber-500: 245 158 11;
+  --amber-600: 217 119 6;
+  --amber-700: 180 83 9;
+  --amber-800: 146 64 14;
+  --amber-900: 120 53 15;
+  --amber-950: 69 26 3;
+  --red-50: 254 242 242;
+  --red-100: 254 226 226;
+  --red-200: 254 202 202;
+  --red-300: 252 165 165;
+  --red-400: 248 113 113;
+  --red-500: 239 68 68;
+  --red-600: 220 38 38;
+  --red-700: 185 28 28;
+  --red-800: 153 27 27;
+  --red-900: 127 29 29;
+  --red-950: 69 10 10;
+  --sky-50: 240 249 255;
+  --sky-100: 224 242 254;
+  --sky-200: 186 230 253;
+  --sky-300: 125 211 252;
+  --sky-400: 56 189 248;
+  --sky-500: 14 165 233;
+  --sky-600: 2 132 199;
+  --sky-700: 3 105 161;
+  --sky-800: 7 89 133;
+  --sky-900: 12 74 110;
+  --sky-950: 8 47 73;
+}
+
+html.light {
+  --ink-950: 244 246 251;
+  --ink-900: 255 255 255;
+  --ink-850: 248 250 252;
+  --ink-800: 238 242 247;
+  --ink-700: 226 232 240;
+  --ink-600: 203 213 225;
+  --line: 219 227 239;
+  --brand-50: 238 242 255;
+  --brand-100: 224 231 255;  /* tints stay pale — they are used behind text, not as text */
+  --brand-200: 55 48 163;    /* the shades used as *text* flip to dark indigo … */
+  --brand-300: 67 56 202;
+  --brand-400: 79 70 229;
+  --brand-500: 79 70 229;
+  --brand-600: 79 70 229;    /* … the one used as a fill does not: white text sits on it */
+  --brand-700: 49 46 129;
+  --brand-800: 55 48 163;
+  --brand-900: 49 46 129;
+  --brand-950: 30 27 75;
+  --good: 22 163 74;
+  --warn: 180 83 9;
+  --bad: 220 38 38;
+  --panel-shadow: 0 1px 0 0 rgba(15, 23, 42, 0.04) inset, 0 10px 24px -20px rgba(15, 23, 42, 0.35);
+  --scroll-thumb: 203 213 225;
+  --slate-50: 2 6 23;
+  --slate-100: 15 23 42;
+  --slate-200: 30 41 59;
+  --slate-300: 51 65 85;
+  --slate-400: 71 85 105;
+  --slate-500: 100 116 139;
+  --slate-600: 148 163 184;
+  --slate-700: 203 213 225;
+  --slate-800: 226 232 240;
+  --slate-900: 241 245 249;
+  --slate-950: 248 250 252;
+  --emerald-50: 2 44 34;
+  --emerald-100: 6 78 59;
+  --emerald-200: 6 95 70;
+  --emerald-300: 4 120 87;
+  --emerald-400: 5 150 105;
+  --emerald-500: 16 185 129;
+  --emerald-600: 52 211 153;
+  --emerald-700: 110 231 183;
+  --emerald-800: 167 243 208;
+  --emerald-900: 209 250 229;
+  --emerald-950: 236 253 245;
+  --amber-50: 69 26 3;
+  --amber-100: 120 53 15;
+  --amber-200: 146 64 14;
+  --amber-300: 180 83 9;
+  --amber-400: 217 119 6;
+  --amber-500: 245 158 11;
+  --amber-600: 251 191 36;
+  --amber-700: 252 211 77;
+  --amber-800: 253 230 138;
+  --amber-900: 254 243 199;
+  --amber-950: 255 251 235;
+  --red-50: 69 10 10;
+  --red-100: 127 29 29;
+  --red-200: 153 27 27;
+  --red-300: 185 28 28;
+  --red-400: 220 38 38;
+  --red-500: 239 68 68;
+  --red-600: 248 113 113;
+  --red-700: 252 165 165;
+  --red-800: 254 202 202;
+  --red-900: 254 226 226;
+  --red-950: 254 242 242;
+  --sky-50: 8 47 73;
+  --sky-100: 12 74 110;
+  --sky-200: 7 89 133;
+  --sky-300: 3 105 161;
+  --sky-400: 2 132 199;
+  --sky-500: 14 165 233;
+  --sky-600: 56 189 248;
+  --sky-700: 125 211 252;
+  --sky-800: 186 230 253;
+  --sky-900: 224 242 254;
+  --sky-950: 240 249 255;
+}
+
+
+/* Anything painted outside Tailwind (the scrollbar, native selects) reads the same variables. */
+html { color-scheme: dark; }
+html.light { color-scheme: light; }
+::-webkit-scrollbar-thumb { background: rgb(var(--scroll-thumb)); border-radius: 999px; }
+select option { background-color: rgb(var(--ink-900)); color: rgb(var(--slate-200)); }

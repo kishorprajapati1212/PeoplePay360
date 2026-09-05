@@ -242,13 +242,15 @@ export async function exportCsv(id) {
     select e.employee_code, e.name as employee, coalesce(d.name, '—') as department, e.job_position as designation, e.bank_account_number, e.bank_ifsc, e.bank_name,
            p.period_key, p.status,
            coalesce(max(case when l.rule_code = 'BASIC' then l.amount end), 0) as basic,
-           coalesce(sum(l.amount) filter (where l.line_kind = 'EARNING'), 0) as gross,
-           coalesce(sum(l.amount) filter (where l.line_kind = 'DEDUCTION'), 0) as deductions,
+           -- a rule flagged "not in reports" stays off the finance file; the payslip itself still shows it
+           coalesce(sum(l.amount) filter (where l.line_kind = 'EARNING' and coalesce(r.appears_in_report, true)), 0) as gross,
+           coalesce(sum(l.amount) filter (where l.line_kind = 'DEDUCTION' and coalesce(r.appears_in_report, true)), 0) as deductions,
            p.net_amount, p.worked_days, p.overtime_hours, p.pro_rata_factor
     from payslips p
     join employees e on e.id = p.employee_id
     left join departments d on d.id = e.department_id
     left join payslip_lines l on l.payslip_id = p.id
+    left join salary_rules r on r.id = l.salary_rule_id
     where p.payrun_id = $1 and p.status <> 'VOID'
     group by e.employee_code, e.name, d.name, e.job_position, e.bank_account_number, e.bank_ifsc, e.bank_name,
              p.period_key, p.status, p.net_amount, p.worked_days, p.overtime_hours, p.pro_rata_factor

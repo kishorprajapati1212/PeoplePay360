@@ -9,6 +9,7 @@ import { Field, Input } from '../../components/ui/controls.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { num } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** Grants and adjustments: the balances the requests are counted against. Carry-forward lives here too. */
 export function AllocationsPage() {
@@ -18,8 +19,8 @@ export function AllocationsPage() {
   const { run, busy } = useAction();
   const people = useApi(useCallback(() => employees.list({ page: 1, page_size: 300 }), []), []);
   const types = useApi(useCallback(() => timeOff.types.list({}), []), []);
-  const employeeOptions = useMemo(() => (people.data?.rows || []).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })), [people.data]);
-  const typeOptions = useMemo(() => (types.data || []).filter((t) => t.requires_allocation).map((t) => ({ value: t.id, label: t.name })), [types.data]);
+  const employeeOptions = useMemo(() => toRows(people.data).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })), [people.data]);
+  const typeOptions = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation).map((t) => ({ value: t.id, label: t.name })), [types.data]);
 
   async function carryForward() {
     await run('carry', () => timeOff.carryForward(carry)).then(() => toast.success('Carry-forward applied')).catch((e) => toast.error(e.message));

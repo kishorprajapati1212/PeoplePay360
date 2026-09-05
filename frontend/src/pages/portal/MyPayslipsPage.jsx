@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { inr, num, periodLabel, date } from '../../utils/format.js';
 import { downloadSlip } from './MyPortalPage.jsx';
+import { toRows } from '../../utils/query.js';
 
 /** The employee's own payslip archive: every month, with a real download button. */
 export function MyPayslipsPage() {
@@ -25,7 +26,7 @@ export function MyPayslipsPage() {
                     </select>
                   } />
       <Panel pad={false}>
-        <DataTable rows={list.data?.rows || []} loading={list.loading} error={list.error} onRetry={list.reload}
+        <DataTable rows={toRows(list.data)} loading={list.loading} error={list.error} onRetry={list.reload}
           columns={[
             { key: 'period_key', label: 'Period', render: (r) => periodLabel(r.period_key) },
             { key: 'payslip_kind', label: 'Type', render: (r) => String(r.payslip_kind || 'MONTHLY').replace('_', ' ').toLowerCase() },

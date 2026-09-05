@@ -51,18 +51,22 @@ export async function computeOne({ payslip, payrun, company, structure, rules, p
   const typesById = new Map((types?.rows || types || []).map((t) => [t.id, t]));
   const leaves = leaveStats({ requests: (requests?.rows || requests || []), from, to, expectedDays: sliceExpected.days, typesById,
     scheduleDays: scheduleDaysByDow, holidays: holidayList, hoursPerDay: Number(settingsRow?.default_hours_per_day) || 8 });
-  // a mid-month joiner/leaver is prorated even on monthly payroll — that is what expected_days clamping is for
-  const clamped = monthExpected.calendarDays !== sliceExpected.calendarDays;
+  // A mid-month joiner/leaver is prorated even on monthly payroll — that is what expected_days clamping is
+  // for. The denominator has to be the WHOLE month: monthExpected is already clamped to the employee's
+  // service dates, so comparing the slice against it yields factor 1 and a 13-day first month gets paid as a
+  // full month. monthBase is the unclamped month, which is also the divisor overtime and LOP maths expect.
+  const monthBase = expectedDays({ scheduleDays: scheduleDaysByDow, holidays: holidayList, from: monthFrom, to: monthTo });
+  const clamped = monthBase.calendarDays !== sliceExpected.calendarDays || monthBase.days !== sliceExpected.days;
   const settings = settingsFrom(settingsRow || {});
   const payFrequency = payrun?.pay_frequency || 'MONTHLY';
   const computeMode = payrun?.compute_mode || 'PRO_RATA';
   const half = payslip.payslip_kind === 'HALF_FIRST' ? 'FIRST' : payslip.payslip_kind === 'HALF_SECOND' ? 'SECOND' : null;
   const monthKey = monthAnchor.slice(0, 7);
-  const factor = isWholeMonth && !clamped ? 1 : (monthExpected.days > 0 ? Math.round((sliceExpected.days / monthExpected.days) * 1e6) / 1e6 : 0);
+  const factor = isWholeMonth && !clamped ? 1 : (monthBase.days > 0 ? Math.round((sliceExpected.days / monthBase.days) * 1e6) / 1e6 : 0);
   const period = resolvePeriod({
     payFrequency: half ? (half === 'FIRST' ? 'HALF_MONTH_FIRST' : 'HALF_MONTH_SECOND') : payFrequency,
     from, to, key: payslip.period_key, computeMode, settings,
-    month: { expectedDays: monthExpected.days, hours: monthExpected.hours, from: monthFrom, to: monthTo, clamped },
+    month: { expectedDays: monthBase.days, hours: monthExpected.hours, from: monthFrom, to: monthTo, clamped },
     slice: { expectedDays: sliceExpected.days, hours: sliceExpected.hours, calendarDays: sliceExpected.calendarDays },
   });
   period.factor = half ? factor : (clamped ? factor : 1);
@@ -154,9 +158,15 @@ function totalsFrom(lines) {
   const deductions = lines.filter((l) => l.line_kind === 'DEDUCTION').reduce((a, l) => a + l.amount, 0);
   const adjustments = lines.filter((l) => l.line_kind === 'ADJUSTMENT').reduce((a, l) => a + l.amount, 0);
   const employerCost = gross + lines.filter((l) => l.line_kind === 'REPORT' && /EMPLOYER/.test(l.rule_code)).reduce((a, l) => a + l.amount, 0);
-  return { gross, deductions, adjustments, net: gross - deductions + adjustments, employerCost };
+  const taxableGross = lines.filter((l) => l.line_kind === 'EARNING' && l.is_taxable !== false).reduce((a, l) => a + l.amount, 0);
+  const visible = lines.filter((l) => l.in_report !== false && l.line_kind !== 'REPORT');
+  return { gross, deductions, adjustments, net: gross - deductions + adjustments, employerCost, taxableGross,
+           reportGross: visible.filter((l) => l.line_kind === 'EARNING').reduce((a, l) => a + l.amount, 0),
+           reportDeductions: visible.filter((l) => l.line_kind === 'DEDUCTION').reduce((a, l) => a + l.amount, 0) };
 }
-const totalsRupees = (t) => ({ gross: t.gross / 100, deductions: t.deductions / 100, adjustments: t.adjustments / 100, net: t.net / 100, employerCost: (t.employerCost ?? t.gross) / 100 });
+const totalsRupees = (t) => ({ gross: t.gross / 100, deductions: t.deductions / 100, adjustments: t.adjustments / 100, net: t.net / 100,
+  employerCost: (t.employerCost ?? t.gross) / 100, taxableGross: (t.taxableGross ?? 0) / 100,
+  reportGross: (t.reportGross ?? 0) / 100, reportDeductions: (t.reportDeductions ?? 0) / 100 });
 const fyStart = (monthAnchor, startMonth) => {
   const y = +monthAnchor.slice(0, 4);
   const m = +monthAnchor.slice(5, 7);

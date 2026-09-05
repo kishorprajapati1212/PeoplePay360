@@ -15,8 +15,3 @@ export const validate = (schemaOrFactory, source = 'body') => (req, _res, next) 
   if (source === 'query') Object.assign(req.query, r.data);
   next();
 };
-export const validateAll = ({ body, query, params }) => [
-  params ? validate(params, 'params') : null,
-  query ? validate(query, 'query') : null,
-  body ? validate(body, 'body') : null,
-].filter(Boolean);

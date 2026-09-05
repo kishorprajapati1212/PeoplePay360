@@ -27,7 +27,15 @@ const url = (u) => { try { return new URL(u); } catch { return null; } };
  */
 const databaseUrl = env('DATABASE_URL', 'postgres://postgres:postgres@127.0.0.1:5432/peoplepay360');
 const dbUrl = url(databaseUrl);
-const redisUrl = url(env('REDIS_URL', 'redis://127.0.0.1:6379'));
+/*
+ * Redis can be pointed at with either style, and both the API and this worker accept both — because a
+ * docker-compose file that sets REDIS_HOST=redis while the worker only understood REDIS_URL silently
+ * retried against 127.0.0.1 forever. Precedence: REDIS_URL, then REDIS_HOST/PORT, then localhost.
+ */
+const urlTarget = env('REDIS_URL', '');
+const redisUrl = urlTarget ? url(urlTarget) : null;
+const hostOf = (fallback) => (redisUrl?.hostname || env('REDIS_HOST', '') || fallback).replace(/^https?:\/\//, '');
+const portOf = () => Number(redisUrl?.port || env('REDIS_PORT', '') || 6379);
 
 export const config = {
   env: env('NODE_ENV', 'development'),
@@ -43,11 +51,11 @@ export const config = {
     max: num('PG_POOL_MAX', 6),
   },
   redis: {
-    host: redisUrl?.hostname ?? '127.0.0.1',
-    port: num('REDIS_PORT', Number(redisUrl?.port || 6379)),
-    password: redisUrl?.password ? decodeURIComponent(redisUrl.password) : undefined,
-    username: redisUrl?.username || undefined,
-    db: num('REDIS_DB', 0),
+    host: hostOf('127.0.0.1'),
+    port: portOf(),
+    password: (redisUrl?.password ? decodeURIComponent(redisUrl.password) : '') || env('REDIS_PASSWORD', '') || undefined,
+    username: redisUrl?.username || env('REDIS_USERNAME', '') || undefined,
+    db: num('REDIS_DB', redisUrl?.pathname ? Number(redisUrl.pathname.slice(1)) || 0 : 0),
     tls: env('REDIS_TLS') === 'true',
   },
   worker: {
@@ -60,12 +68,12 @@ export const config = {
   },
   pdf: { renderer: env('PDF_RENDERER', 'pdfkit'), dir: env('PDF_DIR', join(ROOT, 'storage/pdfs')) },
   mail: {
-    MAIL_DRIVER: env('MAIL_DRIVER', 'preview'),
-    MAIL_FROM: env('MAIL_FROM', 'OXP Payroll <payroll@oxp.com>'),
+    // Empty driver = the mailer decides: EMAIL_NAME + EMAIL_PASSWORD present → real sending, absent → .eml files.
+    MAIL_DRIVER: env('MAIL_DRIVER', ''),
+    MAIL_FROM: env('MAIL_FROM', ''),
     MAIL_DAILY_LIMIT: num('MAIL_DAILY_LIMIT', 200),
+    EMAIL_NAME: env('EMAIL_NAME', ''), EMAIL_PASSWORD: env('EMAIL_PASSWORD', ''),
     SMTP_HOST: env('SMTP_HOST', ''), SMTP_PORT: env('SMTP_PORT', '587'), SMTP_SECURE: env('SMTP_SECURE', 'false'),
-    SMTP_USER: env('SMTP_USER', ''), SMTP_PASS: env('SMTP_PASS', ''),
-    GMAIL_USER: env('GMAIL_USER', ''), GMAIL_APP_PASSWORD: env('GMAIL_APP_PASSWORD', ''),
     dir: env('MAIL_DIR', join(ROOT, 'storage/mail')),
     publicBaseUrl: env('PUBLIC_WEB_URL', `http://localhost:${num('WEB_PORT', 5173)}`),
   },

@@ -76,7 +76,6 @@ export const patchUser = (id, p, q = query) => {
 };
 export const setPassword = (id, hash, { mustChange = false } = {}) =>
   query(`update users set password_hash = $2, must_change_pw = $3, token_version = token_version + 1 where id = $1`, [id, hash, mustChange]);
-export const bumpTokenVersion = (id) => query(`update users set token_version = token_version + 1 where id = $1`, [id]);
 export const touchLogin = (id) => query(`update users set last_login_at = now() where id = $1`, [id]).then(() => true);
 export const storeRefresh = ({ userId, tokenHash, familyId, expiresAt, userAgent, ip }, q = query) =>
   q(`insert into refresh_tokens (user_id, token_hash, family_id, expires_at, user_agent, ip) values ($1,$2,$3,$4,$5,$6)`,
@@ -92,4 +91,3 @@ export const linkEmployee = (userId, employeeId, q = query) =>
 export const countAdmins = () =>
   query(`select count(distinct u.id) as n from users u where u.is_active and (u.role = 'ADMIN' or exists (select 1 from user_role_grants g where g.user_id = u.id and g.role = 'ADMIN'))`)
     .then((r) => Number(r.rows[0].n));
-export const purgeExpiredTokens = () => query(`delete from refresh_tokens where expires_at < now() - interval '30 days' or (revoked_at is not null and revoked_at < now() - interval '7 days')`).then((r) => r.rowCount);

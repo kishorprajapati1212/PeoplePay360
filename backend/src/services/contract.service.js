@@ -89,4 +89,3 @@ export async function renew(id, data, ctx) {
 const addOneDay = (d) => toIso(new Date(new Date(`${d}T00:00:00Z`).getTime() + 86400000));
 const previousDay = (d) => toIso(new Date(new Date(`${d}T00:00:00Z`).getTime() - 86400000));
 export const expiring = (days) => repo.expiring(days ? Number(days) : 30);
-export const refreshExpired = () => repo.demoteExpired();

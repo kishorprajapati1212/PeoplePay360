@@ -1,7 +1,6 @@
 /** Small response helpers so every controller returns the same shape. */
 export const ok = (res, data, status = 200) => res.status(status).json(data);
 export const created = (res, data) => res.status(201).json(data);
-export const noContent = (res) => res.status(204).end();
 export const list = (res, r) => res.json({ rows: r.rows ?? r, total: r.total ?? (r.rows?.length ?? r.length),
   page: r.page, pages: r.pages, limit: r.limit, offset: r.offset });
 /** snake_case query → camelCase service filters, dropping empties. */

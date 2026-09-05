@@ -1,22 +1,14 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
 import { useAuth } from '../auth/useAuth.js';
 import { initials, human } from '../utils/format.js';
-import { Modal } from '../components/ui/Modal.jsx';
-import { Field, Input } from '../components/ui/controls.jsx';
-import { auth } from '../api/endpoints.js';
-import { useToast } from '../components/ui/Toast.jsx';
 import { MobileNav } from './Sidebar.jsx';
+import { ThemeToggle } from './ThemeToggle.jsx';
 
-/** Breadcrumb + role chips + the account menu (change password, sign out). */
+/** Breadcrumb, role chips, theme switch and the account menu. */
 export function Topbar() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const toast = useToast();
-  const [pwOpen, setPwOpen] = useState(false);
-  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
-  const [busy, setBusy] = useState(false);
 
   const crumbs = [{ label: 'Home', to: '/' }].concat(
     location.pathname.split('/').filter(Boolean).map((part, i, all) => ({
@@ -25,18 +17,6 @@ export function Topbar() {
       isId: /^[0-9a-f-]{36}$/i.test(part),
     })),
   );
-
-  async function changePassword() {
-    if (pw.newPassword !== pw.confirm) return toast.error('The two new passwords do not match');
-    setBusy(true);
-    try {
-      await auth.changePassword(pw.currentPassword, pw.newPassword);
-      setPwOpen(false);
-      toast.success('Password changed — please sign in again');
-      setTimeout(logout, 800);
-    } catch (e) { toast.error(e.message); }
-    finally { setBusy(false); }
-  }
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-ink-950/85 backdrop-blur">
@@ -52,6 +32,7 @@ export function Topbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle compact />
           <div className="hidden items-center gap-1 sm:flex">
             {(user?.roles || []).map((role) => (
               <span key={role} className="chip border-brand-500/30 bg-brand-500/10 text-brand-200">{human(role)}</span>
@@ -70,7 +51,6 @@ export function Topbar() {
                   <p className="font-medium text-slate-200">{user?.name}</p>
                   <p className="truncate text-slate-500">{user?.workEmail}</p>
                 </div>
-                <button className="w-full rounded-md px-3 py-2 text-left text-slate-300 hover:bg-ink-800" onClick={() => setPwOpen(true)}>Change password</button>
                 <button className="w-full rounded-md px-3 py-2 text-left text-slate-300 hover:bg-ink-800" onClick={() => navigate('/portal')}>My portal</button>
                 <button className="w-full rounded-md px-3 py-2 text-left text-red-300 hover:bg-red-950/40" onClick={logout}>Sign out</button>
               </div>
@@ -80,20 +60,6 @@ export function Topbar() {
       </div>
       <MobileNav />
 
-      <Modal open={pwOpen} onClose={() => setPwOpen(false)} title="Change password" width="max-w-md"
-             subtitle="Signing you out afterwards: every other session is revoked."
-             footer={<><button className="btn-ghost" onClick={() => setPwOpen(false)}>Cancel</button>
-                      <button className="btn-primary" disabled={busy} onClick={changePassword}>{busy ? 'Saving…' : 'Change password'}</button></>}>
-        <div className="flex flex-col gap-3">
-          <Field label="Current password" required><Input type="password" value={pw.currentPassword} onChange={(v) => setPw((s) => ({ ...s, currentPassword: v }))} /></Field>
-          <Field label="New password" required hint="At least 10 characters.">
-            <Input type="password" value={pw.newPassword} onChange={(v) => setPw((s) => ({ ...s, newPassword: v }))} />
-          </Field>
-          <Field label="Repeat new password" required>
-            <Input type="password" value={pw.confirm} onChange={(v) => setPw((s) => ({ ...s, confirm: v }))} />
-          </Field>
-        </div>
-      </Modal>
     </header>
   );
 }

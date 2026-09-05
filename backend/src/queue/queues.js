@@ -52,6 +52,4 @@ export async function queueStats() {
   }
   return out;
 }
-export async function pauseAll() { for (const q of Object.values(queues)) await q.pause().catch(() => {}); }
 export async function closeQueues() { await Promise.all(Object.values(queues).map((q) => q.close().catch(() => {}))); }
-export const workerConcurrency = config.queue.concurrency;

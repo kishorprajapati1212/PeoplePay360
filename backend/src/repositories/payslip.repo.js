@@ -29,19 +29,12 @@ export const listPayslips = async (f = {}) => {
 };
 export const getPayslip = (id, q = query) => q(`${SELECT} where p.id = $1`, [id]).then((r) => r.rows[0] ? mapKeys(r.rows[0], MONEY) : null);
 export const getPayslipRaw = (id, q = query) => q(`select * from payslips where id = $1`, [id]).then((r) => r.rows[0] || null);
-export const payslipOf = (payrunId, employeeId, q = query) =>
-  q(`select * from payslips where payrun_id = $1 and employee_id = $2`, [payrunId, employeeId]).then((r) => r.rows[0] || null);
 export const createPayslip = (d, q = query) =>
   q(`insert into payslips (payrun_id, employee_id, contract_id, salary_structure_id, period_start, period_end, period_key,
                            payslip_kind, month_anchor, status, notes, reconciled_from)
      values ($1,$2,$3,$4,$5,$6,$7,coalesce($8,'MONTHLY')::payslip_kind,$9,coalesce($10,'DRAFT')::payslip_status,$11,$12) returning *`,
     [d.payrun_id, d.employee_id, d.contract_id || null, d.salary_structure_id || null, d.period_start, d.period_end, d.period_key,
      d.payslip_kind, d.month_anchor, d.status, d.notes || null, d.reconciled_from || null]).then((r) => r.rows[0]);
-export const setPayslipStatus = (id, status, q = query) =>
-  q(`update payslips set status = $2::payslip_status,
-           released_at = case when $2::text = 'PAID' and released_at is null then now() else released_at end,
-           paid_at       = case when $2::text = 'PAID' then now() else paid_at end
-     where id = $1 returning *`, [id, status]).then((r) => r.rows[0]);
 export const bulkPayslipStatus = (payrunId, status, q = query) =>
   q(`update payslips set status = $2::payslip_status,
            released_at = case when $2::text = 'PAID' and released_at is null then now() else released_at end,
@@ -87,12 +80,8 @@ export const addLine = (payslipId, l, q = query) =>
 export const updateLine = (lineId, patch, q = query) =>
   q(`update payslip_lines set ${Object.keys(patch).map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1 returning *`,
     [lineId, ...Object.values(patch)]).then((r) => r.rows[0]);
-export const deleteLine = (lineId, q = query) => q(`delete from payslip_lines where id = $1 returning *`, [lineId]).then((r) => r.rows[0] || null);
 export const nextSequence = (payslipId, q = query) =>
   q(`select coalesce(max(sequence),0) + 10 as n from payslip_lines where payslip_id = $1`, [payslipId]).then((r) => Number(r.rows[0].n));
-export const setLineAmount = (lineId, amount, q = query) =>
-  q(`update payslip_lines set amount = $2 where id = $1 returning *`, [lineId, Math.abs(Number(amount)).toFixed(2)]).then((r) => r.rows[0]);
-// ── inputs (manual bonus / loan recovery / arrear for one payslip) ─────────────
 export const listInputs = (payslipId, q = query) =>
   q(`select i.*, u.name as created_by_name from payslip_inputs i left join users u on u.id = i.created_by
      where i.payslip_id = $1 order by i.code`, [payslipId]).then((r) => r.rows.map((x) => mapKeys(x, ['amount'])));
@@ -105,10 +94,6 @@ export const deleteInput = (payslipId, code, q = query) => q(`delete from paysli
 export const pendingArrears = (employeeId, beforeMonth, q = query) =>
   q(`select * from payslip_arrears where employee_id = $1 and month_anchor < $2 and status = 'CARRIED' order by month_anchor, created_at`,
     [employeeId, beforeMonth]).then((r) => r.rows.map((x) => mapKeys(x, ['amount'])));
-export const addArrear = (a, q = query) =>
-  q(`insert into payslip_arrears (employee_id, month_anchor, rule_code, amount, reason, from_payslip, status)
-     values ($1,$2,coalesce($3,'ARREAR'),$4,$5,$6,coalesce($7,'CARRIED')) returning *`,
-    [a.employee_id, a.month_anchor, a.rule_code || 'ARREAR', Number(a.amount).toFixed(2), a.reason, a.from_payslip || null, a.status]);
 export const markArrearsApplied = (ids, q = query) =>
   q(`update payslip_arrears set status = 'APPLIED', applied_at = now() where id = any($1::uuid[]) returning id`, [ids]).then((r) => r.rowCount);
 // ── documents + downloads (the audit trail for "did the employee get it?") ─────

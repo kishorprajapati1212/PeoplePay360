@@ -5,4 +5,3 @@ export const logger = pino({
   base: { service: 'worker' },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
-export const jobLogger = (job) => logger.child({ job: job.name, id: job.id, taskId: job.data?.taskId });

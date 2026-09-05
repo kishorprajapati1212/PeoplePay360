@@ -1,5 +1,3 @@
-import { human } from '../../utils/format.js';
-
 export function EmptyState({ title = 'Nothing here yet', hint, action }) {
   return (
     <div className="flex flex-col items-center gap-2 py-12 text-center">
@@ -49,9 +47,4 @@ export function KeyValue({ rows, columns = 2 }) {
       ))}
     </dl>
   );
-}
-
-export function ProgressNote({ children }) {
-  if (!children) return null;
-  return <p className="text-xs text-slate-500">{typeof children === 'string' ? human(children) : children}</p>;
 }

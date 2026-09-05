@@ -19,5 +19,3 @@ export const listAudit = async (f = {}) => {
 export const auditForEntity = (entityType, entityId) =>
   query(`select a.*, u.name as actor_name from audit_logs a left join users u on u.id = a.actor_user
          where a.entity_type = $1 and a.entity_id = $2::uuid order by a.created_at desc limit 50`, [entityType, entityId]).then((r) => r.rows);
-export const recentActions = (userId, { limit = 10 } = {}) =>
-  query(`select entity_type, action, created_at from audit_logs where actor_user = $1 order by created_at desc limit $2`, [userId, Number(limit)]);

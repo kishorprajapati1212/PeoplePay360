@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PeoplePay360 — HR & Payroll</title>
+  <script>
+    /* Runs before the stylesheet paints so a reload never shows the wrong theme for a frame.
+       Same key as src/theme.js: 'pp360.theme' = 'dark' | 'light'. */
+    try {
+      var t = localStorage.getItem('pp360.theme') === 'light' ? 'light' : 'dark';
+      document.documentElement.classList.replace(t === 'light' ? 'dark' : 'light', t);
+      document.documentElement.style.colorScheme = t;
+    } catch (e) { /* private mode: stay on dark */ }
+  </script>
   </head>
   <body class="bg-ink-950 text-slate-200 antialiased">
     <div id="root"></div>

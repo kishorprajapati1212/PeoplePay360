@@ -8,6 +8,7 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { num, datetime } from '../../utils/format.js';
+import { toRows } from '../../utils/query.js';
 
 /** Queue + audit: the page you open when someone says "the PDF never arrived". */
 export function SystemPage() {
@@ -62,13 +63,13 @@ export function SystemPage() {
         </Panel>
         <Panel title="Audit trail" subtitle="who changed what, newest first" pad={false}>
           <ul className="divide-y divide-line/70 text-sm">
-            {(audit.data?.rows || audit.data || []).map((a) => (
+            {toRows(audit.data).map((a) => (
               <li key={a.id} className="px-4 py-2">
                 <p className="text-slate-200">{a.action} <span className="text-slate-500">on {a.entity_type || a.entity}{a.entity_id ? ' · ' + String(a.entity_id).slice(0, 8) : ''}</span></p>
                 <p className="text-xs text-slate-500">{a.actor || a.actor_email || 'system'} · {datetime(a.created_at)}</p>
               </li>
             ))}
-            {!(audit.data?.rows || audit.data || []).length && <li className="px-4 py-6 text-sm text-slate-500">No audit rows yet.</li>}
+            {!toRows(audit.data).length && <li className="px-4 py-6 text-sm text-slate-500">No audit rows yet.</li>}
           </ul>
         </Panel>
       </div>

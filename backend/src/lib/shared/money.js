@@ -23,14 +23,10 @@ export const money = (v) => {
   const paise = toPaise(v);
   return { value: Number((paise / 100).toFixed(2)), paise, display: fromPaise(paise) };
 };
-/** half-up on a rupee amount (Indian payroll convention; not banker's rounding). */
-export const roundPaise = (n) => Math.round(n);
 export const mulPct = (basePaise, pct) => Math.round((basePaise * Number(pct)) / 100);
 export const div = (totalPaise, parts) => (parts ? Math.round(totalPaise / parts) : 0);
 export const sum = (arr) => arr.reduce((a, b) => a + (Number(b) || 0), 0);
 export const clampRange = (v, min, max) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
-export const LEAST = (...a) => Math.min(...a);
-export const clampNonNeg = (v) => Math.max(0, v);
 
 const ONES = ['', 'One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const TENS = ['', '', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];

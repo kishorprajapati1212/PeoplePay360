@@ -20,10 +20,3 @@ export async function transaction(fn, { isolation = 'read committed', onConflict
     client.release();
   }
 }
-export const clientQuery = (client) => async (text, params) => {
-  const r = await client.query(text, params);
-  return { rows: r.rows, count: r.rowCount };
-};
-/** Row lock helper used by the payrun workflow (compute/validate/mark-paid are serialised per payrun). */
-export const lockRow = async (client, table, id) =>
-  client.query(`select id from ${table} where id = $1 for update`, [id]);

@@ -60,4 +60,3 @@ export async function onPdfFailed(job, error) {
   if (!res?.retryable && payslipId) await one(`update payslips set notes = coalesce(notes, '') || $2 where id = $1`,
     [payslipId, `\nPDF generation failed permanently: ${String(error?.message ?? '').slice(0, 200)}`]);
 }
-export const pdfJobName = 'payslip-pdf';

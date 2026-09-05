@@ -105,4 +105,3 @@ export const accessMatrix = async () => {
     roles: ROLES.map((r) => ({ key: r, label: ROLE_LABEL[r], scope: SCOPE[r], granted: ROLE_PERMISSIONS[r], denied: (DENIES[r] || []).filter(Boolean) })),
   };
 };
-export const adminRoles = USER_ADMIN_ROLES;

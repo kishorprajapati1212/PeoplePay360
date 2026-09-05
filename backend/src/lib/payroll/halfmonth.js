@@ -77,4 +77,3 @@ export function byCode(lines) {
   for (const l of lines) if (l.line_kind !== 'REPORT') o[l.rule_code] = (o[l.rule_code] || 0) + l.amount;
   return o;
 }
-export const signedNet = (lines) => netOf(lines);

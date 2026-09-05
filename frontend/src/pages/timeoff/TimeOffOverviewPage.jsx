@@ -7,6 +7,7 @@ import { Panel } from '../../components/ui/Panel.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { ErrorPanel } from '../../components/ui/Feedback.jsx';
 import { num, date } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** Time-off landing screen: what is pending, what the balances look like, which types exist. */
 export function TimeOffOverviewPage() {
@@ -25,7 +26,7 @@ export function TimeOffOverviewPage() {
         {[['Pending requests', num(data.pending ?? pending.data?.total ?? 0), 'needs a decision'],
           ['Approved this period', num(data.approved ?? 0), 'days booked off'],
           ['Unpaid', num(data.unpaid ?? 0), 'days that cut pay'],
-          ['Leave types', num((types.data || []).length), 'configured']].map(([label, value, hint]) => (
+          ['Leave types', num(toRows(types.data).length), 'configured']].map(([label, value, hint]) => (
           <div key={label} className="panel panel-pad">
             <p className="label">{label}</p>
             <p className="mt-1.5 text-2xl font-semibold text-slate-50">{value}</p>
@@ -37,7 +38,7 @@ export function TimeOffOverviewPage() {
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Panel className="xl:col-span-2" title="Waiting for you" subtitle="oldest first" pad={false}>
           <ul className="divide-y divide-line/70">
-            {(pending.data?.rows || []).map((r) => (
+            {toRows(pending.data).map((r) => (
               <li key={r.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-slate-100">{r.employee}</span>
@@ -47,13 +48,13 @@ export function TimeOffOverviewPage() {
                 <Link to="/time-off/requests" className="btn-ghost btn-sm">Decide</Link>
               </li>
             ))}
-            {!(pending.data?.rows || []).length && <li className="px-4 py-6 text-sm text-slate-500">Nothing is waiting. Good.</li>}
+            {!toRows(pending.data).length && <li className="px-4 py-6 text-sm text-slate-500">Nothing is waiting. Good.</li>}
           </ul>
         </Panel>
 
         <Panel title="Types" pad={false}>
           <ul className="divide-y divide-line/70">
-            {(types.data || []).map((t) => (
+            {toRows(types.data).map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
                 <span className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: t.display_color || '#6366f1' }} />

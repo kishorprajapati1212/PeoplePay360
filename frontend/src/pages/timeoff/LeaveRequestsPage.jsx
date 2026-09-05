@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { date, num, today } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** The single approval flow from the mockup: approve or refuse, optionally with a remark. */
 export function LeaveRequestsPage() {
@@ -48,7 +49,7 @@ export function LeaveRequestsPage() {
       <PageHeader title="Time off requests" subtitle="Approving books the days against the allocation; refusing leaves the balance alone."
                   actions={<button className="btn-primary btn-sm" onClick={() => setRaise({ employee_id: '', time_off_type_id: '', start_date: today(), end_date: '', reason: '' })}>+ Raise for someone</button>} />
       <Panel pad={false}>
-        <DataTable loading={list.loading} rows={list.data?.rows || []} error={list.error} onRetry={list.reload}
+        <DataTable loading={list.loading} rows={toRows(list.data)} error={list.error} onRetry={list.reload}
           toolbar={<>
             <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
@@ -69,7 +70,7 @@ export function LeaveRequestsPage() {
                 <button className="btn-danger btn-sm" onClick={() => setDecision({ row: r, action: 'refuse' })}>Refuse</button>
               </span>) },
           ]}
-          pagination={{ page: table.page, size: table.size, total: list.data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+          pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
           empty={<EmptyState title="No requests" hint="Employees raise leave from their portal; you can also raise one here." />} />
       </Panel>
 

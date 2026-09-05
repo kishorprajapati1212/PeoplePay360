@@ -14,6 +14,7 @@ import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, inrCompact, num, date, periodLabel, firstOfMonth } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * Payruns list + the two-step creation the mockup insists on:
@@ -29,7 +30,7 @@ export function PayrunsPage() {
   const [wizard, setWizard] = useState(null);
   const list = useApi(useCallback(() => payroll.payruns.list(table.params), [table.params]), [table.params]);
   const structures = useApi(useCallback(() => salary.structures.list({}), []), []);
-  const structureOptions = useMemo(() => (structures.data || []).map((s) => ({ value: s.id, label: `${s.name} (${num(s.employees)} assigned)` })), [structures.data]);
+  const structureOptions = useMemo(() => toRows(structures.data).map((s) => ({ value: s.id, label: `${s.name} (${num(s.employees)} assigned)` })), [structures.data]);
 
   async function remove(row) {
     await payroll.payruns.remove(row.id).then(() => { list.reload(); toast.success('Payrun voided'); }).catch((e) => toast.error(e.message));
@@ -64,7 +65,7 @@ export function PayrunsPage() {
             { key: '_a', label: '', render: (r) => (r.status === 'DRAFT' && mayCreate
                 ? <button className="btn-danger btn-sm" onClick={(e) => { e.stopPropagation(); remove(r); }}>Void</button> : null) },
           ]}
-          pagination={{ page: table.page, size: table.size, total: list.data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+          pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
           empty={<EmptyState title="No payruns yet" hint="Create one for this month: pick a structure, tick the people, then compute." />} />
       </Panel>
 
@@ -86,7 +87,7 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
     pay_frequency: wizard.pay_frequency, compute_mode: wizard.compute_mode, employee_ids: [...wizard.selected],
   })), [wizard.step, wizard.selected.size]), [wizard.step, wizard.selected.size]);
 
-  const rows = candidates.data?.rows || candidates.data || [];
+  const rows = toRows(candidates.data);
   const toggle = (id) => { const next = new Set(wizard.selected); next.has(id) ? next.delete(id) : next.add(id); setWizard({ ...wizard, selected: next }); };
   const goStep2 = () => setWizard({ ...wizard, step: 2, selected: new Set(rows.map((r) => r.id)) });
 

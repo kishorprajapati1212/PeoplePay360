@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { attendance, employees, org } from '../../api/endpoints.js';
+import { attendance, employees, portal } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
 import { useTable } from '../../hooks/useTable.js';
 import { PageHeader } from '../../layout/PageHeader.jsx';
@@ -13,13 +13,20 @@ import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { date, num, today } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * Attendance list + the "Attendance Entry" dialog from the mockup. Corrections are always recorded as
  * manual with a reason — that is what the API stores, and what the payslip's audit trail can point at.
  */
+/**
+ * One screen, two audiences. With `attendance:read` you get everyone's rows plus the exception panel and the
+ * correction dialog; with only `attendance:read_own` (an employee) the same table fills from /api/portal/attendance,
+ * which already contains only your own days — and the write buttons disappear, because the API refuses them anyway.
+ */
 export function AttendancePage() {
   const toast = useToast();
+  const mayReadAll = useCan('attendance:read');
   const mayWrite = useCan('attendance:write');
   const mayApprove = useCan('attendance:approve_overtime');
   const table = useTable({});
@@ -27,9 +34,12 @@ export function AttendancePage() {
   const { run, busy } = useAction();
   const month = (table.query.month || new Date().toISOString().slice(0, 7));
 
-  const list = useApi(useCallback(() => attendance.list({ ...table.params, month }), [table.params, month]), [table.params, month]);
-  const exceptions = useApi(useCallback(() => attendance.exceptions({ month }), [month]), [month]);
-  const people = useApi(useCallback(() => employees.list({ page: 1, page_size: 300 }), []), []);
+  const list = useApi(useCallback(() => (mayReadAll ? attendance.list({ ...table.params, month }) : portal.attendance({ month })),
+    [mayReadAll, table.params, month]), [mayReadAll, table.params, month]);
+  const exceptions = useApi(useCallback(() => (mayReadAll ? attendance.exceptions({ month }) : Promise.resolve(null)),
+    [mayReadAll, month]), [mayReadAll, month]);
+  const people = useApi(useCallback(() => (mayReadAll ? employees.list({ page: 1, page_size: 300 }) : Promise.resolve(null)),
+    [mayReadAll]), [mayReadAll]);
 
   const rows = list.data?.rows || [];
   const totalHours = rows.reduce((sum, r) => sum + Number(r.net_worked_hours ?? r.worked_hours ?? 0), 0);
@@ -51,7 +61,10 @@ export function AttendancePage() {
 
   return (
     <>
-      <PageHeader title="Attendance" subtitle="Marked hours per person per day. Missing punches and unapproved overtime are listed on the right, because that is what breaks a payslip."
+      <PageHeader title={mayReadAll ? 'Attendance' : 'My attendance'}
+                  subtitle={mayReadAll
+                    ? 'Marked hours per person per day. Missing punches and unapproved overtime are listed on the right, because that is what breaks a payslip.'
+                    : 'Your own punches for the month. The payslip is computed from these hours, so a missing punch is worth reporting.'}
                   actions={<>
                     <label className="mr-1 flex items-end gap-1">
                       <span className="label">Month</span>
@@ -64,9 +77,11 @@ export function AttendancePage() {
         <Panel className="xl:col-span-3" pad={false}>
           <DataTable loading={list.loading} rows={rows} error={list.error} onRetry={list.reload}
             toolbar={<>
-              <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee…" />
-              <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
-                      options={['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'HOLIDAY', 'MISSING_CHECKOUT'].map((v) => ({ value: v, label: v.replace('_', ' ') }))} placeholder="Any status" />
+              {mayReadAll && <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee…" />}
+              {mayReadAll && (
+                <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
+                        options={['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'HOLIDAY', 'MISSING_CHECKOUT'].map((v) => ({ value: v, label: v.replace('_', ' ') }))} placeholder="Any status" />
+              )}
               <span className="ml-auto text-xs text-slate-500">{num(rows.length)} rows · {totalHours.toFixed(1)} hours in view</span>
             </>}
             columns={[
@@ -85,22 +100,24 @@ export function AttendancePage() {
                   : <span className="text-slate-600">—</span>) },
               { key: '_a', label: '', render: (r) => mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEntry({ id: r.id, employee_id: r.employee_id, day: String(r.day).slice(0, 10), check_in: String(r.check_in || '').slice(11, 16) || '09:30', check_out: String(r.check_out || '').slice(11, 16) || '18:30', reason: r.manual_reason || '' })}>Fix</button> },
             ]}
-            pagination={{ page: table.page, size: table.size, total: list.data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+            pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
             empty={<EmptyState title="Nothing marked this month" hint="Punches land here from the kiosk, or use “Mark entry” to add a corrected day." />} />
         </Panel>
 
+        {mayReadAll && (
         <Panel title="Needs attention" subtitle="exceptions the API found for this month">
           <ul className="space-y-2 text-sm">
-            {(exceptions.data?.rows || exceptions.data || []).slice(0, 12).map((e) => (
+            {toRows(exceptions.data).slice(0, 12).map((e) => (
               <li key={e.id || `${e.employee_id}-${e.day}`} className="flex items-center justify-between gap-2 rounded-lg bg-ink-850/70 px-2.5 py-2">
                 <span className="min-w-0"><span className="block truncate text-slate-200">{e.employee}</span>
                   <span className="block text-xs text-slate-500">{date(e.day)} · {e.kind || e.status || 'issue'}</span></span>
                 {mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEntry({ employee_id: e.employee_id, day: String(e.day).slice(0, 10), check_in: '09:30', check_out: '18:30', reason: 'Missing punch corrected' })}>Fix</button>}
               </li>
             ))}
-            {!(exceptions.data?.rows || exceptions.data || []).length && <li className="text-sm text-slate-500">No gaps. Clean month.</li>}
+            {!toRows(exceptions.data).length && <li className="text-sm text-slate-500">No gaps. Clean month.</li>}
           </ul>
         </Panel>
+        )}
       </div>
 
       <Modal open={!!entry} onClose={() => setEntry(null)} width="max-w-lg"
@@ -111,7 +128,7 @@ export function AttendancePage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Employee" required className="sm:col-span-2">
               <Select value={entry.employee_id} onChange={(v) => setEntry({ ...entry, employee_id: v })} placeholder="Choose…"
-                      options={(people.data?.rows || []).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} />
+                      options={toRows(people.data).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} />
             </Field>
             <Field label="Day" required><Input type="date" value={entry.day} onChange={(v) => setEntry({ ...entry, day: v })} /></Field>
             <Field label="Reason"><Input value={entry.reason} onChange={(v) => setEntry({ ...entry, reason: v })} placeholder="Punch card lost" /></Field>

@@ -47,4 +47,3 @@ export async function recordAudit({ actorUserId, actorRole, action, entity, enti
      before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, null, ip || null, userAgent || null, requestId || null]);
 }
 const validId = (v) => (UUID.test(String(v)) ? v : null);
-export const setAudit = (res, patch) => Object.assign(res.locals, patch);

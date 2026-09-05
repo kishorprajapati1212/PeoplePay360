@@ -1,18 +1,21 @@
 import { EmptyState, ErrorPanel } from '../ui/Feedback.jsx';
 import { Spinner } from '../ui/Spinner.jsx';
+import { toRows } from '../../utils/query.js';
 
 /**
  * One table for every list screen. `columns` decides what is shown; a column may bring its own
  * `render(row)` or just name a field. Sorting is opt-in per column (`sort: 'field'`).
+ * `rows` accepts an array or an API answer ({rows: […]}) — see toRows().
  */
-export function DataTable({ columns, rows = [], loading, error, onRetry, onRowClick, toolbar, pagination, empty, rowClassName, onSort }) {
+export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, toolbar, pagination, empty, rowClassName, onSort }) {
+  const data = toRows(rows);
   return (
     <div>
       {toolbar && <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">{toolbar}</div>}
       {error && <div className="p-4"><ErrorPanel error={error} onRetry={onRetry} /></div>}
-      {loading && !rows.length ? (
+      {loading && !data.length ? (
         <div className="p-8"><Spinner label="Loading…" /></div>
-      ) : !rows.length ? (
+      ) : !data.length ? (
         empty || <EmptyState />
       ) : (
         <div className="overflow-x-auto">
@@ -27,7 +30,7 @@ export function DataTable({ columns, rows = [], loading, error, onRetry, onRowCl
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
+              {data.map((row, i) => (
                 <tr key={row.id ?? i}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
                     className={'row ' + (onRowClick ? 'cursor-pointer ' : '') + (rowClassName?.(row) || '')}>

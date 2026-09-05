@@ -19,8 +19,6 @@ export const fmtTime = (d, opts = {}) => {
   const h = x.getHours(), m = pad(x.getMinutes());
   return opts.h12 ? `${((h % 12) || 12)}:${m} ${h < 12 ? 'AM' : 'PM'}` : `${pad(h)}:${m}`;
 };
-export const fmtDateTime = (d) => (d ? `${fmtDate(d)} ${fmtTime(d)}` : '—');
-export const hoursFmt = (h) => (h === null || h === undefined ? '—' : `${Number(h).toFixed(2)} hrs`);
 export const addDays = (d, n) => { const x = new Date(toIso(d) + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return toIso(x); };
 export const daysInMonth = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
 export const monthStart = (d) => { const x = new Date(d); return `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-01`; };
@@ -31,10 +29,6 @@ export const isoDow = (d) => { const x = new Date(`${toIso(d)}T00:00:00Z`); retu
 export const fiscalYearOf = (d, startMonth = 4) => {
   const x = new Date(d); const y = x.getUTCFullYear(); const m = x.getUTCMonth() + 1;
   return m >= startMonth ? y : y - 1;
-};
-export const fiscalYearRange = (d, startMonth = 4) => {
-  const fy = fiscalYearOf(d, startMonth);
-  return { from: `${fy}-${pad(startMonth)}-01`, to: `${fy + (startMonth === 1 ? 0 : 1)}-${pad(startMonth - 1 || 12)}-${pad(daysInMonth(fy + (startMonth === 1 ? 0 : 1), startMonth - 1 || 12))}`, fy };
 };
 export const HALF = { FIRST: { start: 1, end: 15 }, SECOND: { start: 16, end: null } };
 /** Which half of the month does [start,end] represent (if any)? */

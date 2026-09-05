@@ -46,9 +46,3 @@ export function settingsFrom(row = {}) {
   };
   return s;
 }
-/** Rounding policy: NEAREST_RUPEE when enabled (one residual line on net, never on every line). */
-export function applyRoundOff(netPaise, settings) {
-  if (!settings.roundNetToRupee) return { net: netPaise, roundOff: 0 };
-  const rounded = Math.round(netPaise / 100) * 100;
-  return { net: rounded, roundOff: rounded - netPaise };
-}

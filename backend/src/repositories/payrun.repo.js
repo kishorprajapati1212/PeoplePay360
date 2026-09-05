@@ -38,14 +38,10 @@ const STAMP = {
 export const updatePayrunStatus = (id, status, { by } = {}, q = query) =>
   q(`update payruns set status = $1, ${STAMP[status] || 'updated_at = now()'} where id = $2 returning *`,
     [status, id, by || null]).then((r) => r.rows[0]);
-export const setPaid = (id, by, q = query) =>
-  q(`update payruns set status = 'PAID', paid_at = now(), paid_by = $2, locked_at = now() where id = $1 returning *`, [id, by]).then((r) => r.rows[0]);
 export const setSent = (id, by, q = query) => q(`update payruns set sent_at = now(), sent_by = $2 where id = $1 returning *`, [id, by]);
 /** Wizard step 2 selection, persisted only when the payrun is created. */
 export const addPayrunEmployees = (payrunId, employeeIds, q = query) =>
   q(`insert into payrun_employees (payrun_id, employee_id, is_selected) select $1, unnest($2::uuid[]), true on conflict (payrun_id, employee_id) do nothing`, [payrunId, employeeIds]);
-export const setPayrunEmployees = (payrunId, employeeIds, q = query) =>
-  q(`delete from payrun_employees pe where pe.payrun_id = $1 and pe.employee_id <> all($2::uuid[]) and not exists (select 1 from payslips p where p.payrun_id = pe.payrun_id and p.employee_id = pe.employee_id)`, [payrunId, employeeIds]);
 export const payrunEmployees = (payrunId) =>
   query(`select pe.*, e.name as employee, e.employee_code, d.name as department, c.wage, c.id as contract_id,
                 p.id as payslip_id, p.status as payslip_status, p.net_amount, p.gross_amount, p.total_deductions,
@@ -70,4 +66,3 @@ export const payrunWarningRows = (id) =>
          from payslips p join payslip_lines l on l.payslip_id = p.id
          join employees e on e.id = p.employee_id
          where p.payrun_id = $1 and l.computation_log ilike 'ERROR%' order by e.name`, [id]).then((r) => r.rows);
-export const lockPayrun = (id, q = query) => q(`select id, status, locked_at from payruns where id = $1 for update`, [id]).then((r) => r.rows[0] || null);

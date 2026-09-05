@@ -8,11 +8,12 @@ import { DataTable } from '../../components/data/DataTable.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { SchemaForm, valuesFromRow } from '../../components/crud/schemaForm.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
-import { SearchInput, Select } from '../../components/ui/controls.jsx';
+import { SearchInput, Select, Field, Input } from '../../components/ui/controls.jsx';
 import { EmptyState, ErrorPanel } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, date, today } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /**
  * One running contract per person per period — the mockup's rule "payroll uses the contract applied to
@@ -35,6 +36,7 @@ export function ContractsPage() {
   const mayWrite = useCan('contract:write');
   const table = useTable({});
   const [editing, setEditing] = useState(null);
+  const [ending, setEnding] = useState(null);   // the API needs the last working day, so ask for it
   const [values, setValues] = useState({});
   const { run, busy } = useAction();
 
@@ -43,10 +45,10 @@ export function ContractsPage() {
     employees.list({ page: 1, page_size: 300 }), org.departments.list({}), org.schedules.list({}), salary.structures.list({}),
   ]), []), []);
   const opts = lookups.data || [];
-  const fields = FIELDS.map((f) => f.key === 'employee_id' ? { ...f, options: (opts[0]?.rows || []).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })) }
-    : f.key === 'salary_structure_id' ? { ...f, options: (opts[3] || []).map((s) => ({ value: s.id, label: s.name })) }
-    : f.key === 'department_id' ? { ...f, options: (opts[1] || []).map((d) => ({ value: d.id, label: d.name })) }
-    : f.key === 'working_schedule_id' ? { ...f, options: (opts[2] || []).map((s) => ({ value: s.id, label: s.name })) } : f);
+  const fields = FIELDS.map((f) => f.key === 'employee_id' ? { ...f, options: toRows(opts[0]).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })) }
+    : f.key === 'salary_structure_id' ? { ...f, options: toRows(opts[3]).map((s) => ({ value: s.id, label: s.name })) }
+    : f.key === 'department_id' ? { ...f, options: toRows(opts[1]).map((d) => ({ value: d.id, label: d.name })) }
+    : f.key === 'working_schedule_id' ? { ...f, options: toRows(opts[2]).map((s) => ({ value: s.id, label: s.name })) } : f);
 
   async function save() {
     const body = { ...values, wage: Number(values.wage || 0), employee_id: values.employee_id, start_date: values.start_date };
@@ -60,8 +62,13 @@ export function ContractsPage() {
   function openEdit(row) { setEditing(row); setValues(valuesFromRow(FIELDS, row)); }
 
   async function act(row, what) {
-    await run(what + row.id, () => (what === 'terminate' ? contracts.terminate(row.id, {}) : contracts.renew(row.id, { start_date: today() })))
-      .then(() => { list.reload(); toast.success(what === 'terminate' ? 'Contract terminated' : 'Contract renewed from today'); })
+    await run(what + row.id, () => contracts.renew(row.id, { start_date: today() }))
+      .then(() => { list.reload(); toast.success('Contract renewed from today'); })
+      .catch((e) => toast.error(e.message));
+  }
+  async function saveEnd() {
+    await run('end' + ending.id, () => contracts.terminate(ending.id, { date_of_exit: ending.date_of_exit, reason: ending.reason }))
+      .then(() => { setEnding(null); list.reload(); toast.success('Contract ended'); })
       .catch((e) => toast.error(e.message));
   }
 
@@ -70,7 +77,7 @@ export function ContractsPage() {
       <PageHeader title="Contracts" subtitle="The wage and the dates that payroll is computed from. Overlapping periods are refused — that is deliberate."
                   actions={mayWrite && <button className="btn-primary btn-sm" onClick={openNew}>+ New contract</button>} />
       <Panel pad={false}>
-        <DataTable loading={list.loading} rows={list.data?.rows || []} error={list.error} onRetry={list.reload}
+        <DataTable loading={list.loading} rows={toRows(list.data)} error={list.error} onRetry={list.reload}
           toolbar={<>
             <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee name…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
@@ -88,12 +95,24 @@ export function ContractsPage() {
               <span className="flex gap-1.5">
                 <button className="btn-ghost btn-sm" onClick={() => openEdit(r)}>Edit</button>
                 {r.status === 'RUNNING' && <button className="btn-ghost btn-sm" onClick={() => act(r, 'renew')}>Renew</button>}
-                {r.status === 'RUNNING' && <button className="btn-danger btn-sm" onClick={() => act(r, 'terminate')}>End</button>}
+                {r.status === 'RUNNING' && <button className="btn-danger btn-sm" onClick={() => setEnding({ id: r.id, employee: r.employee, date_of_exit: today(), reason: '' })}>End</button>}
               </span>) },
           ]}
-          pagination={{ page: table.page, size: table.size, total: list.data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+          pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
           empty={<EmptyState title="No contracts" hint="Create a contract or add an employee — the employee wizard can create the first contract with it." />} />
       </Panel>
+
+      <Modal open={!!ending} onClose={() => setEnding(null)} width="max-w-md" title={'End the contract' + (ending?.employee ? ' · ' + ending.employee : '')}
+             subtitle="Payroll stops paying from the day after this one — the final slip is pro-rated to it."
+             footer={<><button className="btn-ghost" onClick={() => setEnding(null)}>Cancel</button>
+                      <button className="btn-danger" disabled={!!busy || !ending?.date_of_exit} onClick={saveEnd}>{busy === 'end' + (ending?.id || '') ? 'Saving…' : 'End contract'}</button></>}>
+        {ending && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Last working day" required><Input type="date" value={ending.date_of_exit} onChange={(v) => setEnding({ ...ending, date_of_exit: v })} /></Field>
+            <Field label="Reason" hint="Shown on the audit trail."><Input value={ending.reason} onChange={(v) => setEnding({ ...ending, reason: v })} placeholder="Role closed" /></Field>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} width="max-w-2xl"
              title={editing?.id ? 'Edit contract' : 'New contract'} subtitle="A contract sets the wage and the period it applies to; the structure decides how it is split."

@@ -30,7 +30,8 @@ peoplepay360/
 ├── frontend/          Vite + React + Tailwind
 │   └── src/
 │       ├── config/    what the app talks to (API base, cookie, token lifetime)
-│       ├── api/       one file per resource + http.js (the only fetch in the app)
+│       ├── api/       endpoints.js (every call, grouped like the backend) + client.js (the only fetch)
+│       ├── theme.js   light/dark toggle · theme.css the two palettes
 │       ├── auth/      login state, tokens, <Authorized>, useCan
 │       ├── rbac/      reads the menu/permissions the API returned — nothing hard-coded here
 │       ├── hooks/     useApi · useCrud · usePagedQuery · useSession
@@ -103,7 +104,9 @@ Every account uses the same password: **`Password@123`**
 | Payroll user | `payroll@oxp.com` | runs and payslips, but cannot approve a run, mark it paid, or void it |
 | Employee | `aarav.mehta@oxp.com` (or any employee's work email) | only My pay: own profile, own attendance, own requests, own payslips |
 
-Log out with the avatar menu (top right). The access token (`localStorage`, `pp360.auth.v1`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloading never logs you out — `api/http.js` silently calls `/api/auth/refresh` on a 401 and retries once.
+Log out with the avatar menu (top right). The access token (`localStorage`, key `pp360.token`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh
+token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloading never logs you out —
+`api/client.js` calls `/api/auth/refresh` on a 401 and retries the request once.
 
 `hr2@oxp.com` is the same HR screens as `hr@oxp.com` but with the restricted role (`HR_PAYROLL_USER` alone): leave approval caps at 3 days, salary-rule editing, pay-run approval, marking paid and void are refused by the API — and those buttons simply do not render.
 
@@ -113,14 +116,51 @@ Log out with the avatar menu (top right). The access token (`localStorage`, `pp3
 
 * **Login for every role** — bcrypt check, JWT + refresh cookie, `/api/auth/me` returns the role's permissions **and** its menu, so the sidebar and every button are derived from the API, never hard-coded in React.
 * **CRUD on the real objects**, screen by screen: employees (plus contracts, attendance, time-off, payslips, terminate), departments / schedules / holidays (with a bulk "generate holidays" action), attendance entry + clock + overtime approval, time-off types / requests (approve–refuse) / allocations, salary structures and rules (with the validator), pay runs (create → compute → validate → generate PDFs → mark paid → send → void), payslip detail (lines, inputs, history, print/PDF/email), users (create, roles, activate, reset password), company settings (all ~30 payroll switches incl. PT slabs), and the access matrix.
+* **Two screens, two audiences**: `/attendance` and `/payslips` are shared — HR sees everyone and the correction
+  dialog, an employee sees only their own rows (the same screen asks the API which permission it got, so nothing is
+  hard-coded twice). An employee's **Download PDF** button mints a short link to `/api/portal/payslips/:id/pdf`
+  (the audited self-service route), while payroll gets `/api/payslips/:id/pdf`.
 * **Bulk work in the background** — payslip PDFs, payslip emails, employee imports and report exports are queued in Redis and drained by the worker; watch them under Settings → System.
 * **Scope**: the API filters every list to the rows you are allowed to see (`own` for employees), so the front end does not need to guard data — only the buttons.
+
+## 5b · Light and dark
+
+The toggle sits in the sidebar footer (and in the top bar on small screens). `html.dark` is the default because that
+is what the mockup shows; `html.light` is the same screens on paper. Both themes are one block of colour variables in
+[`frontend/src/theme.css`](frontend/src/theme.css), and `tailwind.config.js` points every colour utility at them — so
+no page knows which theme is on, and a new screen is themed for free. Your choice is remembered (`pp360.theme`), and
+`index.html` applies it before the first paint.
+
+## 5c · Real payslip emails (Gmail in two minutes)
+
+1. Google account → Security → 2-Step Verification → **App passwords** → create one (16 characters).
+2. Put both values in [`backend/.env`](backend/.env): `EMAIL_NAME=you@gmail.com`, `EMAIL_PASSWORD=abcd efgh ijkl mnop`.
+3. Restart (`docker compose restart api worker`, or Ctrl+C and `npm run dev`).
+
+That is the whole config: the mailer sees credentials, picks the Gmail driver by itself and sends payslips with the PDF
+attached. With those two lines empty it stays on `preview` and writes each mail to `backend/storage/mail/*.eml`
+instead, so the demo works offline. `GET http://localhost:4100/health` prints which driver the worker is using, and a
+rejected send is stored on the payslip (`email_status = FAILED` + the provider's own message in the task row) so you can
+see *why* in Settings → System. Note Google's own limit: ~500 recipients/day on a personal account, `550 5.4.5` above it.
+
+## 5d · Queues: the worker, Redis and why PDFs stall
+
+PDF generation, payslip mail, imports and exports are BullMQ jobs, so the API and the worker must dial the *same*
+Redis. Both read the same three settings from [`backend/.env`](backend/.env): `REDIS_URL` (optional — a full
+`redis://host:port/db` string wins if you set it), otherwise `REDIS_HOST` + `REDIS_PORT`, with `REDIS_PASSWORD`,
+`REDIS_USERNAME`, `REDIS_DB` and `REDIS_TLS` as extras. `docker-compose.yml` sets `REDIS_HOST=redis` for `api` and
+`worker`, which is why nothing needs changing in Docker.
+
+If a queue stalls — PDFs never appear, mails stay queued, `Settings → System` shows jobs piling up, or the worker log
+repeats `connect ECONNREFUSED 127.0.0.1:6379` — the worker was pointed at localhost while the API used the container.
+`GET http://localhost:4100/health` prints the Redis host and port the worker resolved, so one curl tells you which
+side is wrong; fix `.env`, then `docker compose restart api worker` (or `npm run dev` again).
 
 ## 6 · Checks you can run
 
 ```bash
-cd backend && node scripts/test-unit.js        # 38 engine/HR rules tests, no database needed
-cd backend && node --test test/                # payslip + arrear math (uses the seeded DB)
+cd backend && node scripts/test-unit.js        # 43 payroll-engine, leave and RBAC tests, no database needed
+cd backend && node --test test/                # guards every perm: token against the catalogue, and the nav map
 cd backend && node scripts/smoke.js            # drives all 150 endpoints against the API
 cd frontend && npm run build                   # real production build (also proves every import)
 bash scripts/check-syntax.sh                   # syntax of all .js/.jsx in ~1 s, no build
@@ -130,7 +170,7 @@ bash scripts/check-syntax.sh                   # syntax of all .js/.jsx in ~1 s,
 so out loud when it is missing, rather than quietly checking only half the files.
 
 At the repo root, `npm run check` does all four in one go (JSX/JS syntax → every backend module loads →
-38 unit tests → the 150-route inventory), and `npm run build` runs the real production build of the front end.
+43 unit tests → the 150-route inventory), and `npm run build` runs the real production build of the front end.
 Other root shortcuts: `npm run setup`, `npm run dev`, `npm run smoke`, `npm run db:reset`, `npm run up` / `down` / `logs`.
 
 ## 7 · Change the rules, not the code

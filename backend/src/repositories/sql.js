@@ -7,11 +7,6 @@ const SORT = {
   day: 'a.day', sequence: 'r.sequence', created: 'r.created_at', type: 't.name', start: 'x.start_date', role: 'u.display_name',
   employee: 'e.name', check_in: 'a.check_in', amount: 'l.amount', month: 'p.month_anchor',
 };
-export const orderBy = (key, dir, fallback) => {
-  const col = SORT[String(key || '').toLowerCase()];
-  if (!col) return fallback;
-  return `order by ${col} ${String(dir).toLowerCase() === 'desc' ? 'desc' : 'asc'}, e.id nulls last`;
-};
 /** Builds "where true" + $n params, so filters compose without string soup. */
 export function where() {
   const clauses = []; const params = [];

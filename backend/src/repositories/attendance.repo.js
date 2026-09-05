@@ -33,8 +33,6 @@ export const getAttendance = (id) =>
   query(`${SELECT} where a.id = $1`, [id]).then((r) => mapKeys(r.rows[0], ['worked_hours', 'net_worked_hours', 'overtime_hours', 'expected_hours']));
 export const byEmployeeDay = (employeeId, day, q = query) =>
   q(`select * from attendance where employee_id = $1 and day = $2`, [employeeId, day]).then((r) => r.rows[0] || null);
-export const rowsForPeriod = (employeeId, from, to, q = query) =>
-  q(`select * from attendance where employee_id = $1 and day between $2 and $3 order by day`, [employeeId, from, to]).then((r) => r.rows);
 export const createAttendance = (d, q = query) =>
   q(`insert into attendance (${COLS.filter((c) => d[c] !== undefined).join(', ')})
      values (${COLS.filter((c) => d[c] !== undefined).map((_, i) => `$${i + 1}`).join(', ')})
@@ -76,19 +74,3 @@ export const monthlySummary = (employeeId, from, to) =>
                 count(*) filter (where is_manual)::int as manual
          from attendance where employee_id = $1 and day between $2 and $3`, [employeeId, from, to])
     .then((r) => mapKeys(r.rows[0], ['worked_hours', 'net_hours', 'overtime_hours']));
-/** Attendance heat for the dashboard panel: present %, by day, for a month. */
-export const attendanceHealth = ({ from, to, departmentId } = {}) => {
-  const { params, P } = params0();
-  const clauses = [`a.day between ${P(from)} and ${P(to)}`];
-  if (departmentId) clauses.push(`e.department_id = ${P(departmentId)}`);
-  return query(`
-    select a.day,
-           count(*) filter (where a.status in ('PRESENT','LATE','OVERTIME','HALF_DAY')) as present,
-           count(*) filter (where a.status = 'ABSENT') as absent,
-           count(*) filter (where a.status = 'ON_LEAVE') as on_leave,
-           count(*) filter (where a.check_in is not null and a.check_out is null) as exceptions,
-           coalesce(avg(a.worked_hours) , 0) as avg_hours,
-           count(*) as total
-    from attendance a join employees e on e.id = a.employee_id
-    where ${clauses.join(' and ')} group by a.day order by a.day`, params).then((r) => r.rows.map((x) => mapKeys(x, ['present', 'absent', 'on_leave', 'exceptions', 'total', 'avg_hours'])));
-};

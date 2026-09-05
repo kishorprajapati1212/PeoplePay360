@@ -45,7 +45,12 @@ export const config = {
   uploadDir: env('UPLOAD_DIR', join(ROOT, 'storage/uploads')),
   mailDir: env('MAIL_DIR', join(ROOT, 'storage/mail')),
   pdf: { renderer: env('PDF_RENDERER', 'pdfkit'), dir: env('PDF_DIR', join(ROOT, 'storage/pdfs')) },
-  mail: { driver: env('MAIL_DRIVER', 'preview'), from: env('MAIL_FROM', 'OXP Payroll <payroll@oxp.com>'), dailyLimit: num('MAIL_DAILY_LIMIT', 200) },
+  // Sending: leave EMAIL_NAME/EMAIL_PASSWORD empty and nothing leaves the machine (.eml files in storage/mail).
+  // Fill them in with your Gmail address + an App Password and real sending switches on by itself.
+  mail: { driver: env('MAIL_DRIVER', ''), from: env('MAIL_FROM', ''), dailyLimit: num('MAIL_DAILY_LIMIT', 200),
+    name: env('EMAIL_NAME', env('GMAIL_USER', env('SMTP_USER', ''))),
+    password: env('EMAIL_PASSWORD', env('GMAIL_APP_PASSWORD', env('SMTP_PASS', ''))),
+    host: env('SMTP_HOST', ''), port: num('SMTP_PORT', 587), secure: bool('SMTP_SECURE', false) },
   queue: { concurrency: num('WORKER_CONCURRENCY', 2), stalledAfterMs: num('QUEUE_STALLED_MS', 60_000) },
   demo: { enabled: bool('SEED_DEMO', true), password: env('DEMO_PASSWORD', 'Password@123') },
   login: { maxAttempts: num('LOGIN_MAX_ATTEMPTS', 8), windowSec: num('LOGIN_WINDOW_SEC', 300), lockoutSec: num('LOGIN_LOCKOUT_SEC', 900) },

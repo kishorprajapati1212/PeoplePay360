@@ -11,7 +11,13 @@ export function useApi(loader, deps = [], { immediate = true } = {}) {
   const alive = useRef(true);
   const fn = useCallback(loader, deps);
 
-  useEffect(() => () => { alive.current = false; }, []);
+  // React.StrictMode (on in main.jsx) mounts → unmounts → remounts every component in development.
+  // Toggling the flag inside that effect is what makes it correct: without the re-arm on the second
+  // mount the first fetch's result was thrown away and every screen sat on its loading text forever.
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
   const run = useCallback(async () => {
     setLoading(true);
     try {

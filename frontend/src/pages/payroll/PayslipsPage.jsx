@@ -11,6 +11,7 @@ import { SearchInput, Select } from '../../components/ui/controls.jsx';
 import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { inr, num, date, periodLabel } from '../../utils/format.js';
 import { useCan } from '../../rbac/Can.jsx';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** Payslip register: one row per person per period, with the state of its PDF and its email. */
 export function PayslipsPage() {
@@ -23,7 +24,7 @@ export function PayslipsPage() {
     <>
       <PageHeader title="Payslips" subtitle={mayReadAll ? 'Every slip in the system. Click one to see the rule-by-rule working.' : 'Only your own slips are listed here — the portal download is the employee path.'} />
       <Panel pad={false}>
-        <DataTable rows={list.data?.rows || []} loading={list.loading} error={list.error} onRetry={list.reload} onRowClick={(r) => navigate('/payslips/' + r.id)}
+        <DataTable rows={toRows(list.data)} loading={list.loading} error={list.error} onRetry={list.reload} onRowClick={(r) => navigate('/payslips/' + r.id)}
           toolbar={<>
             <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee or code…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
@@ -43,7 +44,7 @@ export function PayslipsPage() {
             { key: 'pdf_generated_at', label: 'PDF', render: (r) => (r.pdf_hash ? <span className="text-xs text-emerald-300">{date(r.pdf_generated_at)}</span> : <span className="text-xs text-slate-600">—</span>) },
             { key: 'email_status', label: 'Email', render: (r) => (r.email_status ? <StatusChip value={r.email_status} /> : <span className="text-xs text-slate-600">—</span>) },
           ]}
-          pagination={{ page: table.page, size: table.size, total: list.data?.total || 0, onPage: table.setPage, onSize: table.setSize }}
+          pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
           empty={<EmptyState title="No payslips" hint="They appear as soon as a payrun is computed." />} />
       </Panel>
     </>

@@ -4,11 +4,12 @@ import { CrudPage } from '../../components/crud/CrudPage.jsx';
 import { useApi } from '../../hooks/useApi.js';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { inr, num } from '../../utils/format.js';
+import { toRows, totalOf } from '../../utils/query.js';
 
 /** Departments from the mockup's org section: list + create/edit + safe delete (the API refuses if people are assigned). */
 export function DepartmentsPage() {
   const people = useApi(useCallback(() => employees.list({ page: 1, page_size: 200 }), []), []);
-  const options = useMemo(() => (people.data?.rows || []).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })), [people.data]);
+  const options = useMemo(() => toRows(people.data).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })), [people.data]);
 
   return (
     <CrudPage

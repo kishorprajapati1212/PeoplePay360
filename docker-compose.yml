@@ -4,8 +4,9 @@
 #      docker compose up -d --build
 #
 #  then open the URLs below (Ctrl+Click works in a terminal; the API and worker also print them).
-#  Postgres/Redis use their built-in default credentials (postgres/postgres, no Redis password)
-#  and the database is created and seeded automatically by the `migrate` service.
+#  Postgres/Redis use their built-in default credentials (postgres/postgres, no Redis password),
+#  the database is created and seeded by the `migrate` service, and backend/.env is mounted read-only
+#  so a change there (an App Password for real email, say) only needs `docker compose restart`.
 #
 #  Sources are bind-mounted, so an edit reloads the container — no rebuild while you work.
 #  Stop with: docker compose down      (add -v only if you want to wipe the demo data)
@@ -55,6 +56,7 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/db:/app/db
+      - ./backend/.env:/app/.env:ro
       - pp_storage:/app/storage
     depends_on:
       postgres: { condition: service_healthy }
@@ -73,7 +75,6 @@ services:
       WEB_ORIGIN: http://localhost:5173
       CORS_ORIGINS: http://localhost:5173
       JWT_SECRET: peoplepay360-dev-secret-change-me-0123456789abcdef
-      MAIL_DRIVER: preview
       NODE_ENV: development
     ports:
       - '4000:4000'
@@ -81,6 +82,7 @@ services:
       - ./backend/src:/app/src
       - ./backend/db:/app/db
       - ./backend/scripts:/app/scripts
+      - ./backend/.env:/app/.env:ro
       - pp_storage:/app/storage
     depends_on:
       postgres: { condition: service_healthy }
@@ -96,12 +98,12 @@ services:
       REDIS_HOST: redis
       WORKER_PORT: 4100
       WEB_ORIGIN: http://localhost:5173
-      MAIL_DRIVER: preview
       NODE_ENV: development
     ports:
       - '4100:4100'
     volumes:
       - ./backend/src:/app/src
+      - ./backend/.env:/app/.env:ro
       - pp_storage:/app/storage
     depends_on:
       postgres: { condition: service_healthy }

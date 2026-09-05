@@ -27,14 +27,6 @@ export function requireAnyPermission(...any) {
     return next(new AppError('FORBIDDEN', `Needs at least one of: ${perms.join(', ')}`, { status: 403, details: { anyOf: perms, roles: auth.roles } }));
   };
 }
-export function requireRole(...roles) {
-  const set = new Set(roles.flat());
-  return (req, res, next) => {
-    if (!req.auth) return next(AppError.unauthorized());
-    if (!req.auth.roles.some((r) => set.has(r))) return next(new AppError('FORBIDDEN', `Requires role: ${[...set].join(' or ')}`, { status: 403 }));
-    next();
-  };
-}
 /** Download tokens are minted for exactly one payslip and cannot be reused on other routes. */
 export const forbidDownloadToken = (req, res, next) =>
   req.auth?.downloadOnly ? next(new AppError('SCOPE_TOKEN', 'This link is only valid for the file it points at', { status: 403 })) : next();

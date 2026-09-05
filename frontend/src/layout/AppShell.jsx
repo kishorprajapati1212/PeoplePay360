@@ -4,13 +4,14 @@ import { Topbar } from './Topbar.jsx';
 import { NoAccess } from '../components/ui/Feedback.jsx';
 import { useAuth } from '../auth/useAuth.js';
 import { can, PAGE_PERMISSIONS } from '../rbac/permissions.js';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary.jsx';
 
 /** The frame from the mockup: fixed sidebar on the left, page title bar on top, content below. */
 export function AppShell() {
   const { user } = useAuth();
   const location = useLocation();
   const perm = PAGE_PERMISSIONS[matchRoute(location.pathname)];
-  const allowed = !perm || can(user, perm);
+  const allowed = !perm || can(user, perm, { anyOf: Array.isArray(perm) });
 
   return (
     <div className="flex min-h-screen bg-ink-950">
@@ -18,9 +19,12 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="mx-auto w-full max-w-[1500px] flex-1 px-4 py-5 sm:px-6">
-          {allowed
-            ? <Outlet />
-            : <NoAccess permission={perm} path={location.pathname} />}
+          {allowed ? (
+            /* One screen failing cannot take the whole app down: the sidebar and top bar stay usable. */
+            <ErrorBoundary key={location.pathname}><Outlet /></ErrorBoundary>
+          ) : (
+            <NoAccess permission={[].concat(perm).join(' or ')} path={location.pathname} />
+          )}
         </main>
       </div>
     </div>

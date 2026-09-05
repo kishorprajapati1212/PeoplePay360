@@ -124,7 +124,3 @@ export async function candidatesForPeriod({ periodStart, periodEnd, structureId,
 export const activeForPeriod = ({ employeeId, from, to }) =>
   query(`select c.* from contracts c where c.employee_id = $1 and c.status <> 'DRAFT' and c.start_date <= $2 and (c.end_date is null or c.end_date >= $3)
          order by c.is_primary desc nulls last, c.start_date desc, c.id desc limit 1`, [employeeId, to, from]).then((r) => r.rows[0] || null);
-export const bulkEmployeesByIds = (ids) =>
-  query(`select id, name, employee_code, work_email, department_id, manager_id, date_of_joining, status, basic_salary,
-                 working_schedule_id, bank_account_number, bank_ifsc, bank_name, pan_number, uan_number, esi_number
-          from employees where id = any($1::uuid[])`, [ids]).then((r) => r.rows);

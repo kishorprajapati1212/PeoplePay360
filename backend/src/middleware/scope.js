@@ -20,9 +20,3 @@ export function enforceScope({ field = 'employeeId', onSelfOnly = true } = {}) {
     next();
   };
 }
-/** Managers with scope=team: expand to the recursive reporting chain (CTE in the repository). */
-export const scopeFilterSql = (req, { alias = 'e' } = {}) => {
-  if (!req.scope || req.scope.all) return { sql: '', params: [] };
-  if (req.scope.teamOf) return { sql: `and ${alias}.id in (with recursive r(id) as (select $${0}::uuid union all select e2.id from employees e2 join r on e2.manager_id = r.id) select id from r)`, params: [] };
-  return { sql: `and ${alias}.id = $`, params: [req.scope.employeeId] };
-};
