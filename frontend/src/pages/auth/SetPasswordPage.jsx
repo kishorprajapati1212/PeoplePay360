@@ -6,6 +6,7 @@ import { Field, Input } from '../../components/ui/controls.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
 import { Spinner } from '../../components/ui/Spinner.jsx';
 import { datetime } from '../../utils/format.js';
+import { ThemeToggle } from '../../layout/ThemeToggle.jsx';
 
 /**
  * The other half of Settings → User Access → Send link.
@@ -108,7 +109,9 @@ export function SetPasswordPage() {
 /** The sign-in page's frame, so an invitation lands somewhere that looks like the product. */
 function Shell({ children, note }) {
   return (
-    <div className="grid min-h-screen place-items-center p-6">
+    <div className="relative grid min-h-screen place-items-center p-4 sm:p-6">
+      {/* the same theme control the sign-in card carries: this page is part of the product, not a stray link */}
+      <div className="absolute right-4 top-4"><ThemeToggle compact /></div>
       <div className="w-full max-w-md">
         <p className="mb-4 text-center text-xs font-semibold tracking-[0.18em] text-brand-300">PeoplePay 360</p>
         {note ? <Panel title="Check the link" pad><p className="text-sm text-slate-300">{note}</p></Panel> : children}

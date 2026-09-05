@@ -82,6 +82,20 @@ export async function saveRule(structureId, data, { ruleId } = {}) {
   if (rule.quantity_expr) {
     try { compile(rule.quantity_expr); } catch (e) { throw new AppError('QUANTITY_INVALID', e.message, { status: 422 }); }
   }
+  // One line, one way to be computed. The engine reads `computation_type` and then exactly one of
+  // amount / percentage / formula, so a percentage rule with no percentage is a rule that quietly pays nothing
+  // while looking configured on the screen. Only the missing case is refused here: an older row may legitimately
+  // carry a leftover value in another column, and editing its name must not become impossible because of it —
+  // the form refuses that combination before it is ever stored.
+  {
+    const needed = { FIXED: 'amount', PERCENTAGE: 'percentage', FORMULA: 'formula' }[String(rule.computation_type || 'FIXED')];
+    const blank = (v) => v === undefined || v === null || v === '' || (typeof v === 'number' && Number.isNaN(v));
+    if (needed && blank(rule[needed])) {
+      throw AppError.badRequest(`A ${String(rule.computation_type || 'FIXED').toLowerCase()} rule needs its ${needed} — without it this line pays nothing`,
+        { code: 'RULE_INPUT_MISSING', details: { fieldErrors: { [needed]: `A ${String(rule.computation_type || 'FIXED').toLowerCase()} rule needs its ${needed} — without it this line pays nothing` } } });
+    }
+  }
+
   const band = SEQUENCE_BANDS[rule.category];
   if (band && rule.sequence != null && (rule.sequence < band[0] || rule.sequence > band[1])) {
     // not fatal, but the payslip prints in sequence order, so a deduction at 5 lands above Basic

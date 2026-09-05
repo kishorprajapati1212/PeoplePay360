@@ -25,6 +25,8 @@ export function PayslipsPage() {
   const toast = useToast();
   const mayReadAll = useCan('payslip:read_all');
   const maySend = useCan('payroll:send_bulk');
+  // the same permission the run page's PDF button needs (POST /payruns/:id/generate-pdfs)
+  const mayPdf = useCan('payroll:validate');
   const { run, busy } = useAction();
   const [bulk, setBulk] = useState(null);
   const table = useTable({});
@@ -45,13 +47,35 @@ export function PayslipsPage() {
       if (out.skipped_missing_pdf) bits.push(`${out.skipped_missing_pdf} without a PDF`);
       if (out.skipped_missing_email) bits.push(`${out.skipped_missing_email} with no work email`);
       if (out.already_sent) bits.push(`${out.already_sent} already delivered`);
-      (out.queued ? toast.success : toast.error)(`Payslip mail: ${bits.join(' · ')}. ${out.queued ? out.how_it_is_delivered : 'Nothing was queued — generate the PDFs on the payrun first.'}`);
+      (out.queued ? toast.success : toast.error)(`Payslip mail: ${bits.join(' · ')}. ${out.queued ? out.how_it_is_delivered : 'Nothing was queued — press "Create the missing PDFs" above first.'}`);
     }).catch((e) => toast.error(e.message));
   }
+  /*
+   * "Generate the missing PDFs" belongs on the register, not only on the payrun page: the row says
+   * `PDF —` and the honest next click is the button beside it, not a trip to another screen with a filter to
+   * re-set. It calls the payrun's own endpoint, so the worker still does the work when it is running and this
+   * request does it when it is not (see generatePdfs in payrun.service.js).
+   */
+  async function generatePdfs() {
+    const payrunId = table.query.payrun_id;
+    if (!payrunId) { toast.error('Pick a payrun in the filter above first — PDFs are made a run at a time.'); return; }
+    await run('pdf', () => payroll.payruns.generatePdfs(payrunId, { reason: 'payslips' }))
+      .then((out) => {
+        list.reload();
+        const bits = [];
+        if (out.inline) bits.push(`${num(out.inline)} created just now`);
+        if (out.queued) bits.push(`${num(out.queued)} handed to the worker`);
+        if (out.already) bits.push(`${num(out.already)} already had one`);
+        if (out.failed?.length) bits.push(`${num(out.failed.length)} failed`);
+        toast[(out.failed?.length || out.waiting) ? 'error' : 'success'](`${bits.join(' · ') || 'Nothing to do'}. ${out.how || ''}`);
+      })
+      .catch((e) => toast.error(e.message));
+  }
+
   async function sendOne(row) {
     await run('s' + row.id, () => payroll.payslips.bulkSend({ payslip_ids: [row.id], only_missing: false }))
       .then((out) => { list.reload(); out.queued ? toast.success(`E-mail queued for ${row.employee}`)
-        : toast.error(out.skipped.missing_pdf.length ? 'No PDF for this slip yet — generate it from the payrun (PDFs) or the slip page.'
+        : toast.error(out.skipped.missing_pdf.length ? 'No PDF for this slip yet — press "Create the missing PDFs" above, or open the slip and download it: that renders the file on the spot.'
           : out.skipped.missing_email.length ? 'This employee has no work email on file.' : 'Already delivered.'); })
       .catch((e) => toast.error(e.message));
   }
@@ -62,7 +86,7 @@ export function PayslipsPage() {
       <Panel pad={false}>
         <DataTable rows={toRows(list.data)} loading={list.loading} error={list.error} onRetry={list.reload} onRowClick={(r) => navigate('/payslips/' + r.id)}
           toolbar={<>
-            <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee or code…" />
+            <SearchInput value={table.term} onChange={table.onSearch} placeholder="Employee or code…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
                     options={['DRAFT', 'COMPUTED', 'VALIDATED', 'PAID', 'VOID'].map((v) => ({ value: v, label: v.charAt(0) + v.slice(1).toLowerCase() }))} placeholder="Any status" />
             <Select className="w-52" value={table.query.payrun_id || ''} onChange={(v) => table.onFilter('payrun_id', v)} options={runOptions}
@@ -70,6 +94,9 @@ export function PayslipsPage() {
                     emptyText={runOptions.length ? undefined : 'No payruns yet — payslips are created by a run.'} />
             <Select className="w-40" value={table.query.missing_bank ? 'missing' : ''} onChange={(v) => table.onFilter('missing_bank', v === 'missing' ? 'true' : '')}
                     options={[{ value: 'missing', label: 'Bank details missing' }]} placeholder="Any bank status" />
+            {mayPdf && <button className="btn-ghost btn-sm" onClick={generatePdfs} disabled={!!busy}
+                               title="Fills in the slips this run has no file for. The worker does them if it is running; if it is not, this request renders up to 40 and tells you what is left.">
+                        {busy === 'pdf' ? 'Working…' : 'Create the missing PDFs'}</button>}
             {maySend && <button className="btn-ghost btn-sm ml-auto" onClick={() => setBulk({ payrun_id: table.query.payrun_id || '', period_key: table.query.month || '', again: false, ccHr: false })}>✉ E-mail payslips…</button>}
             <span className={maySend ? 'text-xs text-slate-500' : 'ml-auto text-xs text-slate-500'}>{num(list.data?.total || 0)} slips</span>
           </>}

@@ -9,7 +9,9 @@ export const compute = async (req, res) => ok(res, await svc.compute(req.params.
 export const validate = async (req, res) => ok(res, await svc.validate(req.params.id, { auth: req.auth }));
 export const markPaid = async (req, res) => ok(res, await svc.markPaid(req.params.id, { auth: req.auth }));
 export const send = async (req, res) => ok(res, await svc.sendPayslips(req.params.id, { auth: req.auth, force: req.valid.body.force, ccHr: req.valid.body.cc_hr }));
-export const pdfs = async (req, res) => ok(res, await svc.queuePdfs(req.params.id, { auth: req.auth }));
+/** The “Generate PDFs” button. `force` re-renders slips that already have a file (a footer or layout change). */
+export const pdfs = async (req, res) => ok(res, await svc.generatePdfs(req.params.id, { auth: req.auth,
+  force: req.valid?.body?.force === true, reason: req.valid?.body?.reason || 'payrun' }));
 export const emails = async (req, res) => ok(res, await svc.emailLedger(req.params.id));
 export const tasks = async (req, res) => ok(res, await svc.tasks(req.params.id));
 export const warnings = async (req, res) => ok(res, await svc.warnings(req.params.id));

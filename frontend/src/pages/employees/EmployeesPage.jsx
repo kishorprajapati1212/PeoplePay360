@@ -68,7 +68,7 @@ export function EmployeesPage() {
                 ? <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">{[r.missing_bank && 'no bank', r.missing_schedule && 'no schedule'].filter(Boolean).join(' · ')}</span> : null) },
           ]}
           toolbar={<>
-            <SearchInput className="w-64" value={table.term} onChange={table.onSearch} placeholder="Name, code or email…" />
+            <SearchInput value={table.term} onChange={table.onSearch} placeholder="Name, code or email…" />
             <Select className="w-44" value={table.query.department_id || ''} onChange={(v) => table.onFilter('department_id', v)} options={deptOptions} placeholder="All departments" />
             <Select className="w-36" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
                     options={[{ value: 'ACTIVE', label: 'Active' }, { value: 'ON_LEAVE', label: 'On leave' }, { value: 'TERMINATED', label: 'Terminated' }, { value: 'SUSPENDED', label: 'Suspended' }]} placeholder="Any status" />

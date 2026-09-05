@@ -39,6 +39,7 @@ export function CrudPage({
   // on/off for a text one (leave types and structures store ACTIVE/INACTIVE).
   active,                                  // { field='is_active', on='ACTIVE', off='INACTIVE', includeInactive=false }
   rowActions = [],                         // [{ key, label, perm?, show?(row), onClick(row, { reload, toast }) }]
+  onRow,                                   // (row) => void — a list whose rows open something else (structures)
 }) {
   const toast = useToast();
   const mayRead = useCan(readPerm);
@@ -192,6 +193,9 @@ export function CrudPage({
       <PageHeader title={title} subtitle={subtitle} />
       <Panel pad={false}>
         <DataTable columns={withActions} rows={rows} loading={loading} error={error} onRetry={reload} toolbar={toolbar}
+                   // "click a row for its detail" is only true if the row listens — and a row that listens must
+                   // not swallow the Edit / Deactivate buttons sitting inside it.
+                   onRowClick={onRow && ((row, e) => { if (e?.target?.closest?.('button,a,input,select,[role=option]')) return; onRow(row); })}
                    onSort={(c) => table.toggleSort(c.sort)}
                    empty={rows.length === 0 && activeFilterCount > 0
                      ? <EmptyState title={'Nothing matches these filters'}

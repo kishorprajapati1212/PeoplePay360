@@ -24,7 +24,6 @@ export function DepartmentsPage() {
       columns={[
         { key: 'name', label: 'Department' },
         { key: 'code', label: 'Code' },
-        { key: 'parent', label: 'Parent', render: (r) => r.parent?.name || r.parent_name || '—' },
         { key: 'manager', label: 'Manager', render: (r) => r.manager?.name || r.manager_name || '—' },
         { key: 'employee_count', label: 'People', align: 'right', render: (r) => num(r.employee_count ?? r.headcount ?? 0) },
         { key: 'monthly_cost', label: 'Wage cost', align: 'right', render: (r) => (r.monthly_cost ? inr(r.monthly_cost) : '—') },
@@ -33,7 +32,8 @@ export function DepartmentsPage() {
       fields={[
         { key: 'name', label: 'Name', required: true },
         { key: 'code', label: 'Code', hint: 'Short, upper case. Optional.' },
-        { key: 'parent_id', label: 'Parent department', type: 'select', options: [], hint: 'Leave empty for a top-level department.' },
+        { key: 'parent_id', label: 'Parent department', type: 'select', options: [],
+    hint: 'Optional, and only used by approval routing. A department with no parent is top-level — the list does not show this column because almost everything is top-level.' },
         { key: 'manager_id', label: 'Manager', type: 'select', options: options, placeholder: 'No manager' },
       ]}
     />

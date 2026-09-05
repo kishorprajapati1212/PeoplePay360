@@ -134,17 +134,18 @@ export const PT_SLABS = [
 ];
 
 export const USERS = [
-  // One role per login — the specification's five roles, five staff accounts. Two admins on purpose:
-  // an administrator cannot touch a peer's account, and the demo shows what that refusal looks like.
+  // One role per login, one login per role: the specification's five roles, five staff accounts, nothing
+  // extra to sign in as. Rahul Verma (the old sixth row) was a second ADMIN whose only job was to
+  // demonstrate that an admin cannot edit a peer admin — that rule is still enforced by the API, it just
+  // no longer needs a spare account sitting in every demo list.
   { key: 'admin', name: 'Anita Rao', work_email: 'admin@oxp.com', role: 'ADMIN', roles: ['ADMIN'] },
   { key: 'hr', name: 'Kunal Shah', work_email: 'hr@oxp.com', role: 'HR_MANAGER', roles: ['HR_MANAGER'] },
   { key: 'hr_user', name: 'Sneha Kulkarni', work_email: 'hr2@oxp.com', role: 'HR_PAYROLL_USER', roles: ['HR_PAYROLL_USER'] },
-  // The two payroll addresses are deliberately different: "payroll" owns a run end to end (compute →
-  // validate → release) and nothing else, while "payroll-admin" is the same authority plus the HR
-  // grant, so it can also fix the employee record sitting behind a wrong payslip. Both are printed by
-  // the seeder and both are in the README table — the roles here are what that documentation describes.
+  // "payroll" owns a run end to end (compute → validate → release) and nothing else, which is the point of
+  // the split: the person who can pay people is not the person who can hire them.
   { key: 'payroll', name: 'Meera Iyer', work_email: 'payroll@oxp.com', role: 'HR_PAYROLL_MANAGER', roles: ['HR_PAYROLL_MANAGER'] },
-  { key: 'payroll_admin', name: 'Rahul Verma', work_email: 'payroll-admin@oxp.com', role: 'ADMIN', roles: ['ADMIN'] },
+  // (An EMPLOYEE login is not listed here on purpose: every seeded person in EMPLOYEES gets their own
+  // account when the employees are created, so aarav.mehta@oxp.com exists without being declared twice.)
 ];
 
 /**

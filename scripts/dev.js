@@ -48,5 +48,5 @@ setTimeout(() => {
     ['Worker health', `http://localhost:${WORKER_PORT}/health`],
   ], 'PeoplePay360 · running');
   console.log('  Demo logins (password for all: Password@123)');
-  console.log('  admin@oxp.com · hr@oxp.com · hr2@oxp.com · payroll@oxp.com · payroll-admin@oxp.com · <employee>@oxp.com\n');
+  console.log('  admin@oxp.com (Admin) · hr@oxp.com (HR Manager) · hr2@oxp.com (Payroll Officer) · payroll@oxp.com (Payroll Manager) · <employee>@oxp.com (Employee)\n');
 }, 2500);

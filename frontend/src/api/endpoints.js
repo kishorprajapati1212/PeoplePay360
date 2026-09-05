@@ -188,7 +188,10 @@ export const users = {
   deactivate: (id) => api.post(`/users/${id}/deactivate`, {}),
   resetPassword: (id, body) => api.post(`/users/${id}/reset-password`, body || {}),
 };
-export const company = { get: () => api.get('/company'), update: (body) => api.patch('/company', body) };
+export const company = { get: () => api.get('/company'), update: (body) => api.patch('/company', body),
+  // Which driver is live (a config read, no connection) and the button that connects — and sends one message
+  // when an address is given. `check` answers "will my invites actually arrive" with the provider's own words.
+  mail: { get: () => api.get('/company/mail'), check: (body) => api.post('/company/mail/check', body || {}) } };
 export const system = {
   jobs: (query) => api.get('/system/jobs', query),
   tasks: (query) => api.get('/system/tasks', query),

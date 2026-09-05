@@ -10,6 +10,7 @@ import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
+import { explainRule, ruleProblem } from '../../utils/salary.js';
 
 /**
  * The salary rules library. A rule is one line on the payslip: what it is called, whether it is an
@@ -19,23 +20,17 @@ import { toRows, totalOf } from '../../utils/query.js';
  * the variables the engine exposes. The tester below calls the same code the payroll engine uses.
  */
 /**
- * One plain sentence per rule. The engine decides a line from these fields and nothing else, so reading
- * them back in order is an honest description of what will happen to a payslip.
+ * One plain sentence per rule, from utils/salary.js — the same sentence the structure dialog prints, so the two
+ * screens cannot describe the same rule differently. The engine decides a line from these fields and nothing
+ * else, which is what makes reading them back in order an honest description.
  * (docs/13-how-a-payslip-is-computed.md explains the whole calculation with a worked example.)
  */
-function explainRule(r) {
-  const bits = [];
-  if (r.computation_type === 'FIXED') bits.push(`pays a fixed ${inr(r.amount)}`);
-  else if (r.computation_type === 'PERCENTAGE') bits.push(`${r.percentage}% of ${r.base_code || 'BASIC'}`);
-  else bits.push(`runs ${r.formula || 'its formula'}`);
-  if (r.cap_amount) bits.push(`max ${inr(r.cap_amount)} a ${String(r.evaluation_period || 'PERIOD').toLowerCase().replace('_', ' ')}`);
-  if (r.annual_cap) bits.push(`max ${inr(r.annual_cap)} a year`);
-  if (r.condition_expr) bits.push(`only when ${r.condition_expr}`);
-  if (r.pro_rata) bits.push('scaled by days worked');
-  if (String(r.evaluation_period) === 'MONTH_ONCE') bits.push('once per month, so a half-month run does not pay it twice');
-  bits.push(r.appears_on_payslip ? 'shown on the slip' : 'kept off the slip');
-  return `Evaluated at #${r.sequence ?? '—'} — ${bits.join(', ')}.`;
-}
+// Which of amount / percentage / formula this line needs, and no more than one of them: utils/salary.js holds
+// the rule, so the structure dialog and this form describe the same line the same way. schemaForm runs a
+// field's `validate` even on a blank box, which is what lets a check say "this is needed".
+const crossCheck = (key) => (v, values) => { const p = ruleProblem(values); return p && p[0] === key ? p[1] : null; };
+
+const ruleSentence = (r) => `Evaluated at #${r.sequence ?? '—'} — ${explainRule(r)}.`;
 
 export function RulesPage() {
   const toast = useToast();
@@ -96,7 +91,7 @@ export function RulesPage() {
               <div>
                 <p className="text-slate-100">{r.name}</p>
                 <p className="text-xs text-slate-500">{r.code} · {r.structure || 'shared'}</p>
-                <p className="mt-0.5 max-w-md text-xs leading-snug text-slate-400">{explainRule(r)}</p>
+                <p className="mt-0.5 max-w-md text-xs leading-snug text-slate-400">{ruleSentence(r)}</p>
               </div>) },
           { key: 'category', label: 'Category', render: (r) => <StatusChip value={r.category} /> },
           { key: 'line_kind', label: 'Line', render: (r) => (r.line_kind === 'EARNING' ? <span className="text-emerald-300">earning</span> : r.line_kind === 'DEDUCTION' ? <span className="text-red-300">deduction</span> : <span className="text-slate-400">{String(r.line_kind).toLowerCase()}</span>) },
@@ -122,11 +117,11 @@ export function RulesPage() {
             hint: 'Lower is evaluated first, so a rule can use an earlier line. Totals (GROSS, NET) come last.' },
           { key: 'computation_type', label: 'Computation', type: 'select', options: [{ value: 'FIXED', label: 'Fixed amount' }, { value: 'PERCENTAGE', label: 'Percentage of a line' }, { value: 'FORMULA', label: 'Formula' }] },
           { key: 'amount', label: 'Amount', type: 'money', min: -999999, max: 999999, step: '0.01', unit: '₹ / month', placeholder: '5000',
-            hint: 'Fixed rules only. A negative amount turns the line into a deduction.' },
+            validate: crossCheck('amount'), hint: 'For a fixed line. A negative amount turns the line into a deduction.' },
           { key: 'percentage', label: 'Percentage', type: 'number', min: 0, max: 1000, step: '0.01', unit: '%', placeholder: '40',
-            hint: 'Percentage rules: 40 means 40%. Above 100 is allowed (a multiplier, not a share).' },
+            validate: crossCheck('percentage'), hint: 'For a percentage line: 40 means 40%. Above 100 is allowed (a multiplier, not a share).' },
           { key: 'base_code', label: 'Base line code', placeholder: 'BASIC', hint: 'What the percentage or cap is measured against — any code on this structure, or wage.' },
-          { key: 'formula', label: 'Formula', type: 'textarea', rows: 2, placeholder: 'min(BASIC * 0.5, 5000)', hint: 'Names you can use: BASIC, GROSS, wage, days, expected_days, overtime_hours, bonus_rate … plus any rule code above. Operators + - * / ( ) and min() max() round() floor() ceil() abs() if(test, then, else).' },
+          { key: 'formula', label: 'Formula', validate: crossCheck('formula'), type: 'textarea', rows: 2, placeholder: 'min(BASIC * 0.5, 5000)', hint: 'Names you can use: BASIC, GROSS, wage, days, expected_days, overtime_hours, bonus_rate … plus any rule code above. Operators + - * / ( ) and min() max() round() floor() ceil() abs() if(test, then, else).' },
           { key: 'cap_amount', label: 'Cap per period', type: 'money', min: 0, max: 9999999, step: '0.01', unit: '₹', placeholder: '1500',
             hint: 'The most this line can be inside one evaluation window — e.g. PF employer capped at ₹1,500.' },
           { key: 'annual_cap', label: 'Cap per year', type: 'money', min: 0, max: 9999999, step: '0.01', unit: '₹', placeholder: '18000',

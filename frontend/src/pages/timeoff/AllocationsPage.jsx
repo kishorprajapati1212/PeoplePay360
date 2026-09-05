@@ -137,8 +137,14 @@ export function AllocationsPage() {
   const assignUnknown = !!assignFor && !types.loading && !typeOptions.some((o) => String(o.value) === String(assignFor));
   // Only types that both grant days per year and allow carrying can be pushed forward — offering the rest
   // would just produce "Annual Leave does not carry forward".
-  const carryOptions = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation && t.carry_forward)
-    .map((t) => ({ value: t.id, label: t.name })), [types.data]);
+  /* The panel used to list only the types whose policy already allows carrying, which in the demo meant one
+     row: Privilege Leave. That read as "carry forward is broken for everything else". Every type with a
+     balance is offered now, and the one that decides is the type's own policy — shown next to it, and switchable
+     from here, so the admin is never sent hunting for another screen. */
+  const allocTypes = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation), [types.data]);
+  const carryOptions = useMemo(() => allocTypes.map((t) => ({ value: t.id,
+    label: t.name + (t.carry_forward ? '' : ' — does not carry forward yet') })), [allocTypes]);
+  const carryType = allocTypes.find((t) => String(t.id) === String(carry.type_id)) || null;
 
   /* The four boxes below are the whole ask of POST /api/time-off/carry-forward (see carryBody in
      backend/src/validators/hr.schema.js): a type, two years, and an optional cap in days. A blank cap means
@@ -181,6 +187,20 @@ export function AllocationsPage() {
             <Field label="Leave type" required>
               <Select value={carry.type_id} onChange={(v) => setCarry({ ...carry, type_id: v })} options={carryOptions} placeholder="Choose a type…" />
             </Field>
+            {carryType && !carryType.carry_forward && (
+              <div className="sm:col-span-4">
+                <Notice tone="warn" title="Policy says this type does not carry">
+                  <p>{carryType.name} is switched off for carry-forward, so the run below would be refused.
+                     Turning it on is a per-type decision — Casual and Sick usually stay capped at the year, Privilege and Compensatory do not.</p>
+                  <button className="btn-ghost btn-sm mt-2" disabled={!!busy}
+                          onClick={() => run('allow' + carryType.id, () => timeOff.types.update(carryType.id, { carry_forward: true }))
+                            .then(() => { types.reload(); toast.success(carryType.name + ' can carry forward now'); })
+                            .catch((e) => toast.error(e.message))}>
+                    {busy === 'allow' + carryType.id ? 'Switching…' : 'Allow carry-forward for ' + carryType.name}
+                  </button>
+                </Notice>
+              </div>
+            )}
             <Field label="From year" hint="The year whose unused days move out.">
               <Input type="number" inputMode="numeric" min={2000} max={2100} maxLength={4} placeholder="2025"
                      value={carry.from_year} onChange={(v) => setCarry({ ...carry, from_year: v })} />

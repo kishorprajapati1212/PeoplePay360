@@ -42,12 +42,14 @@ export function fieldProblems(fields, values) {
     const blank = v === '' || v === null || v === undefined;
     if (f.type === 'checkbox') continue;
     if (f.required && blank) { out[f.key] = `${f.label} is required`; continue; }
+    // A field's own `validate` runs even when the box is empty: "required unless the line is a percentage rule"
+    // is a real condition, and it cannot be expressed if blank values are skipped before the check.
+    if (typeof f.validate === 'function') { const m = f.validate(v, values); if (m) { out[f.key] = m; continue; } }
     if (blank) continue;
     const p = patternProblem(f.pattern, v);
     if (p) { out[f.key] = p; continue; }
     const r = rangeProblem(f, v);
     if (r) { out[f.key] = r; continue; }
-    if (typeof f.validate === 'function') { const m = f.validate(v, values); if (m) out[f.key] = m; }
   }
   return out;
 }

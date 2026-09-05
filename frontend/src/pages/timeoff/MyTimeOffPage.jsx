@@ -9,15 +9,19 @@ import { DataTable } from '../../components/data/DataTable.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Field, Select, Textarea, Input } from '../../components/ui/controls.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
-import { EmptyState } from '../../components/ui/Feedback.jsx';
+import { EmptyState, Notice } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { date, num, today } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
+import { payoffOf } from '../../utils/leave.js';
+import { guard, missingSentence } from '../../utils/form.js';
 
 /** The employee's own view of leave: balances, history, and a two-field request form. */
 export function MyTimeOffPage() {
   const toast = useToast();
   const [open, setOpen] = useState(null);
+  // set the first time Apply is pressed while something is still missing — until then the form is quiet
+  const [tried, setTried] = useState(false);
   const { run, busy } = useAction();
   const me = useApi(useCallback(() => portal.timeOff({ page: 1, page_size: 30 }), []), []);
   const balances = useApi(useCallback(() => portal.balances(), []), []);
@@ -26,7 +30,14 @@ export function MyTimeOffPage() {
   const mayGrant = useCan('timeoff:allocation_write');
   const typeList = useMemo(() => toRows(types.data), [types.data]);
 
+  // The two boxes the API cannot do without. The button used to go grey until they were filled, which is its
+  // own dead end: pressed and nothing happens, no sentence anywhere. Now it says what it needs.
+  const NEEDED = [['time_off_type_id', 'The leave type'], ['start_date', 'The first day']];
+  const check = guard(open || {}, NEEDED);
+
   async function submit() {
+    setTried(true);
+    if (!check.ok) { toast.error(missingSentence(check.missing)); return; }
     await run('new', () => portal.request({ ...open, end_date: open.end_date || open.start_date }))
       .then(() => { setOpen(null); me.reload(); balances.reload(); toast.success('Request sent for approval'); })
       .catch((e) => toast.error(e.message));
@@ -40,6 +51,8 @@ export function MyTimeOffPage() {
   // Balance for the type being asked for, so "you have 2 left" is said before the request, not after
   // the refusal. The portal returns the type name; a uuid match is the allocation rows' job.
   const chosenType = typeList.find((t) => String(t.id) === String(open?.time_off_type_id));
+  // What this type costs, from the shared sentence in utils/leave.js.
+  const payoff = payoffOf(chosenType);
   const chosenBalance = chosenType ? cards.find((b) => b.type === chosenType.name || b.name === chosenType.name || String(b.type_id) === String(chosenType.id)) : null;
   const remaining = chosenBalance ? Number(chosenBalance.remaining ?? chosenBalance.remaining_days ?? 0) : null;
   const shortBy = remaining !== null && remaining < 0 ? Math.abs(remaining) : 0;
@@ -47,7 +60,7 @@ export function MyTimeOffPage() {
   return (
     <>
       <PageHeader title="My time off" subtitle="Your balances are updated the moment a request is approved."
-                  actions={<button className="btn-primary btn-sm" onClick={() => setOpen({ time_off_type_id: '', start_date: today(), end_date: '', reason: '' })}>+ Request leave</button>} />
+                  actions={<button className="btn-primary btn-sm" onClick={() => { setTried(false); setOpen({ time_off_type_id: '', start_date: today(), end_date: '', reason: '' }); }}>+ Request leave</button>} />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((b) => (
@@ -76,7 +89,12 @@ export function MyTimeOffPage() {
             { key: 'start_date', label: 'From', render: (r) => date(r.start_date) },
             { key: 'end_date', label: 'To', render: (r) => date(r.end_date) },
             { key: 'duration', label: 'Days', align: 'right', render: (r) => num(r.duration) },
-            { key: 'reason', label: 'Reason', render: (r) => <span className="text-slate-400">{r.reason || '—'}</span> },
+            { key: 'reason', label: 'Reason', render: (r) => (
+              <div className="min-w-0">
+                <p className="truncate text-slate-400">{r.reason || '—'}</p>
+                {/* what the approver wrote back, if anything — a decision with a note is not a mystery */}
+                {r.decision_remark && <p className="truncate text-xs text-slate-500">Note from HR: {r.decision_remark}</p>}
+              </div>) },
             { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
             { key: 'approver', label: 'Decided by', render: (r) => r.approved_by_name || r.approver || '—' },
             { key: '_a', label: '', render: (r) => r.status === 'PENDING' && <button className="btn-ghost btn-sm" onClick={() => cancel(r)} disabled={busy === 'c' + r.id}>Cancel</button> },
@@ -87,13 +105,16 @@ export function MyTimeOffPage() {
       <Modal open={!!open} onClose={() => setOpen(null)} width="max-w-md" title="Request leave"
              subtitle="The API counts working days for you — holidays in between are not charged."
              footer={<><button className="btn-ghost" onClick={() => setOpen(null)}>Cancel</button>
-                      <button className="btn-primary" disabled={!!busy || !open?.time_off_type_id || !open?.start_date}
-                              title={!open?.time_off_type_id ? 'Pick the leave type first' : !open?.start_date ? 'A start date is required' : undefined}
-                              onClick={submit}>{busy === 'new' ? 'Sending…' : 'Send request'}</button></>}>
+                      <button className="btn-primary" disabled={!!busy} onClick={submit}>{busy === 'new' ? 'Sending…' : 'Send request'}</button></>}>
+        {open && tried && !check.ok && (
+          <Notice tone="warn" title={missingSentence(check.missing)}>
+            <p>Nothing was sent. Both boxes are on the form below — the type decides whether these days are paid.</p>
+          </Notice>
+        )}
         {open && (
           <div className="flex flex-col gap-3">
             <Field label="Leave type" required
-                   hint={typeList.length ? 'Only types HR has switched on are listed.' : undefined}
+                   hint={typeList.length ? 'Only types HR has switched on are listed. The line under this box says whether the days come off a balance or out of pay.' : undefined}
                    error={types.error ? 'Could not load your leave types: ' + types.error.message : null}>
               <Select value={open.time_off_type_id} onChange={(v) => setOpen({ ...open, time_off_type_id: v })} placeholder="Choose a leave type"
                       ariaLabel="Leave type" loading={types.loading} error={types.error?.message}
@@ -110,6 +131,8 @@ export function MyTimeOffPage() {
             )}
             {chosenType && (
               <p className="text-xs text-slate-500">
+                <span className={payoff?.tone === 'warn' ? 'text-amber-300' : 'text-emerald-300'}>{payoff?.text}</span>
+                <br />
                 {chosenType.name}: {chosenType.unit === 'HOURS' ? 'counted in hours' : 'counted in working days'}
                 {chosenType.requires_allocation
                   ? (remaining === null ? ' · your balance for it is not loaded yet'

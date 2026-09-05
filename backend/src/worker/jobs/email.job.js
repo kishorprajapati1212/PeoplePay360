@@ -1,13 +1,22 @@
 import { readFile, stat } from 'node:fs/promises';
 import { Worker } from 'bullmq';
-import { createMailer, payslipEmailVars, render } from '../../lib/mailer/index.js';
+import { payslipEmailVars, render } from '../../lib/mailer/index.js';
+import { mailerFrom, cachedLoader } from '../../lib/mailer/runtime.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { queueConnection } from '../redis.js';
 import { one, query, markTask, failTask } from '../db.js';
 import { payslipPackage } from './payslip-data.js';
 
-const mailer = createMailer(config.mail);
+/**
+ * The mailer is built per send, not once at module load, so a login saved in Settings → Company is picked up
+ * without restarting the worker. `cachedLoader` keeps that to one small read per 15 seconds however many
+ * messages the batch holds — and the environment remains the base, exactly as it is in the API process.
+ */
+const loadMailRow = cachedLoader(() => one(`select mail_enabled, mail_from, mail_daily_limit, smtp_host, smtp_port,
+                                                   smtp_secure, smtp_user, smtp_password
+                                            from company_settings where id`).catch(() => ({})));
+const mailer = () => mailerFrom({ loadRow: loadMailRow.load, base: config.mail });
 const DAY = 86_400_000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** ₹ with Indian digit grouping — the email is read on a phone, so "20070.55" is not good enough. */
@@ -66,7 +75,8 @@ export function createEmailWorker({ concurrency = config.worker.concurrency } = 
     const html = render('<p>Hi <b>{{first_name}}</b>,</p><p>Your payslip for <b>{{period}}</b> is ready. Net pay: <b>{{net}}</b>.</p>'
       + '<p><a href="{{link}}">Open the payslip in the portal</a> — the PDF is attached.</p><p style="color:#667">{{company}}</p>', vars);
 
-    const out = await mailer.send({ to, subject, text, html, from: payload.from || company.mail_from || config.mail.MAIL_FROM,
+    const m = await mailer();
+    const out = await m.send({ to, subject, text, html, from: payload.from || company.mail_from || config.mail.MAIL_FROM,
       cc: payload.ccHr ? company.mail_from : undefined, attachments, previewDir: config.mail.dir });
     if (!out?.ok) throw new Error(out?.error || 'mail driver refused the message');
     sentToday.n += 1;
@@ -101,7 +111,8 @@ async function sendInvite(job) {
     + '<p><a href="{{link}}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#2f5bd7;color:#fff;text-decoration:none">Choose your password</a></p>'
     + '<p style="color:#666">The link is valid for about {{hours}} hours and can be used once. Or copy this address: <code>{{link}}</code></p>'
     + '<p style="color:#666">Did not expect this? Ignore it — nothing changes on your account.</p>', vars);
-  const out = await mailer.send({ to: row.work_email, subject: 'Finish your PeoplePay360 account — choose a password', text, html, previewDir: config.mail.dir });
+  const m = await mailer();
+  const out = await m.send({ to: row.work_email, subject: 'Finish your PeoplePay360 account — choose a password', text, html, previewDir: config.mail.dir });
   if (!out?.ok) throw new Error(out?.error || 'mail driver refused the message');
   sentToday.n += 1;
   if (taskId) await markTask(taskId, 'COMPLETED', { jobId: String(job.id) });
@@ -122,6 +133,7 @@ export async function onEmailFailed(job, error) {
   logger.error({ taskId, retryable: res?.retryable, err: error?.message }, 'email job failed');
 }
 export const mailCapabilities = async () => {
-  const v = await mailer.verify();
-  return { ...v, ...mailer.status(), pdf_renderer: config.pdf.renderer, preview_dir: config.mail.dir };
+  const m = await mailer();
+  const v = await m.verify();
+  return { ...v, ...m.status(), pdf_renderer: config.pdf.renderer, preview_dir: config.mail.dir };
 };

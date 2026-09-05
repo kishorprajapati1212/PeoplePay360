@@ -2,6 +2,7 @@ import * as portal from '../services/portal.service.js';
 import * as payslips from '../services/payslip.service.js';
 import * as dashboard from '../services/dashboard.service.js';
 import * as company from '../services/company.service.js';
+import * as mail from '../services/mail.service.js';
 import * as delivery from '../services/delivery.service.js';
 import * as auditRepo from '../repositories/audit.repo.js';
 import { ok, filters } from './_http.js';
@@ -27,6 +28,12 @@ export const dashboardLoad = async (req, res) => ok(res, await dashboard.load({ 
 // company
 export const companyRead = async (_req, res) => ok(res, await company.read());
 export const companyUpdate = async (req, res) => ok(res, await company.update(req.valid.body, { auth: req.auth }));
+/**
+ * Settings → Company: which mail driver is live (a read of config only, never a connection), and the button
+ * that proves the login by connecting — and sending one message, if an address was given.
+ */
+export const companyMail = async (_req, res) => ok(res, await mail.mailStatus());
+export const companyMailCheck = async (req, res) => ok(res, await mail.checkMail({ to: req.valid.body?.to || req.auth?.email || null }));
 export const companyPtSlabs = async (req, res) => ok(res, { rows: await company.ptSlabs(req.query.state) });
 export const companyAddPtSlab = async (req, res) => ok(res, await company.addPtSlab(req.valid.body));
 export const companyRemovePtSlab = async (req, res) => ok(res, await company.removePtSlab(req.params.id));

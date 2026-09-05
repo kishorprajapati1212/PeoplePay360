@@ -28,7 +28,7 @@ export function NoAccess({ permission, path }) {
     <div className="panel panel-pad">
       <h2 className="text-sm font-semibold text-slate-100">This screen is not part of your role</h2>
       <p className="mt-1 text-sm text-slate-400">
-        It needs the permission <code className="rounded bg-ink-800 px-1.5 py-0.5 text-xs text-amber-200">{permission || path}</code>.
+        It needs the permission <code className="rounded bg-ink-800 px-1.5 py-0.5 text-xs text-amber-200">{permission || path || 'a role with at least one screen'}</code>.
         Access is defined in <code className="rounded bg-ink-800 px-1.5 py-0.5 text-xs text-slate-300">backend/src/lib/shared/permissions.js</code>.
       </p>
     </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../auth/useAuth.js';
 import { APP_NAME } from '../config/app.js';
 import { Field, Input } from '../components/ui/controls.jsx';
+import { ThemeToggle } from '../layout/ThemeToggle.jsx';
 
 /**
  * The mockup's login card, plus a role switcher: one click fills the demo credentials for that role so
@@ -15,15 +16,15 @@ import { Field, Input } from '../components/ui/controls.jsx';
  * The notes are what the roles actually hold (see backend/src/lib/shared/permissions.js).
  *
  * One role per account, which is what the API enforces — so this list has no "manager + HR" combination any
- * more, and the second ADMIN address exists to demonstrate the rule at the top of that list: an administrator
- * cannot change a peer administrator's role, password or status.
+ * more, and it has one login per role and nothing else. The rule that an administrator cannot change a peer
+ * administrator is still enforced by the API (it is the first line of every user route); it just does not need
+ * a spare admin account sitting in the demo to prove it.
  */
 const DEMO = [
   { role: 'Admin', email: 'admin@oxp.com', note: 'everything, incl. users & settings' },
   { role: 'HR Manager', email: 'hr@oxp.com', note: 'people, contracts, attendance, time off' },
   { role: 'Payroll Officer', email: 'hr2@oxp.com', note: 'runs: compute, validate, mark paid — no bulk mail' },
   { role: 'Payroll Manager', email: 'payroll@oxp.com', note: '+ bulk e-mail, PDFs, structures, delete a run' },
-  { role: 'Admin (second)', email: 'payroll-admin@oxp.com', note: 'same powers — use it to see that one admin cannot change another' },
   { role: 'Employee', email: 'aarav.mehta@oxp.com', note: 'own payslips, leave, attendance' },
 ];
 /** The seeder's default (config.demo.password). A deployment that set DEMO_PASSWORD must change this. */
@@ -63,7 +64,7 @@ export function LoginPage() {
           <ul className="mt-6 space-y-2 text-xs text-slate-400">
             {[
               'Roles decide the menu, the buttons and the rows you can see',
-              'Bulk PDFs and bulk email run on a Redis worker, never in the request',
+              'Bulk payslip PDFs and mail run on a Redis worker, never in the request',
               'Employees download their own slips straight from the portal',
             ].map((line) => <li key={line} className="flex gap-2"><span className="text-brand-300">•</span>{line}</li>)}
           </ul>
@@ -71,8 +72,11 @@ export function LoginPage() {
         <p className="text-[11px] text-slate-600">PostgreSQL · Express · React · Node · Redis</p>
       </div>
 
-      <div className="flex items-center justify-center p-6">
+      <div className="flex items-center justify-center p-4 sm:p-6">
+        {/* The theme control lives here too: the sign-in screen is part of the product, and a light-mode user
+            should not get a dark card and then a light app. */}
         <form onSubmit={submit} className="panel w-full max-w-md p-6">
+          <div className="mb-4 flex justify-end"><ThemeToggle compact /></div>
           <h2 className="text-base font-semibold text-slate-100">Welcome back</h2>
           <p className="mt-1 text-xs text-slate-400">Sign in with your work email.</p>
 

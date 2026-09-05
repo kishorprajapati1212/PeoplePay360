@@ -12,6 +12,8 @@ six decisions below, plus the built / not-built inventory.
 | 02 | `02-problem-statement-traceability.md` | Every requirement in the PDF → the API and table that answer it → the acceptance test |
 | 03 | `03-payroll-domain-research.md` | How payroll really works: Odoo object/workflow mapping, salary-rule engine semantics, money math, proration, India statutory rules, payslip anatomy |
 | 12 | `12-ui-spec-and-structure.md` | The mockup read screen-by-screen, folder-wise structure, how RBAC reaches the client, login flow, the 160-endpoint contract |
+| 15 | `15-reading-the-code.md` | The five parts every screen is written in, where each shared piece lives, and the rules this repo keeps to |
+| 16 | `16-round-8-plan.md` | Round 8, item by item: mail transport in the product, stars that match the validators, payslip files, structures that explain themselves — each with what was verified in the code first |
 | 13 | `13-how-a-payslip-is-computed.md` | How one rule becomes one number on a slip: the four steps, a worked month, half-month factor, per-day money, caps, statutory lines, the formula variables |
 | 14 | `14-built-and-not-built.md` | The inventory: which screens are wired end to end, which API routes have no UI, what is deliberately not built and what stands in its place, and how each claim was checked |
 

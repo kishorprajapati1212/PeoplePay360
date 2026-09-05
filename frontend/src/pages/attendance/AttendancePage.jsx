@@ -83,7 +83,7 @@ export function AttendancePage() {
         <Panel className="xl:col-span-3" pad={false}>
           <DataTable loading={list.loading} rows={rows} error={list.error} onRetry={list.reload}
             toolbar={<>
-              {mayReadAll && <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee…" />}
+              {mayReadAll && <SearchInput value={table.term} onChange={table.onSearch} placeholder="Employee…" />}
               {mayReadAll && (
                 <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
                         options={['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'HOLIDAY', 'MISSING_CHECKOUT'].map((v) => ({ value: v, label: v.replace('_', ' ') }))} placeholder="Any status" />
@@ -97,9 +97,15 @@ export function AttendancePage() {
               { key: 'check_out', label: 'Out', render: (r) => String(r.check_out || '—').slice(11, 16) },
               { key: 'break_minutes', label: 'Break', align: 'right', render: (r) => num(r.break_minutes) },
               { key: 'net_worked_hours', label: 'Worked', align: 'right', render: (r) => Number(r.net_worked_hours ?? r.worked_hours ?? 0).toFixed(2) },
-              { key: 'overtime_hours', label: 'OT', align: 'right', render: (r) => (Number(r.overtime_hours) ? <span className="text-amber-300">{Number(r.overtime_hours).toFixed(2)}</span> : '0') },
+              // Hours and their approval are two different facts, so they are two named columns now. "OT" for
+              // both read like a duplicate that could be dropped, and it cannot: the hours are what payroll pays
+              // only once the second one is ticked.
+              { key: 'overtime_hours', label: 'Overtime (h)', align: 'right', title: 'Hours worked beyond the schedule\'s day, computed from the punches. Nothing is paid from this column alone — the next one has to say approved.',
+                render: (r) => (Number(r.overtime_hours) ? <span className="text-amber-300">{Number(r.overtime_hours).toFixed(2)}</span> : <span className="text-slate-600">—</span>) },
               { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
-              { key: 'overtime_approved', label: 'OT', render: (r) => (Number(r.overtime_hours) > 0
+              { key: 'overtime_approved', label: 'Overtime approval',
+                title: 'Overtime is paid once a manager approves it: the hours are computed from the punches, this column is the decision. Payroll reads only approved hours.',
+                render: (r) => (Number(r.overtime_hours) > 0
                   ? (r.overtime_approved ? <span className="chip border-emerald-500/30 bg-emerald-500/10 text-emerald-300">approved</span>
                      : mayApprove ? <button className="btn-ghost btn-sm" onClick={() => approveOvertime(r)} disabled={busy === 'ot' + r.id}>Approve</button>
                      : <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">pending</span>)

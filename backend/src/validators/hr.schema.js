@@ -39,8 +39,13 @@ export const timeOffRequestBody = z.object({ employee_id: uuid.optional(), time_
   reason: optText(500), status: z.enum(['DRAFT', 'TO_APPROVE']).optional() });
 export const timeOffPatch = z.object({ start_date: dateStr.optional(), end_date: optDate, duration: z.coerce.number().min(0.5).max(400).optional(),
   reason: optText(500), status: z.enum(['CANCELLED']).optional() });
+// One decision, one note. `remark` is what the screen calls it and `refuse_reason` is the older name the
+// balance screens already read, so both are accepted and the service writes them to the right columns:
+// a refusal needs a reason, and any note (approve or refuse) is stored for the employee to see. Before this,
+// the dialog's remark box was stripped here as an unknown key, so refusing said "give a reason" while the
+// approver was looking at one they had typed.
 export const decideBody = z.object({ status: z.enum(['APPROVED', 'REFUSED', 'CANCELLED']).default('APPROVED'),
-  approved_days: z.coerce.number().min(0).max(400).optional(), refuse_reason: optText(300) });
+  approved_days: z.coerce.number().min(0).max(400).optional(), refuse_reason: optText(300), remark: optText(300) });
 export const allocationBody = z.object({ employee_id: uuid, time_off_type_id: uuid, allocated_days: z.coerce.number().min(0).max(400),
   taken_days: z.coerce.number().min(0).max(400).optional(), valid_from: dateStr, valid_until: dateStr,
   status: z.enum(['DRAFT', 'TO_APPROVE', 'APPROVED']).optional(), description: optText(300) });

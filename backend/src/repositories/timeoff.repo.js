@@ -48,7 +48,10 @@ export const deleteType = (id) =>
 
 
 const REQ_SELECT = `
+  -- the leave type's own rules travel with the request so an approver can be told, in the decision dialog,
+  -- whether these days come off a balance or are unpaid; the front end never has to guess them
   select r.*, e.name as employee, e.employee_code, e.department_id, t.name as type, t.code as type_code, t.unit, t.is_unpaid,
+         t.category, t.requires_allocation,
          coalesce(appr.name, 'HR') as approver, ap.name as approved_by_name,
          alloc.description as allocation_label, alloc.remaining_days as allocation_remaining
   from time_off_requests r
@@ -85,11 +88,13 @@ export const patchRequest = (id, p, q = query) => {
   if (!keys.length) return q(`select * from time_off_requests where id = $1`, [id]).then((r) => r.rows[0]);
   return q(`update time_off_requests set ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1 returning *`, [id, ...keys.map((k) => p[k])]).then((r) => r.rows[0]);
 };
-export const decideRequest = (id, { status, approvedBy, approvedDays, refuseReason, allocationId }, q = query) =>
+export const decideRequest = (id, { status, approvedBy, approvedDays, refuseReason, allocationId, decisionRemark }, q = query) =>
   q(`update time_off_requests set status = $2::request_status, approved_by = $3,
            approved_at = case when $2::text in ('APPROVED','REFUSED') then now() else null end,
-           approved_days = coalesce($4, approved_days), refuse_reason = $5, allocation_id = coalesce($6, allocation_id)
-     where id = $1 returning *`, [id, status, approvedBy, approvedDays ?? null, refuseReason || null, allocationId || null]).then((r) => r.rows[0]);
+           approved_days = coalesce($4, approved_days), refuse_reason = $5, allocation_id = coalesce($6, allocation_id),
+           decision_remark = $7
+     where id = $1 returning *`,
+    [id, status, approvedBy, approvedDays ?? null, refuseReason || null, allocationId || null, decisionRemark || null]).then((r) => r.rows[0]);
 export const deleteRequest = (id, q = query) => q(`delete from time_off_requests where id = $1 and status in ('DRAFT','CANCELLED','REFUSED') returning id`, [id]).then((r) => r.rows[0] || null);
 /** Allocation rows for an employee + type, ordered so the newest window wins. */
 export const allocationsFor = (employeeId, q = query) =>

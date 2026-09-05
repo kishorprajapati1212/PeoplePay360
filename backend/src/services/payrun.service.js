@@ -192,22 +192,89 @@ export async function voidPayrun(id, { auth }) {
   });
   return repo.getPayrun(id);
 }
-/** PDF generation is queued, never inline: 60 slips × puppeteer would blow the request timeout. */
-export async function queuePdfs(id, { auth, reason = 'manual' } = {}) {
+/**
+ * How many payslips one HTTP request may render before it is being rude about the timeout. Past this the worker
+ * is the only option, and the answer says so instead of pretending.
+ */
+const INLINE_LIMIT = Number(process.env.PDF_INLINE_LIMIT || 40);
+
+/**
+ * PDFs for a run — the button the payslip screens hang on.
+ *
+ * The worker is the right way to do this (one job per person, retries, no request blocked), and it stays the
+ * preferred path. What used to be wrong is that it was the *only* path: `schedule()` throws when Redis is not
+ * answering, the whole call failed, and a box with no worker produced no payslips while looking like it had. So:
+ *
+ *   1. queue every slip. If all of them go in, that is the answer — nothing is rendered in the request.
+ *   2. if the queue is not there, render up to INLINE_LIMIT slips here, through the same function the single-slip
+ *      print uses, and report per person. The rest are named as still waiting, with the sentence that explains
+ *      why (start the worker, then press again).
+ *
+ * `mode: 'queue'` keeps the old behaviour for the internal caller on mark-paid: a release should not spend its
+ * request rendering 60 PDFs.
+ */
+export async function generatePdfs(id, { auth, reason = 'manual', force = false, mode = 'auto' } = {}) {
   const run = await repo.getPayrun(id);
   if (!run) throw AppError.notFound('Payrun not found');
-  const slips = await query(`select p.id, p.document_version, p.employee_id, e.name from payslips p join employees e on e.id = p.employee_id
+  const slips = await query(`select p.id, p.document_version, p.employee_id, p.pdf_generated_at, e.name
+                             from payslips p join employees e on e.id = p.employee_id
                              where p.payrun_id = $1 and p.status <> 'VOID' order by e.name`, [id]).then((r) => r.rows);
-  const enqueued = [];
-  for (const s of slips) {
-    const dedupe = `pdf:${s.id}:v${s.document_version}:${reason}`;
-    const task = await deliveryRepo.enqueueTask({ task_type: 'GENERATE_PDF', entity_type: 'PAYSLIP', entity_id: s.id, payrun_id: id,
-      dedupe_key: dedupe, queue_name: QUEUES.pdf, payload: { payslip_id: s.id, version: s.document_version, requested_by: auth?.userId || null, reason } });
-    await schedule(QUEUES.pdf, 'payslip-pdf', { taskId: task.id, payslipId: s.id, version: s.document_version }, { dedupeKey: dedupe });
-    enqueued.push({ payslip_id: s.id, employee: s.name, task_id: task.id, status: task.status });
+  const wanted = force ? slips : slips.filter((s) => !s.pdf_generated_at);
+  if (!wanted.length) {
+    return { payrun: id, queued: 0, inline: 0, generated: 0, already: slips.length, reason,
+             how: 'Every slip in this run already has a PDF. Tick "render them again" if the layout or the footer changed since.' };
   }
-  return { payrun: id, queued: enqueued.length, reason, jobs: enqueued, worker: 'payslip-pdf' };
+  if (!slips.length) throw new AppError('NOTHING_COMPUTED', 'Nothing to render — this run has no payslips yet, so compute it first', { status: 409 });
+
+  const enqueued = [];
+  let queueError = null;
+  try {
+    for (const s of wanted) enqueued.push(await enqueuePdf(s, { id, auth, reason }));
+  } catch (e) {
+    queueError = e.message;
+    if (mode === 'queue') throw e;             // the release path: fail loudly rather than render in a request
+  }
+  if (queueError === null) {
+    return { payrun: id, queued: enqueued.length, inline: 0, generated: enqueued.length, reason,
+             jobs: enqueued, worker: 'payslip-pdf',
+             how: `${enqueued.length} job(s) handed to the worker on queue "pdf" — each slip shows its PDF as the job finishes.` };
+  }
+
+  const left = wanted.filter((s) => !enqueued.some((q) => q.payslip_id === s.id));
+  const here = mode === 'queue' ? [] : left.slice(0, INLINE_LIMIT);
+  const waiting = left.length - here.length;
+  const done = [];
+  const failed = [];
+  const payslips = await import('./payslip.service.js');
+  for (const s of here) {
+    try {
+      await payslips.renderPdf(s.id, { auth, persist: true });
+      done.push({ payslip_id: s.id, employee: s.name });
+    } catch (e) {
+      failed.push({ payslip_id: s.id, employee: s.name, message: e.message });
+    }
+  }
+  const bits = [];
+  if (enqueued.length) bits.push(`${enqueued.length} queued before the queue stopped`);
+  if (done.length) bits.push(`${done.length} rendered in this request`);
+  if (failed.length) bits.push(`${failed.length} failed`);
+  if (waiting) bits.push(`${waiting} left for the worker — start it and press again`);
+  return { payrun: id, queued: enqueued.length, inline: done.length, generated: enqueued.length + done.length,
+           failed, waiting, already: slips.length - wanted.length, reason, worker: 'payslip-pdf',
+           queue_error: queueError,
+           how: `${bits.join(' · ')}. The worker is not answering (Redis on ${process.env.REDIS_URL ? 'the configured URL' : 'localhost:6379'}), so this request did what it could.`,
+           // The register and the run page both read this and stop offering "queue it" as if it were free.
+           worker_available: false };
 }
+async function enqueuePdf(s, { id, auth, reason }) {
+  const dedupe = `pdf:${s.id}:v${s.document_version}:${reason}`;
+  const task = await deliveryRepo.enqueueTask({ task_type: 'GENERATE_PDF', entity_type: 'PAYSLIP', entity_id: s.id, payrun_id: id,
+    dedupe_key: dedupe, queue_name: QUEUES.pdf, payload: { payslip_id: s.id, version: s.document_version, requested_by: auth?.userId || null, reason } });
+  await schedule(QUEUES.pdf, 'payslip-pdf', { taskId: task.id, payslipId: s.id, version: s.document_version }, { dedupeKey: dedupe });
+  return { payslip_id: s.id, employee: s.name, task_id: task.id, status: task.status };
+}
+/** Kept for the on-paid release, which must not render anything inside the request. */
+export const queuePdfs = (id, { auth, reason = 'manual' } = {}) => generatePdfs(id, { auth, reason, mode: 'queue' });
 export async function sendPayslips(id, { auth, ccHr = false, force = false }) {
   const run = await repo.getPayrun(id);
   if (!run) throw AppError.notFound('Payrun not found');

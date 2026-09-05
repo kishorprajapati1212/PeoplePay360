@@ -17,6 +17,12 @@ import { PayrunDetailPage } from '../../frontend/src/pages/payroll/PayrunDetailP
 import { PayslipsPage } from '../../frontend/src/pages/payroll/PayslipsPage.jsx';
 import { EmployeeFormModal } from '../../frontend/src/pages/employees/EmployeeFormModal.jsx';
 import { LoginPage } from '../../frontend/src/pages/LoginPage.jsx';
+import { WorkingSchedulesPage } from '../../frontend/src/pages/org/WorkingSchedulesPage.jsx';
+import { DepartmentsPage } from '../../frontend/src/pages/org/DepartmentsPage.jsx';
+import { landingFor } from '../../frontend/src/App.jsx';
+import { LeaveRequestsPage } from '../../frontend/src/pages/timeoff/LeaveRequestsPage.jsx';
+import { StructuresPage } from '../../frontend/src/pages/salary/StructuresPage.jsx';
+import { CompanyPage } from '../../frontend/src/pages/settings/CompanyPage.jsx';
 import { SetPasswordPage } from '../../frontend/src/pages/auth/SetPasswordPage.jsx';
 import { DashboardPage } from '../../frontend/src/pages/DashboardPage.jsx';
 import { UsersPage } from '../../frontend/src/pages/settings/UsersPage.jsx';
@@ -329,15 +335,15 @@ const CASES = {
     expect(!calls.some((c) => c.key === 'POST /api/payslips/send'), 'and sends nothing');
   },
 
-  'login · the payroll-admin button types the address the seeder creates': async () => {
+  'login · each button types an address the seeder really creates': async () => {
     who.me = await meFor(['HR_PAYROLL_MANAGER']);
     table = { ...baseTable() };
     render({ at: ['/login'], el: <LoginPage /> });
     await settle(6);
-    click(byText('Admin (second)')); await settle(3);
+    click(byText('Payroll Manager')); await settle(3);
     const email = inputLike((i) => i.type === 'email' || (i.attributes.get('autocomplete') === 'username'));
     expect(!!email, 'the login card has an email box');
-    expect(email.value === 'payroll-admin@oxp.com', `the button must fill payroll-admin@oxp.com (got ${email.value})`);
+    expect(email.value === 'payroll@oxp.com', `the button must fill payroll@oxp.com (got ${email.value})`);
     expect(text().includes('hr2@oxp.com'), 'every seeded staff login is offered, including hr2');
   },
 
@@ -408,6 +414,266 @@ const CASES = {
     click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Change password' && b.closest('[role=dialog], .fixed')));
     await settle(4);
     expect(!calls.some((c) => c.key === 'POST /api/auth/change-password'), 'and nothing is sent while it is wrong');
+  },
+
+  /* Round 7: the demo logins, the landing screen, the weekly grid, carry-forward, and the columns people
+     could not read. Each case is a sentence a reviewer could repeat in the browser. */
+
+  'login · four demo accounts, one per role, and the theme switch': async () => {
+    who.me = null;
+    render({ at: ['/login'], el: <LoginPage /> });
+    await settle(4);
+    const chips = [...document.querySelectorAll('button')].filter((b) => b.textContent.includes('@oxp.com'));
+    // four staff accounts plus the one employee the seeder creates — one button per role, no spare admin
+    expect(chips.length === 5, `five demo buttons fill the panel (found ${chips.length}: ${chips.map((c) => c.textContent).join(' | ')})`);
+    expect(!chips.some((c) => c.textContent.includes('payroll-admin')), 'the extra second-admin account is gone — five roles need five logins, not six');
+    expect(chips.some((c) => c.textContent.includes('Payroll')), 'the payroll manager is still one of them');
+    expect(!!document.querySelector('[title^="Switch to the"]'), 'the sign-in card carries the theme switch like every other screen');
+    click(chips[0]); await settle(3);
+    const email = document.querySelector('input[type=email]');
+    expect(email.value === 'admin@oxp.com', 'clicking one fills the address in: ' + email.value);
+  },
+
+  'landing · every role starts on its own screen, not on whichever page is first in the list': async () => {
+    expect(landingFor(await meFor(['EMPLOYEE'])) === '/portal', 'an employee opens My Portal, which is their own pay and leave in one screen');
+    expect(landingFor(await meFor(['HR_MANAGER'])) === '/employees', 'HR opens the employee list');
+    const payrollUser = landingFor(await meFor(['HR_PAYROLL_USER']));
+    const payrollManager = landingFor(await meFor(['HR_PAYROLL_MANAGER']));
+    expect(payrollUser.startsWith('/') && payrollManager.startsWith('/'), `payroll roles land somewhere real (${payrollUser} / ${payrollManager})`);
+    expect(landingFor(await meFor(['ADMIN'])).startsWith('/'), 'and so does the administrator');
+    expect(landingFor({ roles: ['EMPLOYEE'], menus: [{ to: '/time-off/my-requests', label: 'Leave' }], permissions: [] })
+             === '/time-off/my-requests',
+           'a role missing its usual screen is sent to the first one it can actually open');
+    expect(landingFor({ roles: [], menus: [], permissions: [] }) === '/no-access',
+           'and an account with nothing at all lands on the page that says so, not on a blank one');
+  },
+
+  'working schedule · a new week has times in it and the save posts day numbers': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    table = {
+      ...baseTable(),
+      'GET /api/org/working-schedules': { rows: [{ id: 7, name: 'Standard', type: 'FIXED', timezone: 'Asia/Kolkata',
+        is_active: true, days_per_week: 5, total_weekly_hours: 40,
+        days: [{ day: 1, start: '09:30', end: '18:30', break: 60, rest: false },
+               { day: 2, start: '09:30', end: '18:30', break: 60, rest: false },
+               { day: 6, start: null, end: null, break: 0, rest: true }] }], total: 1 },
+    };
+    render({ el: <WorkingSchedulesPage /> });
+    await settle();
+    expect(has('0.0') || has('40.0'), 'the list shows the hours the week adds up to');
+    click(byText('Edit')); await settle(3);
+    let times = [...document.querySelectorAll('input[type=time]')];
+    expect(times[0].value === '09:30', 'an open edit shows the stored Monday time — reading days back used to leave it empty');
+    expect(times[10]?.value === '', 'and a rest day stays empty rather than inventing hours');
+    click(byText('Cancel')); await settle(2);
+    click(byText('+ New schedule')); await settle(2);
+    times = [...document.querySelectorAll('input[type=time]')];
+    expect(times[0].value === '09:30' && times[1].value === '18:30', 'a new week arrives with the standard five-day timings, not blank boxes');
+    // the dialog refuses a nameless schedule now (the API requires one), so give it one first
+    type(inputLike((i) => i.getAttribute('placeholder') === 'OXP Standard — Mon to Fri'), 'OXP Standard');
+    await settle(2);
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Save schedule'));
+    await settle(4);
+    const post = calls.find((c) => c.key === 'POST /api/org/working-schedules');
+    expect(!!post, 'and saving posts once');
+    expect(post.body.days.map((d) => d.day).join(',') === '1,2,3,4,5,6,7',
+           'the API wants ISO day numbers 1..7, so names never go out again: ' + JSON.stringify(post.body.days[0]));
+  },
+
+  'carry forward · every type with a balance is offered, and a blocked one says who blocks it': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    table = {
+      ...baseTable(),
+      'GET /api/time-off/types': { rows: [
+        { id: 1, name: 'Casual Leave', code: 'CL', unit: 'DAYS', requires_allocation: true, carry_forward: false, max_days_per_year: 12 },
+        { id: 2, name: 'Privilege Leave', code: 'PL', unit: 'DAYS', requires_allocation: true, carry_forward: true, max_days_per_year: 15 }], total: 2 },
+      'GET /api/time-off/allocations': { rows: [], total: 0 },
+    };
+    render({ el: <AllocationsPage /> });
+    await settle();
+    const picker = [...document.querySelectorAll('button[aria-haspopup=listbox]')].find((b) => b.textContent.includes('Choose a type'));
+    expect(!!picker, 'the carry-forward panel has a leave-type picker');
+    click(picker); await settle(3);
+    expect(has('does not carry forward yet'), 'every type with a balance is offered — Casual included, with its policy named');
+    click(byText('does not carry forward yet', 'button')); await settle(3);
+    expect(has('Policy says this type does not carry'), 'picking it explains the refusal instead of letting you hit it');
+    click(byText('Allow carry-forward for Casual Leave')); await settle(4);
+    const patched = calls.find((c) => c.key === 'PATCH /api/time-off/types/1');
+    expect(!!patched && patched.body.carry_forward === true, 'and one click changes the type policy through the real endpoint');
+  },
+
+  'leave · what the days cost is in the dialog, on both sides of the request': async () => {
+    const CASUAL = { id: 1, name: 'Casual Leave', code: 'CL', category: 'CASUAL', unit: 'DAYS',
+                     requires_allocation: true, is_unpaid: false, max_days_per_year: 12, balance: 7, allocated_days: 12 };
+    const LWP = { id: 2, name: 'Loss of Pay', code: 'LOP', category: 'UNPAID', unit: 'DAYS',
+                  requires_allocation: false, is_unpaid: true };
+    who.me = await meFor(['EMPLOYEE']);
+    table = { ...baseTable(),
+      'GET /api/time-off/types': { rows: [CASUAL, LWP], total: 2 },
+      'GET /api/portal/time-off': { rows: [], total: 0 },
+      'GET /api/portal/balances': [CASUAL] };
+    render(EMPLOYEE_SELF);
+    await settle();
+    click(byText('Request leave')); await settle(4);
+    const picker = [...document.querySelectorAll('button[aria-haspopup=listbox]')].find((b) => /Choose a leave type|Loading choices/.test(b.textContent));
+    expect(!!picker, 'the request dialog opens on an empty leave type');
+    click(picker); await settle(3);
+    click(byText('Casual Leave', 'button')); await settle(3);
+    expect(has('Paid from the casual balance'), 'a paid type says the days come off the balance, before Apply');
+    click(picker); await settle(3);
+    click(byText('Loss of Pay', 'button')); await settle(3);
+    expect(has('Unpaid') && has('Loss of Pay on the next payslip'), 'and an unpaid type says it becomes a payslip deduction');
+  },
+
+  'departments · no parent column, because nothing here is a hierarchy': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    table = { ...baseTable(), 'GET /api/org/departments': { rows: [{ id: 1, name: 'Engineering', code: 'ENG',
+      head_of_department: 'Rekha Menon', employee_count: 14, is_active: true, parent_id: 9, parent_name: 'Operations' }], total: 1 } };
+    render({ el: <DepartmentsPage /> });
+    await settle();
+    expect(has('Engineering'), 'the list renders');
+    expect(!has('Parent'), 'and the parent column is gone — the form still saves the id, the table does not pretend');
+  },
+
+  /* ── round 8: the note an approver writes, the PDFs that used to vanish, the structure you can now read,
+        and the mail settings that decide whether an invitation is ever sent. ───────────────────────────── */
+
+  'leave decision · a refusal without a reason never reaches the API, and with one the note is sent': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    const ROW = { id: 9, employee: 'Aarav Mehta', employee_code: 'EMP0042', type: 'Casual Leave', category: 'CASUAL',
+                  start_date: '2026-06-08', end_date: '2026-06-09', duration: 2, status: 'PENDING', is_unpaid: false,
+                  requires_allocation: true, reason: 'Family function' };
+    table = { ...baseTable(), 'GET /api/time-off/requests': { rows: [ROW], total: 1 },
+              'GET /api/employees': { rows: [], total: 0 }, 'GET /api/time-off/types': { rows: [], total: 0 } };
+    render({ el: <LeaveRequestsPage /> });
+    await settle();
+    click(byText('Refuse')); await settle(3);
+    const dialog = (name) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === name && b.closest('[role=dialog], .fixed'));
+    expect(!!dialog('Refuse'), 'the decision box asks for a reason');
+    expect(has('Reason for refusing'), 'and says which it is, not a generic "Remark"');
+    click(dialog('Refuse')); await settle(3);
+    expect(!calls.some((c) => c.key.endsWith('/refuse')), 'pressing it empty sends nothing to the server');
+    expect(has('is needed'), 'and the dialog names what is missing');
+    type(inputLike((i) => i.tagName === 'TEXTAREA'), 'Two of these days fall in the freeze period');
+    await settle(2);
+    click(dialog('Refuse')); await settle(4);
+    const sent = calls.find((c) => c.key.endsWith('/time-off/requests/9/refuse'));
+    expect(!!sent, 'once it is written, the refusal goes out');
+    expect(sent.body.remark.startsWith('Two of these'), 'as `remark`, which the service maps onto the reason column');
+  },
+
+  'leave decision · approving fewer days than were asked for is a choice, not a bug': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    const ROW = { id: 11, employee: 'Priya Nair', employee_code: 'EMP0061', type: 'Sick Leave', category: 'SICK',
+                  start_date: '2026-06-01', end_date: '2026-06-03', duration: 3, status: 'PENDING', is_unpaid: false,
+                  requires_allocation: true, reason: 'Fever' };
+    table = { ...baseTable(), 'GET /api/time-off/requests': { rows: [ROW], total: 1 },
+              'GET /api/employees': { rows: [], total: 0 }, 'GET /api/time-off/types': { rows: [], total: 0 } };
+    render({ el: <LeaveRequestsPage /> });
+    await settle();
+    click(byText('Approve')); await settle(3);
+    const days = inputLike((i) => i.type === 'number');
+    expect(!!days, 'the approve box offers a day count');
+    expect(days.value === '3', 'starting at what was asked for, not at zero (got ' + days.value + ')');
+    const tooMany = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve' && b.closest('[role=dialog], .fixed'));
+    type(days, '5'); await settle(2);
+    click(tooMany); await settle(3);
+    expect(!calls.some((c) => c.key.endsWith('/approve')), 'approving more than was asked for is refused here, not by a 400');
+    type(days, '2'); await settle(2);
+    click(tooMany); await settle(4);
+    const sent = calls.find((c) => c.key.endsWith('/time-off/requests/11/approve'));
+    expect(!!sent && Number(sent.body.approved_days) === 2, 'a partial approval posts approved_days: ' + JSON.stringify(sent && sent.body));
+  },
+
+  'leave · the note comes back to the employee': async () => {
+    who.me = await meFor(['EMPLOYEE']);
+    table = { ...baseTable(),
+      'GET /api/portal/time-off': { rows: [{ id: 4, type: 'Casual Leave', start_date: '2026-06-08', end_date: '2026-06-08',
+        duration: 1, status: 'REFUSED', reason: 'Family function', decision_remark: 'June is the release month — take it in July' }], total: 1 },
+      'GET /api/portal/balances': [], 'GET /api/time-off/types': { rows: [], total: 0 } };
+    render(EMPLOYEE_SELF);
+    await settle();
+    expect(has('Note from HR'), 'the request list shows what the approver wrote');
+    expect(has('release month'), 'in their words, not a generic "refused"');
+  },
+
+  'structures · a row opens, and its lines say what they pay': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    const STRUCTURE = { id: 3, name: 'Regular Salary', code: 'REG', monthly_wage: 85000, is_active: true, rule_count: 2 };
+    const RULES = [{ id: 1, sequence: 10, name: 'Basic', code: 'BASIC', category: 'BASIC', line_kind: 'EARNING',
+                     computation_type: 'PERCENTAGE', percentage: 50, base_code: 'WAGE', pro_rata: true, appears_on_payslip: true },
+                   { id: 2, sequence: 80, name: 'Provident Fund', code: 'PF', category: 'DEDUCTION', line_kind: 'DEDUCTION',
+                     computation_type: 'PERCENTAGE', percentage: 12, base_code: 'BASIC', cap_amount: 1500, pro_rata: false,
+                     appears_on_payslip: true, statutory: true }];
+    table = { ...baseTable(), 'GET /api/salary/structures': { rows: [STRUCTURE], total: 1 },
+              'GET /api/salary/structures/3': { ...STRUCTURE, rules: RULES }, 'GET /api/salary/structures/3/impact': { employees: 12 },
+              'POST /api/salary/preview': { lines: [{ code: 'BASIC', amount: 42500, log: '50% of ₹85,000 wage' },
+                                                    { code: 'PF', amount: 1500, log: '12% of BASIC = 5100, capped at ₹1,500' }],
+                                            totals: { gross: 42500, deductions: 1500, net: 41000 }, warnings: [] } };
+    render({ el: <StructuresPage /> });
+    await settle();
+    expect(has('Regular Salary'), 'the list renders');
+    const row = byText('Regular Salary', 'tr');
+    expect(!!row, 'and the row itself is clickable — it used to say so without listening');
+    click(row); await settle(4);
+    expect(has('Provident Fund'), 'the dialog shows the rules of this structure');
+    expect(has('12% of BASIC'), 'each one described in words, not only as a category chip');
+    expect(has('Show the amounts'), 'with a button that asks the engine what they come to');
+    click(byText('Show the amounts')); await settle(6);
+    expect(calls.some((c) => c.key === 'POST /api/salary/preview'), 'which calls the real preview endpoint');
+    expect(has('₹42,500'), 'and prints the amounts the engine returned');
+    expect(has('capped at ₹1,500'), 'including the log line the engine wrote while computing it');
+    expect(has('₹41,000'), 'with the net total under the table');
+  },
+
+  'payrun · the PDF panel counts what exists and asks for the rest': async () => {
+    who.me = await meFor(['HR_PAYROLL_MANAGER']);
+    table = { ...baseTable(),
+      'GET /api/payruns/p1': { id: 'p1', name: 'June 2026', status: 'VALIDATED', period_key: '2026-06', period_start: '2026-06-01',
+        period_end: '2026-06-30', payslip_count: 3, total_gross: 255000, total_deductions: 4500, total_net: 250500,
+        employer_cost: 260000, error_count: 0, warning_count: 1, actions: { can_compute: false, can_validate: false, can_mark_paid: true },
+        employees: [{ id: 1, employee: 'Aarav Mehta', pdf_generated_at: '2026-06-30T10:00:00Z', pdf_hash: 'aa' },
+                    { id: 2, employee: 'Priya Nair' }, { id: 3, employee: 'Rekha Menon' }] },
+      'POST /api/payruns/p1/generate-pdfs': { payrun: 'p1', queued: 0, inline: 2, generated: 2, failed: [], waiting: 0, already: 1,
+        worker_available: false, queue_error: 'connect ECONNREFUSED 127.0.0.1:6379',
+        how: 'The worker is not answering (Redis on localhost:6379), so this request did what it could.' },
+      'GET /api/payruns/p1/warnings': { rows: [] }, 'GET /api/payruns/p1/tasks': { rows: [] }, 'GET /api/payruns/p1/emails': { rows: [] } };
+    render({ at: ['/payruns/p1'], el: <Routes><Route path="/payruns/:id" element={<PayrunDetailPage />} /></Routes> });
+    await settle(8);
+    expect(has('Payslip PDFs'), 'the run page has a panel about the files themselves');
+    expect(has('1 of 3 payslips have a file ready'), 'it counts what exists before you press anything');
+    expect(has('Create the 2 missing PDFs'), 'and offers exactly what is missing, in those words');
+    click(byText('Create the 2 missing PDFs')); await settle(6);
+    expect(calls.some((c) => c.key === 'POST /api/payruns/p1/generate-pdfs'), 'pressing it calls the run endpoint');
+    expect(has('2 rendered while you waited'), 'and the answer is the per-person count, not "queued successfully"');
+    expect(has('worker is not answering'), 'with the reason the queue was skipped, in the open');
+  },
+
+  'settings · mail is configured here, and the password stays out of the browser': async () => {
+    who.me = await meFor(['ADMIN']);
+    table = { ...baseTable(),
+      'GET /api/company': { id: true, company_name: 'OXP', mail_enabled: true, smtp_host: 'smtp.gmail.com', smtp_port: 587,
+                            smtp_secure: false, smtp_user: 'payroll@oxp.com', smtp_password_set: true, mail_from: 'OXP <payroll@oxp.com>',
+                            mail_daily_limit: 200, smtp_password: 'never-should-reach-the-page' },
+      'GET /api/company/mail': { driver: 'gmail', from: 'OXP <payroll@oxp.com>', login: 'payroll@oxp.com', daily_limit: 200,
+                                note: null, enabled: true, host: 'smtp.gmail.com', port: 587, secure: false, user: 'payroll@oxp.com',
+                                password_stored: true },
+      'POST /api/company/mail/check': { connected: true, verify: { ok: true }, mail: null, driver: 'gmail', from: 'OXP <payroll@oxp.com>' } };
+    render({ el: <CompanyPage /> });
+    await settle(6);
+    expect(has('E-mail delivery'), 'the transport is a settings group like the others');
+    expect(has('SMTP host'), 'with a host box');
+    expect(has('Send real mail'), 'and one switch that decides whether anything leaves the machine');
+    expect(has('App Password'), 'the password box says what kind of password Gmail wants');
+    const boxes = [...document.querySelectorAll('input[type=password]')];
+    expect(boxes.length >= 1, 'and it is a password box, not text in the clear');
+    expect(!text().includes('never-should-reach-the-page'), 'a stored password is never rendered back into the page');
+    expect(has('1 of 3') === false && has('Mail right now'), 'and the panel states the live driver');
+    expect(has('smtp.gmail.com:587'), 'including the server it will use');
+    click(byText('Check connection')); await settle(5);
+    const check = calls.find((c) => c.key === 'POST /api/company/mail/check');
+    expect(!!check, 'Check connection is the only thing that contacts the server');
+    expect(check.body.to === null, 'and without an address it verifies only, sending nothing');
   },
 
 };

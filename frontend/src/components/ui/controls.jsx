@@ -182,11 +182,16 @@ export function Checkbox({ checked, onChange, label, hint }) {
   );
 }
 
+/**
+ * The search box in a table toolbar. It sizes itself (full width on a phone, 14rem from `sm` upwards) so no
+ * page has to pass a width and a long placeholder cannot push a filter out of the row.
+ */
 export function SearchInput({ value, onChange, placeholder = 'Search…', className = '' }) {
   return (
-    <div className={'relative ' + className}>
-      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
-      <input className="input pl-8" value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange?.(e.target.value)} />
+    <div className={'relative w-full min-w-0 sm:w-56 ' + className}>
+      <span aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
+      <input className="input w-full pl-8" type="search" value={value ?? ''} placeholder={placeholder}
+             aria-label={placeholder.replace('…', '')} onChange={(e) => onChange?.(e.target.value)} />
     </div>
   );
 }

@@ -102,8 +102,10 @@ async function login(email) {
   return r.data.token;
 }
 console.log('\n▸ auth');
-for (const [name, email] of [['admin', 'admin@oxp.com'], ['hr', 'hr@oxp.com'], ['payroll', 'payroll@oxp.com'],
-                             ['payrollAdmin', 'payroll-admin@oxp.com'], ['employee', 'aarav.mehta@oxp.com']]) {
+// every login the seeder creates, and nothing else: this loop is how "the demo accounts really work" is proved
+for (const [name, email] of [['admin', 'admin@oxp.com'], ['hr', 'hr@oxp.com'],
+                             ['payrollOfficer', 'hr2@oxp.com'], ['payroll', 'payroll@oxp.com'],
+                             ['employee', 'aarav.mehta@oxp.com']]) {
   tokens[name] = await login(email);
   console.log(`  ✓ signed in as ${email}`);
 }

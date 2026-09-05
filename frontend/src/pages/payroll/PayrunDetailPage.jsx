@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { payroll } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
@@ -35,6 +35,10 @@ export function PayrunDetailPage() {
   const [send, setSend] = useState(null);
   const [outcome, setOutcome] = useState(null);   // the last Compute/Validate/Send result, kept on screen
   const [showOnlyProblems, setShowOnlyProblems] = useState(false);
+  /* Watching the PDFs: generation is a worker job, so the honest UI is a count that moves, not a toast that
+     lies. `pdfWatch` is on while the count below is being refreshed, and off when it reaches the slip total
+     (or when you press Stop, or after 60s of nothing — a dead worker should not spin forever). */
+  const [pdfWatch, setPdfWatch] = useState(false);
 
   const can = {
     compute: useCan('payroll:compute'),
@@ -60,6 +64,40 @@ export function PayrunDetailPage() {
   const people = toRows(run0.employees && run0.employees.length ? run0.employees : run0.payslips);
   const problems = people.filter((r) => r.compute_status === 'ERROR' || !r.contract_id || r.payslip_status === 'ERROR');
   const shown = showOnlyProblems ? problems : people;
+
+  const withPdf = people.filter((r) => r.pdf_generated_at).length;
+
+  /** The one place that says what PDF generation did, in the numbers the API actually returned. */
+  function pdfOutcome(out) {
+    if (!out) return { tone: 'bad', text: 'Nothing came back from the server.' };
+    const bits = [];
+    if (out.inline) bits.push(`${num(out.inline)} rendered while you waited`);
+    if (out.queued) bits.push(`${num(out.queued)} handed to the worker`);
+    if (out.already) bits.push(`${num(out.already)} already had a current PDF`);
+    if (out.waiting) bits.push(`${num(out.waiting)} still waiting for a worker`);
+    if (out.failed?.length) bits.push(`${num(out.failed.length)} failed — first one: ${out.failed[0].employee} (${out.failed[0].message})`);
+    return { tone: out.failed?.length || out.waiting ? 'warn' : 'good', text: `${bits.join(' · ')}. ${out.how || ''}`.trim() };
+  }
+
+  async function generatePdfs({ force = false } = {}) {
+    setPdfWatch(true);
+    try {
+      const out = await run('pdf', () => payroll.payruns.generatePdfs(id, force ? { reason: 'payrun', force: true } : { reason: 'payrun' }));
+      setOutcome({ kind: 'pdfs', ...pdfOutcome(out) });
+      reload();
+    } catch (err) {
+      setOutcome({ kind: 'pdfs', tone: 'bad', text: err.message });
+      setPdfWatch(false);
+    }
+  }
+
+  // Refresh while watching, and stop as soon as every slip has its file.
+  useEffect(() => {
+    if (!pdfWatch) return undefined;
+    if (withPdf >= people.length && people.length > 0) { setPdfWatch(false); return undefined; }
+    const t = setTimeout(() => reload(), 1500);
+    return () => clearTimeout(t);
+  }, [pdfWatch, withPdf, people.length, reload]);
 
   const act = (key, fn, message) => run(key, fn).then((out) => { toast.success(typeof message === 'function' ? message(out) : message); reload(); return out; })
     .catch((e) => { toast.error(e.message); throw e; });
@@ -117,11 +155,14 @@ export function PayrunDetailPage() {
       <WorkflowBar status={status} can={can} busy={busy} actions={actions} run0={run0}
                    onCompute={compute}
                    onValidate={validate}
-                   onPdfs={() => act('pdf', () => payroll.payruns.generatePdfs(id, { reason: 'payrun' }),
-                     (out) => out?.queued ? `PDF generation queued for ${num(out.queued)} payslips` : 'Nothing to queue — the worker will pick up any slip already requested.')}
+                   onPdfs={() => generatePdfs()}
                    onPaid={() => act('paid', () => payroll.payruns.markPaid(id, {}), 'Marked paid — employees can now download the slip')}
                    onSend={() => setSend({ force: false, ccHr: false })}
                    onVoid={() => act('void', () => payroll.payruns.void(id, {}), 'Payrun voided')} />
+
+      <PdfPanel people={people.length} done={withPdf} watching={pdfWatch} mayWrite={can.pdf}
+                status={status} outcome={outcome?.kind === 'pdfs' ? outcome : null}
+                onGenerate={(force) => generatePdfs({ force })} onStop={() => setPdfWatch(false)} />
 
       {outcome && (
         <div className={'mt-3 rounded-lg border px-3 py-2 text-sm ' + (outcome.tone === 'bad' ? 'border-red-500/40 bg-red-950/30 text-red-100'
@@ -299,8 +340,10 @@ function WorkflowBar({ status, can, busy, actions, run0, onCompute, onValidate, 
     { key: 'validate', label: 'Validate & lock', show: status === 'COMPUTED' && can.validate, run: onValidate,
       note: 'numbers stop moving after this', disabled: actions.can_validate === false,
       why: errs ? `${errs} payslip${errs === 1 ? '' : 's'} still ${errs === 1 ? 'has' : 'have'} an error — fix those rows first.` : 'Nothing to validate yet.' },
-    { key: 'pdf', label: 'Generate PDFs', show: ['VALIDATED', 'PAID'].includes(status) && can.pdf, run: onPdfs,
-      note: 'queued to the worker, not in the browser' },
+    // Deliberately shown as soon as payslips exist, not only after validate: "go and validate first" was a
+    // dead end for anyone who only wanted the file. The run's state still decides what the worker does with it.
+    { key: 'pdf', label: 'Generate PDFs', show: ['COMPUTED', 'VALIDATED', 'PAID'].includes(status) && can.pdf, run: onPdfs,
+      note: 'the worker renders them; if it is not running, this request does — up to 40 at a time' },
     { key: 'paid', label: 'Mark paid', show: status === 'VALIDATED' && can.paid, run: onPaid,
       note: 'releases the run for employees', disabled: actions.can_mark_paid === false, why: 'Validate the run first.' },
     { key: 'send', label: 'Email payslips', show: status === 'PAID' && can.send, run: onSend,
@@ -317,5 +360,49 @@ function WorkflowBar({ status, can, busy, actions, run0, onCompute, onValidate, 
       {status === 'DRAFT' && !can.compute && <p className="text-xs text-slate-500">Your role can create runs but not compute them — that is deliberate: payroll_user does the maths.</p>}
       {status === 'COMPUTED' && !can.validate && <p className="text-xs text-slate-500">You can compute and correct, but only a manager validates and releases.</p>}
     </div>
+  );
+}
+
+/**
+ * The payslip files, in one place: what exists, what is coming, and the two buttons that change it.
+ *
+ * This exists because "payslip generation is not working" was usually three different things — the button was on
+ * another screen, the worker was not running, or the run had nothing computed. The panel says which one it is
+ * instead of letting a silent queue look like a success.
+ */
+function PdfPanel({ people, done, watching, mayWrite, status, outcome, onGenerate, onStop }) {
+  const missing = Math.max(0, people - done);
+  const pct = people ? Math.round((done / people) * 100) : 0;
+  return (
+    <Panel title="Payslip PDFs" className="mt-3"
+           subtitle={people ? `${num(done)} of ${num(people)} payslips have a file ready` : 'Nothing to render yet — this run has no payslips.'}
+           actions={mayWrite && people > 0 && (
+             <span className="flex flex-wrap gap-2">
+               <button className="btn-primary btn-sm" disabled={!!watching} onClick={() => onGenerate(false)}>
+                 {watching ? 'Working…' : missing ? `Create the ${num(missing)} missing PDF${missing === 1 ? '' : 's'}` : 'All PDFs are ready'}</button>
+               <button className="btn-ghost btn-sm" onClick={() => onGenerate(true)}
+                       title="Renders every slip again — the thing to press after a change to the payslip footer or the layout.">Re-render all</button>
+             </span>)}>
+      {people > 0 && (
+        <div className="mt-2">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
+            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: pct + '%' }} />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>{pct}% ready{status === 'DRAFT' && missing > 0 ? ' · this run is still a draft, so a recompute will make the files stale' : ''}</span>
+            {watching && <span>waiting for the worker · <button className="link" onClick={onStop}>stop watching</button></span>}
+            {!watching && missing > 0 && <span>{num(missing)} slip{missing === 1 ? '' : 's'} without a file</span>}
+          </div>
+        </div>
+      )}
+      {outcome && (
+        <p className={'mt-3 rounded-lg border px-3 py-2 text-xs '
+                      + (outcome.tone === 'bad' ? 'border-red-500/40 bg-red-950/30 text-red-100'
+                        : outcome.tone === 'warn' ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100')}>
+          {outcome.text}
+        </p>
+      )}
+    </Panel>
   );
 }

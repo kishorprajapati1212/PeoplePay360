@@ -153,7 +153,7 @@ export function UsersPage() {
                   </span>} />
       <Panel pad={false}>
         <DataTable rows={toRows(list.data)} loading={list.loading} error={list.error} onRetry={list.reload}
-          toolbar={<SearchInput className="w-64" value={table.term} onChange={table.onSearch} placeholder="Name or email…" />}
+          toolbar={<SearchInput value={table.term} onChange={table.onSearch} placeholder="Name or email…" />}
           columns={[
             { key: 'name', label: 'User', render: (r) => (<div><p className="text-slate-100">{r.name}</p><p className="text-xs text-slate-500">{r.work_email}</p></div>) },
             { key: 'roles', label: 'Role', render: (r) => (

@@ -267,15 +267,19 @@ async function seedTimeOff({ empMap, auth }) {
   log(`  ${LEAVE_TYPES.length} types`);
   const fyFrom = '2026-04-01';
   const fyTo = '2027-03-31';
+  // What to grant is read off LEAVE_TYPES, not hard-coded: every type that both needs a balance and has an
+  // annual entitlement gets one, so a type added to the seed data is funded automatically instead of showing
+  // up as "No leave balance yet" on someone's dashboard.
+  const grants = LEAVE_TYPES.filter((t) => t.requires_allocation && t.max_days_per_year).map((t) => [t.code, t.max_days_per_year]);
   for (const e of Object.values(empMap)) {
-    for (const [code, days] of [['CL', 12], ['PL', 15], ['SL', 7]]) {
+    for (const [code, days] of grants) {
       await query(`insert into time_off_allocations (employee_id, time_off_type_id, allocated_days, taken_days, pending_days, remaining_days, valid_from, valid_until, status, description)
                    values ($1,$2,$3,0,0,$3,$4,$5,'APPROVED','FY 2026-27 grant')
                    on conflict (employee_id, time_off_type_id, valid_from) do update set allocated_days = excluded.allocated_days, remaining_days = excluded.allocated_days - time_off_allocations.taken_days, status='APPROVED'`,
                   [e.id, typeIds[code], days, fyFrom, fyTo]);
     }
   }
-  log(`  allocations granted for FY 2026-27 (CL 12 / PL 15 / SL 7)`);
+  log(`  ${grants.length} grant(s) per employee for FY 2026-27: ${grants.map(([c, d]) => c + ' ' + d).join(', ')}`);
   const already = await query(`select count(*) as n from time_off_requests`).then((r) => Number(r.rows[0].n));
   if (already) { log(`  ${already} request(s) already recorded — leaving them alone`); return; }
   // Requests go through the service so the balance maths and the approval trail are the real thing.

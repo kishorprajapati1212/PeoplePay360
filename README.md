@@ -95,14 +95,17 @@ Open these in a browser (Ctrl+Click works in a terminal, and every process print
 Every account uses the same password: **`Password@123`**
 
 Every row is a login the seeder creates, the seeder prints, and the sign-in screen offers as a button — same
-address in all three places, because "the payroll admin cannot get in" turned out to be this table writing
-`payroll.admin@oxp.com` where the seeder writes `payroll-admin@oxp.com`.
+address in all three places, because a demo list that invents an address is worse than no demo list: an earlier
+round had this table writing `payroll.admin@oxp.com` where the seeder wrote `payroll-admin@oxp.com`. The list is
+generated from `USERS` in `backend/db/seed/data.js`, so the two cannot drift again, and no account exists that is
+not on it.
 
 **One role per account.** The five roles are the specification's five, and an account carries exactly one of them:
 `POST /api/users/:id/role` sets it, and `POST /api/users/:id/roles` still works only as a one-item list. Two people
 doing two jobs get two accounts, not a union of powers — that is what makes the audit log mean something. The
 first rule in `user:write` is that **an administrator cannot change another administrator**: role, password and
-active status are self-service at that level, so `payroll-admin@oxp.com` is seeded as a second ADMIN to show it.
+active status are self-service at that level. That is enforced by the API, so it is demonstrated by creating a
+second admin in *Settings → User Access* rather than by keeping a spare admin in every demo list.
 
 | sign in as | email | roles seeded | what you can do |
 |---|---|---|---|
@@ -110,8 +113,19 @@ active status are self-service at that level, so `payroll-admin@oxp.com` is seed
 | HR Manager | `hr@oxp.com` | `HR_MANAGER` | employees, contracts, org, attendance, time off (approve, assign balances), salary structures to read, company settings to read. No computation, no release. |
 | Payroll Officer | `hr2@oxp.com` | `HR_PAYROLL_USER` | the HR screens, plus create / compute / validate a run and mark it paid. No bulk payslip e-mail, no structure writes, no void or delete. |
 | Payroll Manager | `payroll@oxp.com` | `HR_PAYROLL_MANAGER` | a run end to end: compute, validate, mark paid, generate PDFs, **bulk e-mail the payslips**, edit slip lines and arreares, structures and rules, void/delete a run. Cannot create users and cannot write company settings. |
-| Admin (second) | `payroll-admin@oxp.com` | `ADMIN` | the same as the row above — the point of seeding two of them is to show the peer-admin rule refusing `POST /users/:id/role`, `/reset-password` and `/deactivate` between them |
 | Employee | `aarav.mehta@oxp.com` (any seeded work email) | `EMPLOYEE` | only My pay: own profile, own attendance, own leave requests, own payslips (download goes through `/api/portal/payslips/:id/pdf`). |
+
+Signing in takes each role to the screen that role works from — `landingFor()` in `frontend/src/App.jsx`, from a
+small table (`ADMIN` → `/dashboard`, `HR_MANAGER` → `/employees`, both payroll roles → `/payroll`, `EMPLOYEE` →
+`/portal`), each entry checked against the role's own menu so nobody is landed on a page that would refuse them.
+The first menu entry is only the fallback for a role nobody listed, and an account with no screens at all gets
+`/no-access`, which says so.
+
+**What the seeder fills in, apart from people:** leave balances for the financial year `2026-04-01 → 2027-03-31`
+for *every* type that grants days — the grant list is derived from `LEAVE_TYPES` (`requires_allocation` and
+`max_days_per_year`), so a type added on the Time-off types screen is allocated automatically instead of needing
+a code change; working schedules for all seven days (Mon–Fri 09:30–18:30 with a 60-minute break, Sat and Sun off,
+40 hours), attendance, requests that go through the real approval service, and one payrun with computed slips.
 
 Log out with the avatar menu (top right) — it opens on click, so it works from the keyboard and from a phone. The access token (`localStorage`, key `pp360.token`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh
 token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloading never logs you out —
@@ -127,11 +141,25 @@ prints the same grid from the server if you want the authoritative version.
 ## 5 · What works today
 
 * **Login for every role** — bcrypt check, JWT + refresh cookie, `/api/auth/me` returns the role's permissions **and** its menu, so the sidebar and every button are derived from the API, never hard-coded in React.
-* **CRUD on the real objects**, screen by screen: employees (plus contracts, attendance, time-off, payslips, terminate), departments / schedules / holidays (with a bulk "generate holidays" action), attendance entry + clock + overtime approval, time-off types / requests (approve–refuse) / allocations, salary structures and rules (with the validator), pay runs (create → compute → validate → generate PDFs → mark paid → send → void), payslip detail (lines, inputs, history, print/PDF/email), users (create, roles, activate, reset password), company settings (all ~30 payroll switches incl. PT slabs), and the access matrix.
+* **CRUD on the real objects**, screen by screen: employees (plus contracts, attendance, time-off, payslips, terminate), departments / schedules / holidays (with a bulk "generate holidays" action), attendance entry + clock + overtime approval, time-off types / requests (approve–refuse) / allocations, salary structures (a row opens it, every rule is described in words, and *Show the amounts* runs the real engine on a wage you type in) and rules (with the validator and the same sentence), pay runs (create → compute → validate → generate PDFs, with a panel that counts how many slips have a file and fills the gaps whether or not the worker is up → mark paid → send → void), payslip detail (lines, inputs, history, print/PDF/email), users (create, roles, activate, reset password), company settings (all ~30 payroll switches incl. PT slabs), and the access matrix.
 * **Two screens, two audiences**: `/attendance` and `/payslips` are shared — HR sees everyone and the correction
   dialog, an employee sees only their own rows (the same screen asks the API which permission it got, so nothing is
   hard-coded twice). An employee's **Download PDF** button mints a short link to `/api/portal/payslips/:id/pdf`
   (the audited self-service route), while payroll gets `/api/payslips/:id/pdf`.
+* **Payslip files that do not depend on the queue** — the payrun page has a *Payslip PDFs* panel that counts how many
+  slips have a file, creates the missing ones, and says which way they were made: handed to the worker, or rendered in
+  the request when the worker is not answering (up to `PDF_INLINE_LIMIT`, 40 by default). The register has the same
+  button, and a slip's own download has always rendered on demand — so there is no path where "generate" quietly
+  produces nothing.
+* **Mail that is configured, not hard-coded** — Settings → Company → E-mail delivery holds SMTP host, port, implicit
+  TLS, account, App Password, from-address, a daily cap and one *Send real mail* switch. The API and the worker read the
+  same row (15-second cache, invalidated on save), `.env` stays the fallback, and the password is never sent back to
+  the browser. *Check connection* and *Send a test mail to my address* go through the live mailer, so an invitation, a
+  password reset, a leave decision or a payslip cover letter all work the moment that line is green.
+* **Every required field says so** — the star, the box highlight and the sentence that blocks a submit come from one
+  list per form (`frontend/src/utils/form.js`), built by reading the API validator that will actually refuse you; a
+  field that may stay empty is labelled *Optional* rather than starred, and no Save button is left disabled without a
+  reason next to it.
 * **Bulk work in the background** — payslip PDFs and payslip e-mails are queued in Redis and drained by the worker (Settings → System shows the queue and the delivery log). E-mail is bulk in two senses: *all of a run* (`POST /payruns/:id/send`) and *a selection across runs* (`POST /payslips/send` — by ids, payrun, period or employee list, skipping rows with no PDF or no work email instead of failing the batch). Imports are synchronous and accept `dry_run: true` so you can see the row errors before anything is written.
 * **A payrun period you can trust** — a blank "Period ends" means the last day of the start month, resolved in one function (`resolvePeriodEnd`) that the candidate preview, the estimate and the created run all call, and the wizard prints the date it picked before you press Create.
 * **Assign balances to many** — Time-off types has an *Assign balance* button per row, and Allocations has a panel that grants one type to a ticked set of people in a single transaction (`POST /time-off/allocations/bulk`), with a skip/add/replace rule for people who already have a grant.
@@ -203,18 +231,35 @@ no page knows which theme is on, and a new screen is themed for free. Your choic
 | Any number in a form | the box says what it is measured in (₹, %, hours, days, order), shows an example in the placeholder, and compares what you typed with the same minimum and maximum the API uses — while you type, before a save is refused. A blank number means "leave the stored value alone", never "make it zero" | `frontend/src/components/crud/schemaForm.jsx` (`rangeProblem`), the field lists in each page |
 | Company settings | the ~30 payroll switches are one table in the page source — label, unit, min, max, step, example, and a sentence about what the value touches. `min`/`max` there are the same numbers as `companyBody` in the API, so the screen cannot accept what the server would reject | `frontend/src/pages/settings/CompanyPage.jsx` |
 | Editing a row | every list has an **Edit** button in the row, next to Delete. On a `CrudPage` screen (departments, holidays, leave types, rules, structures, allocations) it opens the same form pre-filled; on the three hand-written ones it opens that screen's own dialog — a punch day (`/attendance`), a user's name and sign-in email (`/users`), the employee record (`/employees`, whose Edit is a link to `/employees/:id?edit=1`, so the form exists exactly once). Rows that other screens depend on say `locked` instead of offering a delete the API would refuse, and a resource with no update endpoint gets no Edit button at all | `frontend/src/components/crud/CrudPage.jsx`, `frontend/src/pages/employees/EmployeeDetailPage.jsx` |
+| "I want to read the code, not guess it" | every screen has the same five parts, the shared pieces are listed by what you wanted to change, and the rules the repo keeps to are written down | `docs/15-reading-the-code.md` |
+| "what did this round change, and what still needs my machine" | the last round, item by item: the complaint, what the code actually did, what it does now, and which half only a real database, worker or mail server can prove | `docs/16-round-8-plan.md` |
 | "Why does this line say that?" | each payslip line prints the sentence the engine wrote while computing it, the slip has a numbered **How this slip was computed** panel, and each rule on the Rules screen gets one plain-English line built from its own fields | `docs/13-how-a-payslip-is-computed.md` |
 | Anything else | only lengths and formats that a human can get wrong by accident (dates, money ≥ 0, one running contract per employee, no leave beyond the balance). No password-strength theatre, no regex for Indian pincode | `backend/src/validators/*.js` |
 
-## 5d · Real payslip emails (Gmail in two minutes)
+## 5d · Real mails (Gmail in two minutes), from the settings screen
 
-1. Google account → Security → 2-Step Verification → **App passwords** → create one (16 characters).
-2. Put both values in [`backend/.env`](backend/.env): `EMAIL_NAME=you@gmail.com`, `EMAIL_PASSWORD=abcd efgh ijkl mnop`.
-3. Restart (`docker compose restart api worker`, or Ctrl+C and `npm run dev`).
+1. Google account → Security → 2-Step Verification → **App passwords** → create one (16 characters). A normal login
+   password is refused by Google with *"Username and Password not accepted"*; that sentence is what the app shows you
+   back, because it is the usual mistake.
+2. Sign in as an admin → **Settings → Company → E-mail delivery**: host `smtp.gmail.com`, port `587`, *implicit TLS*
+   **off**, the address as the mail account, the App Password in the password box, and *Send real mail* left on.
+3. Press **Send a test mail to my address**. It goes through the same mailer an invitation or a payslip uses, so a
+   green line there means the real thing arrives. No restart, and no file to edit.
 
-That is the whole config: the mailer sees credentials, picks the Gmail driver by itself and sends payslips with the PDF
-attached. With those two lines empty it stays on `preview` and writes each mail to `backend/storage/mail/*.eml`
-instead, so the demo works offline. `GET http://localhost:4100/health` prints which driver the worker is using.
+| where it can be set | wins |
+|---|---|
+| Settings → Company → E-mail delivery (stored on `company_settings`, migration `013_mail_transport.sql`) | this one, per key — the login lives in the database so a box with no shell access can still be configured |
+| `backend/.env` (`EMAIL_NAME`, `EMAIL_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `MAIL_FROM`, `MAIL_DAILY_LIMIT`) | the fallback, for a deployment that keeps its secret outside the database; leave the four fields blank and this is what runs |
+
+The password is write-only: `GET /api/company` returns `smtp_password_set: true` and never the value, and saving the
+form with an empty password box keeps what is stored rather than erasing it. *Send real mail* off means preview: every
+message becomes `backend/storage/mail/*.eml`, which is what happens on a demo box with no credentials at all, so the
+flow (link, set-password page, first sign-in) is still testable offline. `GET http://localhost:4100/health` prints
+which driver the worker picked up — the worker reads the same database row, cached for 15 seconds.
+
+An address you typed into *mail_from* is also the reply-to and where bounces land. Gmail's personal accounts are
+capped near 500 recipients a day, so keep *Daily mail cap* below that: the app then refuses to queue past it rather
+than letting a provider block the domain mid-run.
 
 The invitation mail uses the same driver, with three more knobs:
 

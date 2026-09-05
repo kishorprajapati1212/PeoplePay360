@@ -45,7 +45,7 @@ export function PayrunsPage() {
       <Panel pad={false}>
         <DataTable rows={rows} loading={list.loading} error={list.error} onRetry={list.reload} onRowClick={(r) => navigate('/payruns/' + r.id)}
           toolbar={<>
-            <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Payrun name…" />
+            <SearchInput value={table.term} onChange={table.onSearch} placeholder="Payrun name…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
                     options={['DRAFT', 'COMPUTED', 'VALIDATED', 'PAID', 'VOID'].map((v) => ({ value: v, label: v.charAt(0) + v.slice(1).toLowerCase() }))} placeholder="Any status" />
             <Input className="w-40" type="month" value={table.query.month || ''} onChange={(v) => table.onFilter('month', v)} />

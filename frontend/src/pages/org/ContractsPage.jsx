@@ -14,6 +14,7 @@ import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { inr, date, today } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
+import { guard, missingSentence } from '../../utils/form.js';
 
 /**
  * One running contract per person per period — the mockup's rule "payroll uses the contract applied to
@@ -52,8 +53,14 @@ export function ContractsPage() {
     : f.key === 'department_id' ? { ...f, options: toRows(opts[1]).map((d) => ({ value: d.id, label: d.name })) }
     : f.key === 'working_schedule_id' ? { ...f, options: toRows(opts[2]).map((s) => ({ value: s.id, label: s.name })) } : f);
 
+  // What the API will refuse without it (`contractBody` in backend/src/validators/hr.schema.js), in the words
+  // this screen uses for them. A blank box that only complains after the request is what a star is for.
+  const NEEDED = FIELDS.filter((f) => f.required).map((f) => [f.key, f.label, true]);
+
   async function save() {
     setError(''); setFieldErrors({});
+    const check = guard(values, NEEDED);
+    if (!check.ok) { setError(missingSentence(check.missing)); return; }
     const body = { ...values, wage: Number(values.wage || 0) };
     for (const k of ['end_date', 'salary_structure_id', 'department_id', 'working_schedule_id', 'job_position', 'notes']) if (!body[k]) delete body[k];
     try {
@@ -90,7 +97,7 @@ export function ContractsPage() {
       <Panel pad={false}>
         <DataTable loading={list.loading} rows={toRows(list.data)} error={list.error} onRetry={list.reload}
           toolbar={<>
-            <SearchInput className="w-56" value={table.term} onChange={table.onSearch} placeholder="Employee name…" />
+            <SearchInput value={table.term} onChange={table.onSearch} placeholder="Employee name…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
                     options={[{ value: 'RUNNING', label: 'Running' }, { value: 'DRAFT', label: 'Draft' }, { value: 'EXPIRED', label: 'Expired' }, { value: 'TERMINATED', label: 'Terminated' }]} placeholder="Any status" />
           </>}

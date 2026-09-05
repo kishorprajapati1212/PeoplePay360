@@ -115,12 +115,20 @@ export async function patchRequest(id, patch, { auth }) {
   return repo.patchRequest(id, { ...patch, start_date: from, end_date: to, duration: patch.duration ?? counted.days, work_days: counted.days });
 }
 /** approve → moves days from pending to taken on the allocation (the balance the portal shows). */
-export async function decide(id, { status = 'APPROVED', approved_days, refuse_reason }, { auth }) {
+export async function decide(id, { status = 'APPROVED', approved_days, refuse_reason, remark }, { auth }) {
   const r = await repo.getRequest(id);
   if (!r) throw AppError.notFound('Time off request not found');
   if (!['TO_APPROVE', 'DRAFT', 'APPROVED', 'REFUSED'].includes(r.status)) throw new AppError('LOCKED', `This request is already ${r.status.toLowerCase()}`, { status: 409 });
-  if (status === 'REFUSED' && !refuse_reason) throw AppError.badRequest('Give a reason when refusing a request', { code: 'REASON_REQUIRED' });
+  const note = String(remark || '').trim() || null;
+  const reason = String(refuse_reason || '').trim() || note;
+  if (status === 'REFUSED' && !reason) throw AppError.badRequest('Give a reason when refusing a request — it is the sentence the employee reads.', { code: 'REASON_REQUIRED' });
   const days = approved_days != null ? Number(approved_days) : Number(r.duration);
+  // A partial approval is normal ("take 1 of the 2 days"); approving more than was asked for is not a decision,
+  // it is a typo that would move money and a balance at the same time.
+  if (status === 'APPROVED' && days > Number(r.duration)) {
+    throw AppError.badRequest(`You cannot approve ${days} days when ${Number(r.duration)} were asked for`, { code: 'TOO_MANY_DAYS' });
+  }
+  if (status === 'APPROVED' && days <= 0) throw AppError.badRequest('Approving zero days means refusing — give it a reason instead', { code: 'NO_DAYS_APPROVED' });
   return transaction(async (client) => {
     const q = (sql, params) => client.query(sql, params).then((r2) => ({ rows: r2.rows, rowCount: r2.rowCount }));
     if (r.status === 'APPROVED' && r.allocation_id) await repo.adjustAllocation(r.allocation_id, { taken: -Number(r.approved_days ?? r.duration) }, q);
@@ -132,7 +140,7 @@ export async function decide(id, { status = 'APPROVED', approved_days, refuse_re
       await repo.adjustAllocation(r.allocation_id, { pending: -Number(r.duration) }, q);
     }
     return repo.decideRequest(id, { status, approvedBy: auth?.userId || null, approvedDays: status === 'APPROVED' ? days : null,
-      refuseReason: status === 'REFUSED' ? refuse_reason : null }, q);
+      refuseReason: status === 'REFUSED' ? reason : null, decisionRemark: note }, q);
   });
 }
 export const cancel = (id, { auth }) => decide(id, { status: 'CANCELLED' }, { auth });

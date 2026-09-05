@@ -34,7 +34,7 @@ export const payrunRoutes = bind([
   post('/:id/validate', { perm: 'payroll:validate', params: v.idParam, h: pr.validate, idem: true, read: false }),
   post('/:id/mark-paid', { perm: 'payroll:mark_paid', params: v.idParam, h: pr.markPaid, idem: true, read: false }),
   post('/:id/void', { perm: 'payroll:payrun_delete', params: v.idParam, h: pr.voidRun, idem: true }),
-  post('/:id/generate-pdfs', { perm: 'payroll:validate', params: v.idParam, h: pr.pdfs, read: false }),
+  post('/:id/generate-pdfs', { perm: 'payroll:validate', params: v.idParam, body: v.pdfBody, h: pr.pdfs, read: false }),
   post('/:id/send', { perm: 'payroll:send_bulk', params: v.idParam, body: v.sendBody.optional(), h: pr.send, idem: true, read: false }),
   get('/:id/export.csv', { perm: 'payroll:payrun_read', params: v.idParam, h: pr.exportCsv, read: false, audit: false }),
   get('/:id/warnings', { perm: 'payroll:payrun_read', params: v.idParam, h: pr.warnings, read: true }),

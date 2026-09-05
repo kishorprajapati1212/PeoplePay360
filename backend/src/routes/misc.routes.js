@@ -36,6 +36,10 @@ export const companyRoutes = bind([
   get('/pt-slabs', { any: ['settings:read', 'salary:rule_read'], h: c.companyPtSlabs, read: true }),
   post('/pt-slabs', { perm: 'settings:write', body: v.ptSlabBody, h: c.companyAddPtSlab }),
   del('/pt-slabs/:id', { perm: 'settings:write', params: idParam(), h: c.companyRemovePtSlab }),
+  // Mail transport, in the product rather than in backend/.env: one read for the panel, one call that
+  // connects (and optionally sends a test message) so "will my invites arrive" has an answer with a button.
+  get('/mail', { perm: 'settings:read', h: c.companyMail, read: true }),
+  post('/mail/check', { perm: 'settings:write', body: v.mailTestBody, h: c.companyMailCheck, read: false }),
 ]);
 export const systemRoutes = bind([
   get('/jobs', { perm: 'system:queue', h: c.systemJobs, read: true }),

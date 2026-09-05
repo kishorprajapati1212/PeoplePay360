@@ -6,9 +6,10 @@ import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
 import { Field, Input, Select, Textarea, Checkbox } from '../../components/ui/controls.jsx';
 import { usePicklists, keepCurrentValue } from '../../utils/picklists.js';
-import { ErrorPanel } from '../../components/ui/Feedback.jsx';
+import { ErrorPanel, Notice } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
+import { num } from '../../utils/format.js';
 
 /**
  * Company settings — the switches that decide how every payslip in this company is computed.
@@ -31,8 +32,23 @@ const SETTINGS = {
     { key: 'timezone', label: 'Timezone', max: 60, placeholder: 'Asia/Kolkata' },
     { key: 'address', label: 'Address', type: 'textarea', max: 300, full: true, placeholder: 'Street, building, city' },
     { key: 'payslip_footer', label: 'Payslip footer', type: 'textarea', max: 400, full: true, placeholder: 'This is a computer-generated payslip and needs no signature.', hint: 'Printed at the bottom of every slip.' },
+  ],
+  // Mail used to be .env-only, which is why "the invite never arrived" was a config hunt. It is company
+  // configuration like everything else on this screen: four fields and a switch, and Check mail below proves it.
+  'E-mail delivery': [
+    { key: 'mail_enabled', label: 'Send real mail', type: 'checkbox', full: true,
+      hint: 'Off means nothing leaves this machine: every message is written to backend/storage/mail as a .eml file instead. On means the login below is used.' },
+    { key: 'smtp_host', label: 'SMTP host', max: 160, placeholder: 'smtp.gmail.com',
+      hint: 'For a Google inbox that is smtp.gmail.com. Leave all four blank to use EMAIL_NAME / EMAIL_PASSWORD from the environment instead.' },
+    { key: 'smtp_port', label: 'SMTP port', unit: 'port', type: 'number', min: 1, max: 65535, step: 1, integer: true, placeholder: '587',
+      hint: '587 with Gmail (STARTTLS). 465 needs the box below ticked.' },
+    { key: 'smtp_secure', label: 'Implicit TLS on connect (port 465 style)', type: 'checkbox' },
+    { key: 'smtp_user', label: 'Mail account', max: 160, pattern: 'email', placeholder: 'payroll@company.com' },
+    { key: 'smtp_password', label: 'Password / App Password', type: 'password', max: 400, full: true,
+      placeholder: 'Stored as-is and never read back — blank keeps what is already stored',
+      hint: 'A Google account needs an App Password (2-Step Verification must be on); a normal login password is refused with "Username and Password not accepted", which Check mail will show you. Gmail allows about 500 recipients a day on a personal account.' },
     { key: 'mail_from', label: 'Reply-to / sender mailbox', max: 160, pattern: 'email', hint: 'Also where bounce notices land.' },
-    { key: 'mail_daily_limit', label: 'Daily mail cap', unit: 'mails/day', type: 'number', min: 1, max: 100000, step: 1, integer: true, placeholder: '400', hint: 'Keeps a bulk send under the provider limit (Gmail: 500/day).' },
+    { key: 'mail_daily_limit', label: 'Daily mail cap', unit: 'mails/day', type: 'number', min: 1, max: 100000, step: 1, integer: true, placeholder: '400', hint: 'What the app refuses to queue past this, so a bulk run cannot get the domain blocked.' },
   ],
   'Payroll conventions': [
     { key: 'payroll_day_basis', label: 'Payroll day basis', type: 'select', full: true,
@@ -80,6 +96,9 @@ export function CompanyPage() {
   const { data, loading, error, reload } = useApi(useCallback(() => company.get(), []), []);
   const [values, setValues] = useState(null);
   const [problems, setProblems] = useState({});
+  // Bumped after a save so the mail panel below re-reads the driver — a settings change should be visible in
+  // the same screen that made it, not after a reload.
+  const [savedAt, setSavedAt] = useState(0);
   const { run, busy } = useAction();
   const form = values || data || {};
 
@@ -109,7 +128,7 @@ export function CompanyPage() {
     const body = Object.fromEntries(Object.entries(form)
       .filter(([k, v]) => !['id', 'created_at', 'updated_at'].includes(k))
       .filter(([, v]) => v !== '' && v !== null && v !== undefined));
-    await run('save', () => company.update(body)).then(() => { setValues(null); toast.success('Settings saved — new computations pick them up immediately'); reload(); })
+    await run('save', () => company.update(body)).then(() => { setValues(null); setSavedAt((n) => n + 1); toast.success('Settings saved — new computations pick them up immediately'); reload(); })
       .catch((e) => toast.error(e.message));
   }
 
@@ -123,6 +142,8 @@ export function CompanyPage() {
                     {values && <button className="btn-ghost btn-sm" onClick={() => { setValues(null); setProblems({}); }}>Discard</button>}
                     <button className="btn-primary btn-sm" disabled={!values || !!busy} onClick={save}>{busy === 'save' ? 'Saving…' : 'Save settings'}</button>
                   </>} />
+
+      <MailPanel savedAt={savedAt} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         {Object.entries(SETTINGS).map(([title, fields]) => (
@@ -140,6 +161,9 @@ export function CompanyPage() {
                               loading={statesLoading} error={statesError} placeholder={f.placeholder || 'Not set'} />
                     : f.type === 'textarea'
                       ? <Textarea rows={2} value={form[f.key]} maxLength={f.max} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
+                      : f.type === 'password'
+                        ? <Input type="password" value={form[f.key]} maxLength={f.max} placeholder={f.placeholder}
+                                  onChange={(v) => set(f.key, v)} />
                       : (
                         <Input type={f.type === 'number' ? 'number' : 'text'} inputMode={f.type === 'number' ? 'decimal' : undefined}
                                value={form[f.key]} min={f.min} max={f.max} step={f.step} suffix={f.unit}
@@ -167,8 +191,85 @@ export function CompanyPage() {
             Saved values are checked here and again by the API ({NUMERIC.size} numbers, each with the same
             range). A field left blank is left alone rather than zeroed.
           </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Nothing on this screen carries a <span className="text-brand-300">*</span>, because nothing on it is
+            required: the company row always has defaults, and every setting can be left as it is. On screens
+            where a field <em>is</em> needed — an employee's name, a rule's code — the box carries the star and
+            the same rule is in the API's validator.
+          </p>
         </Panel>
       </div>
     </>
+  );
+}
+
+/**
+ * What the app would do if it had to send something right now, and the only place on this screen that touches
+ * the mail server.
+ *
+ * The status is a config read (`GET /company/mail`), so opening Settings never logs in anywhere; the buttons are
+ * what connect. Both go through the same mailer an invitation uses, which is the point: a green light here means
+ * the next "Send link" arrives, and a red one quotes the provider's own words instead of leaving you to guess
+ * whether an App Password was what it wanted.
+ */
+function MailPanel({ savedAt }) {
+  const status = useApi(useCallback(() => company.mail.get(), [savedAt]), [savedAt]);
+  const { run, busy } = useAction();
+  const [result, setResult] = useState(null);
+  const s = status.data || {};
+  const preview = s.driver === 'preview';
+
+  function check(send) {
+    setResult(null);
+    return run(send ? 'send' : 'check', () => company.mail.check(send ? {} : { to: null }))
+      .then((out) => { setResult(out); })
+      .catch((e) => setResult({ connected: false, error: e.message }));
+  }
+
+  const verdict = (() => {
+    if (!result) return null;
+    if (result.error) return { tone: 'warn', title: 'The settings screen could not ask the server', text: result.error };
+    if (!result.connected) {
+      return { tone: 'warn', title: 'The mail server refused the connection',
+               text: (result.verify && result.verify.error) || result.note
+                 || 'The host, port or TLS mode does not answer. Nothing was sent.' };
+    }
+    if (!result.mail) return { tone: 'good', title: 'The login works', text: 'Connected to the server. No message was sent — you only asked it to check.' };
+    if (result.mail.ok) {
+      return result.mail.driver === 'preview'
+        ? { tone: 'info', title: 'Written as a file, not sent', text: result.mail.note || ('Saved to ' + (result.mail.file || 'backend/storage/mail')) }
+        : { tone: 'good', title: 'A test mail went out', text: `Sent through ${result.mail.driver} to the address you are signed in with${result.mail.message_id ? ` · message id ${result.mail.message_id}` : ''}.` };
+    }
+    return { tone: 'warn', title: 'The provider refused the message', text: result.mail.error || 'It said no without a reason.' };
+  })();
+
+  return (
+    <Panel title="Mail right now" subtitle="What happens to an invitation or a payslip e-mail the moment it is asked for.">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ['Driver', preview ? 'preview (files only)' : s.driver || '…', preview ? 'Nothing leaves this machine.' : 'How the message is handed over.'],
+          ['Sending as', s.login || 'nobody', s.password_stored ? 'A password is stored here.' : 'No password stored in the database.'],
+          ['From', s.from || '—', 'The address a bounce comes back to.'],
+          ['Daily cap', s.daily_limit ? `${num(s.daily_limit)} messages` : '—', 'Stops a bulk run past the provider limit.'],
+        ].map(([label, value, hint]) => (
+          <div key={label}>
+            <p className="label">{label}</p>
+            <p className="mt-0.5 text-sm text-slate-100">{value}</p>
+            <p className="text-xs text-slate-500">{hint}</p>
+          </div>
+        ))}
+      </div>
+      {s.note && <p className="mt-3 text-xs text-amber-200">{s.note}</p>}
+      {s.host && <p className="mt-2 text-xs text-slate-500">Configured server: {s.host}{s.port ? `:${s.port}` : ''}{s.secure ? ' · implicit TLS' : ' · STARTTLS'}.</p>}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button className="btn-ghost btn-sm" disabled={!!busy} onClick={() => check(false)}>
+          {busy === 'check' ? 'Connecting…' : 'Check connection'}</button>
+        <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => check(true)}>
+          {busy === 'send' ? 'Sending…' : 'Send a test mail to my address'}</button>
+        <span className="text-xs text-slate-500">Both use the live settings, so save first if you just changed one.</span>
+      </div>
+      {verdict && <div className="mt-3"><Notice tone={verdict.tone} title={verdict.title}><p>{verdict.text}</p></Notice></div>}
+    </Panel>
   );
 }

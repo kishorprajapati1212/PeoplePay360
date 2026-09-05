@@ -5,6 +5,7 @@ import { Spinner } from './components/ui/Spinner.jsx';
 
 // One route table, one screen per file. Anything a role cannot see is not in its nav (see src/rbac).
 import { LoginPage } from './pages/LoginPage.jsx';
+import { NoAccess } from './components/ui/Feedback.jsx';
 import { SetPasswordPage } from './pages/auth/SetPasswordPage.jsx';
 import { DashboardPage } from './pages/DashboardPage.jsx';
 import { EmployeesPage } from './pages/employees/EmployeesPage.jsx';
@@ -53,6 +54,9 @@ export default function App() {
       <Route path="/set-password" element={<SetPasswordPage />} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to={landingFor(user)} replace />} />
+        {/* Where a signed-in account with no visible screen at all is sent: a page that explains it, never a
+            bounce back to /login (which would loop, because the login page sends signed-in users to the index). */}
+        <Route path="/no-access" element={<NoAccess />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/payroll" element={<DashboardPage kind="payroll" />} />
         <Route path="/employees" element={<EmployeesPage />} />
@@ -86,7 +90,31 @@ export default function App() {
 }
 
 /** Where a role lands after signing in — mirrors the first menu item the backend sent. */
-function landingFor(user) {
-  const first = (user.menus || [])[0];
-  return first ? first.to : '/portal';
+/**
+ * Where a signed-in person lands, one route per role.
+ *
+ * It used to be "the first entry of the menu", which was correct but invisible: the menu order is a layout
+ * decision, so a menu edit silently moved somebody's front door. The table below is the product's answer to
+ * "what is my screen", and the first menu entry is only the fallback for a role nobody listed.
+ */
+const LANDING_BY_ROLE = {
+  EMPLOYEE: '/portal',                    // My Portal: their own payslips, attendance and leave in one screen
+  HR_MANAGER: '/employees',               // the list they work through all day
+  HR_PAYROLL_USER: '/payroll',            // the run they are meant to compute
+  HR_PAYROLL_MANAGER: '/payroll',
+  ADMIN: '/dashboard',                    // the overview, because an admin's job is to see everything
+};
+/** Exported so the ui-probe can assert the promise without clicking through a router. */
+export function landingFor(user) {
+  const roles = user?.roles?.length ? user.roles : [user?.role];
+  for (const role of ['ADMIN', 'HR_PAYROLL_MANAGER', 'HR_PAYROLL_USER', 'HR_MANAGER', 'EMPLOYEE']) {
+    const route = LANDING_BY_ROLE[role];
+    if (route && roles?.includes(role) && menuHas(user, route)) return route;
+  }
+  const first = (user?.menus || [])[0];
+  return first ? first.to : '/no-access';
+}
+/** Landing on a screen the role cannot open would bounce straight to NoAccess, so check the menu first. */
+function menuHas(user, route) {
+  return (user?.menus || []).some((m) => m.to === route);
 }

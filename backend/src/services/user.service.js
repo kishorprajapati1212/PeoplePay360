@@ -8,7 +8,7 @@ import { transaction } from '../db/tx.js';
 import { config } from '../config.js';
 import * as deliveryRepo from '../repositories/delivery.repo.js';
 import { schedule, QUEUES } from '../queue/queues.js';
-import { resolveDriver } from '../lib/mailer/index.js';
+// resolveDriver is no longer called here: the live driver comes from mailStatus(), which reads the company row.
 
 export const list = (f) => repo.listUsers(f);
 /** Only the hash of a link token is ever stored, the same way refresh tokens work. */
@@ -37,11 +37,16 @@ export async function createInvite(id, { auth, sendEmail = true } = {}) {
   // a job that fails gets the worker's own retries. Only the invitation id and the recipient go in the
   // durable payload; the token lives in the job data, which is why it is never written to Postgres.
   const dedupe = `invite:${inv.id}`;
+  // Computed once, at the top, because both returns below report it: which driver is live *now*, including a
+  // login the admin pasted into Settings → Company (an env-only read here would say "preview" about a box that
+  // is really sending).
+  const { mailStatus } = await import('./mail.service.js');
+  const mailDriver = (await mailStatus()).driver;
   // No e-mail requested means nothing to log: the link is the whole delivery, so no task row is made.
   if (!sendEmail) {
     return { id: inv.id, link, token, expires_at: inv.expires_at, expires_in_hours: config.invite.ttlHours,
       task_id: null, email: { skipped: true }, mail_queued: false, mail_sent: false, mail_skipped: true,
-      mail_driver: resolveDriver(config.mail).driver, sent_from: config.appUrl, delivery_mode: 'not-requested',
+      mail_driver: mailDriver, sent_from: config.appUrl, delivery_mode: 'not-requested',
       how_it_is_delivered: 'No e-mail was requested — the link below is the whole delivery.' };
   }
   // One row in task_queue either way, because that is the log the admin can see (Settings → System) — whether
@@ -68,11 +73,10 @@ export async function createInvite(id, { auth, sendEmail = true } = {}) {
     mail = await mailInvite({ name: target.name, email: target.work_email, link, hours: config.invite.ttlHours, inviter: auth?.name });
     await deliveryRepo.markTask(task.id, mail.ok ? 'COMPLETED' : 'FAILED', { error: mail.error || (mail.ok ? null : 'send failed') });
   }
-  const driver = resolveDriver(config.mail).driver;
   return {
     id: inv.id, link, token, expires_at: inv.expires_at, expires_in_hours: config.invite.ttlHours,
     task_id: mail.task_id || null, email: mail, mail_queued: !!mail.queued, mail_sent: mail.ok === true,
-    mail_skipped: !!mail.skipped, mail_driver: driver, sent_from: config.appUrl,
+    mail_skipped: !!mail.skipped, mail_driver: mailDriver, sent_from: config.appUrl,
     delivery_mode: mail.queued ? 'queued' : sendEmail ? 'sent-by-request' : 'not-requested',
     how_it_is_delivered: !sendEmail
       ? 'No e-mail was requested — the link below is the whole delivery.'
@@ -81,13 +85,17 @@ export async function createInvite(id, { auth, sendEmail = true } = {}) {
         : mail.ok === false
           ? `The account and the link are ready, but the mail server refused the send (${mail.error || driver}). Copy the link below and send it yourself — the invitation stays valid until it is used.`
           : driver === 'preview'
-            ? 'Sent by this request. There are no SMTP credentials, so it went to backend/storage/mail as a .eml — open it and copy the link, or send it yourself.'
+            ? 'Sent by this request. There are no SMTP credentials in Settings \u2192 Company \u2192 E-mail delivery, so the message went to backend/storage/mail as a .eml — open it and copy the link, or set the login there and it will go out for real.'
             : `Sent to ${target.work_email} by this request via ${mail.driver || driver} — one message per account, no queue in between.`,
   };
 }
 async function mailInvite({ name, email, link, hours, inviter }) {
-  const { createMailer, render } = await import('../lib/mailer/index.js');
-  const mailer = createMailer(process.env);
+  const { render } = await import('../lib/mailer/index.js');
+  // `mailerFor` = Settings → Company first, environment second, so the SMTP login an admin pasted into the
+  // product is the one that sends. (An earlier round read process.env here, which is why a configured box still
+  // wrote .eml files until somebody edited .env by hand.)
+  const { mailer: mailerFor } = await import('./mail.service.js');
+  const mailer = await mailerFor();
   const vars = { first_name: String(name || '').split(' ')[0], link, hours, inviter: inviter || 'the payroll team', company: 'PeoplePay360' };
   const text = render('Hi {{first_name}},\n\nAn account has been created for you on {{company}}. Pick a password and you are in — the link is valid for {{hours}} hours and works once.\n\n{{link}}\n\nIf you did not expect this, ignore the message: nothing happens to your account.', vars);
   const html = render('<p>Hi <b>{{first_name}}</b>,</p><p>An account has been created for you on <b>{{company}}</b>. Choose a password to finish setting it up.</p>'

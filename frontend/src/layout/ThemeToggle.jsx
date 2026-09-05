@@ -2,7 +2,9 @@ import { useTheme } from '../theme.js';
 
 /**
  * The light/dark switch. It is a button, not a menu: two options, one click, remembered in localStorage.
- * Rendered in the sidebar footer and in the top bar (the top bar is the one that survives small screens).
+ * Rendered in the sidebar footer, in the top bar (the one that survives small screens) and, compact, on the
+ * two signed-out screens — signing in and choosing a password are part of the product too, so they are read
+ * in whichever theme the rest of the app was left in.
  */
 export function ThemeToggle({ compact = false }) {
   const { theme, toggle } = useTheme();
