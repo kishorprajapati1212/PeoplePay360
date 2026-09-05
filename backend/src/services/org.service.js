@@ -52,6 +52,15 @@ function normaliseDays(days) {
   if (!out.length) throw AppError.badRequest('Add at least one day to the weekly grid');
   return out;
 }
+/**
+ * Switch a schedule off without touching its week. A PATCH of the whole row would need the seven days resent,
+ * and a screen that reads them back from a list endpoint can easily send a week it did not mean to write.
+ */
+export async function setScheduleActive(id, on) {
+  const row = await repo.setScheduleActive(id, on);
+  if (!row) throw AppError.notFound('Schedule not found');
+  return { ...row, note: on ? 'Contracts can point at this schedule again.' : 'Still on the records that use it, but nobody can be assigned to it.' };
+}
 export async function deleteSchedule(id) {
   const usage = await repo.scheduleUsage(id);
   if (Number(usage.employees) || Number(usage.contracts)) throw new AppError('SCHEDULE_IN_USE', 'Reassign the employees on this schedule first', { status: 409, details: usage });

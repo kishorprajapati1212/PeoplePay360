@@ -183,6 +183,11 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
                   {!rows.length && (
                     <tr><td className="td" colSpan={5}>
                       <p className="text-slate-300">Nobody is eligible for {date(wizard.period_start)} → {date(resolvedEnd)} on this structure.</p>
+                      {/* Counted by the database, not guessed here: `why_empty` comes from GET /api/payruns/employees,
+                          the same call that produced this empty list. */}
+                      {candidates.data?.why_empty && (
+                        <p className="mt-1 text-xs text-amber-200">{candidates.data.why_empty}</p>
+                      )}
                       <p className="mt-1 text-xs text-slate-500">Three things cause this: the employees are assigned to a different pay structure (Employees → their Salary tab), their contract does not cover these dates (Contracts → new/renew), or the contract is still a DRAFT. A run created with nobody in it computes to nothing, so fix one of those first.</p>
                     </td></tr>
                   )}

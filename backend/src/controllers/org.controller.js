@@ -9,6 +9,7 @@ export const schedule = async (req, res) => ok(res, await svc.getSchedule(req.pa
 export const createSchedule = async (req, res) => created(res, await svc.saveSchedule(null, req.valid.body));
 export const updateSchedule = async (req, res) => ok(res, await svc.saveSchedule(req.params.id, req.valid.body));
 export const deleteSchedule = async (req, res) => ok(res, await svc.deleteSchedule(req.params.id));
+export const setScheduleActive = async (req, res) => ok(res, await svc.setScheduleActive(req.params.id, req.valid.body.is_active === 'ACTIVE'));
 export const holidays = async (req, res) => ok(res, { rows: await svc.listHolidays({ year: req.query.year ? Number(req.query.year) : undefined, from: req.query.from, to: req.query.to, type: req.query.type }) });
 export const createHoliday = async (req, res) => created(res, await svc.createHoliday(req.valid.body));
 export const updateHoliday = async (req, res) => ok(res, await svc.updateHoliday(req.params.id, req.valid.body));

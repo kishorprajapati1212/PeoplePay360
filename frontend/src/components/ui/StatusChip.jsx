@@ -4,7 +4,7 @@ const TONES = {
   // green
   ACTIVE: 'good', PAID: 'good', SENT: 'good', APPROVED: 'good', COMPLETED: 'good', VALIDATED: 'good', CURRENT: 'good', LOCKED: 'info',
   // amber
-  DRAFT: 'warn', COMPUTED: 'warn', PENDING: 'warn', QUEUED: 'warn', PROCESSING: 'warn', PART_DAY: 'warn', HALF_DAY: 'warn', ON_LEAVE: 'warn', REQUESTED: 'warn',
+  DRAFT: 'warn', COMPUTED: 'warn', PENDING: 'warn', TO_APPROVE: 'warn', QUEUED: 'warn', PROCESSING: 'warn', PART_DAY: 'warn', HALF_DAY: 'warn', ON_LEAVE: 'warn', REQUESTED: 'warn',
   // red
   FAILED: 'bad', DEAD: 'bad', REFUSED: 'bad', CANCELLED: 'bad', TERMINATED: 'bad', INACTIVE: 'muted', VOID: 'muted', BOUNCED: 'bad', ABSENT: 'bad', LATE: 'bad', EXPIRED: 'muted',
 };

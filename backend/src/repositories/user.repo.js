@@ -92,10 +92,11 @@ export const revokeRefreshFamily = (familyId, q = query) => q(`update refresh_to
 export const revokeAllRefresh = (userId) => query(`update refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null`, [userId]);
 /* Invitations: a random token goes in the link, its SHA-256 goes in the row. A leaked table therefore
    leaks nothing usable, and a link can only ever be spent once (accepted_at). */
-export const createInvitation = ({ email, userId, tokenHash, invitedBy, ttlHours = 72 }, q = query) =>
+export const createInvitation = ({ email, userId, tokenHash, invitedBy, ttlMinutes = 10 }, q = query) =>
   q(`insert into invitations (email, user_id, token_hash, invited_by, expires_at)
-     values ($1, $2, $3, $4, now() + ($5 || ' hours')::interval)
-     returning id, token_hash, expires_at`, [email, userId || null, tokenHash, invitedBy || null, String(ttlHours)]).then((r) => r.rows[0]);
+     values ($1, $2, $3, $4, now() + make_interval(mins => $5::int))
+     returning id, token_hash, expires_at`,
+    [email, userId || null, tokenHash, invitedBy || null, Math.max(1, Math.round(Number(ttlMinutes) || 10))]).then((r) => r.rows[0]);
 export const findInvitation = (tokenHash) =>
   query(`select i.*, u.name, u.work_email, u.is_active, u.must_change_pw, count(*) over () as total
          from invitations i join users u on u.id = i.user_id where i.token_hash = $1`, [tokenHash]).then((r) => r.rows[0] || null);

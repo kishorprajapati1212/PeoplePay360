@@ -8,6 +8,11 @@
 #  the database is created and seeded by the `migrate` service, and backend/.env is mounted read-only
 #  so a change there (an App Password for real email, say) only needs `docker compose restart`.
 #
+#  Mail needs nothing changed in this file: put the address and its App Password in Settings → Company (as admin),
+#  or EMAIL_NAME / EMAIL_PASSWORD in backend/.env — the address decides the SMTP server for Gmail and friends.
+#  Keys this file DOES set (DATABASE_URL, REDIS_HOST, WEB_ORIGIN, JWT_SECRET, …) win over backend/.env, so those
+#  are the ones to edit here; everything else is read from the mounted .env. The table is in README §1.
+#
 #  Sources are bind-mounted, so an edit reloads the container — no rebuild while you work.
 #  Stop with: docker compose down      (add -v only if you want to wipe the demo data)
 # ══════════════════════════════════════════════════════════════════════════════════════════

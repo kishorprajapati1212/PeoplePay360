@@ -27,6 +27,36 @@ export const dtStr = z.string().min(4, 'Pick a date and time');
 export const dow = z.coerce.number().int().min(1).max(7);
 
 /**
+ * One row of a working-schedule grid, read from whatever a client actually sends.
+ *
+ * Two shapes of mistake used to be refused in a way nobody could act on, so both are handled here rather than in
+ * each screen (there are two callers of this: the schedules page and anything that imports the hr schema):
+ *   · a day named instead of numbered — `mon`, `SUN`, `monday` — became `NaN` and zod said "Expected number,
+ *     received nan"; and
+ *   · a weekly off, which has no clock time, was sent as `start: ''` and failed the HH:MM format with a message
+ *     about time, for a day that is not worked at all.
+ * Blank and absent end up meaning the same thing, so an empty string is dropped before the checks below run.
+ */
+const DAY_NAMES = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
+export function weekGridDay(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = { ...row };
+  for (const key of ['day', 'start', 'end', 'break', 'code', 'note']) {
+    if (out[key] === '' || out[key] === null) delete out[key];              // an empty box is not a bad box
+  }
+  if (typeof out.day === 'string') {
+    const text = out.day.trim().toLowerCase();
+    out.day = /^\d+$/.test(text) ? Number(text) : (DAY_NAMES[text.slice(0, 3)] ?? out.day);
+  }
+  const off = out.rest === true || String(out.rest) === 'true' || String(out.code || '').toUpperCase() === 'REST';
+  if (off) { delete out.start; delete out.end; out.break = 0; out.rest = true; }   // a rest day keeps no times
+  return out;
+}
+export const scheduleDay = (extra = {}) => z.preprocess(weekGridDay, z.object({
+  day: dow, start: timeStr.optional(), end: timeStr.optional(), break: intIn(0, 480).optional(),
+  rest: z.boolean().optional(), ...extra }));
+
+/**
  * Indian mobile number: 10 digits, nothing else. Spaces, dashes and a leading +91 are cleaned away first,
  * because people paste numbers in however their phone shows them — a wrong digit count is still refused.
  */

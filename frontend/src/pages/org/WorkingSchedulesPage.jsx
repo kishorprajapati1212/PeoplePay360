@@ -7,12 +7,12 @@ import { DataTable } from '../../components/data/DataTable.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Field, Input, Select, Checkbox } from '../../components/ui/controls.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
-import { ErrorPanel, EmptyState } from '../../components/ui/Feedback.jsx';
+import { ErrorPanel, EmptyState, Notice } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { num } from '../../utils/format.js';
 import { toRows } from '../../utils/query.js';
-import { guard, missingSentence } from '../../utils/form.js';
+import { guard, missingSentence, isTime } from '../../utils/form.js';
 
 /**
  * "Working Schedule — List & Form View" from the mockup: a weekly grid of worked days, start, end and break.
@@ -47,6 +47,7 @@ export function WorkingSchedulesPage() {
   const mayWrite = useCan('schedule:write');
   const reload = useApi(useCallback(() => org.schedules.list({}), []), []);
   const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);      // { row, problem? } — `problem` is set when the API refuses
   const [tried, setTried] = useState(false);
   const { run, busy } = useAction();
   const rows = toRows(reload.data);
@@ -54,22 +55,52 @@ export function WorkingSchedulesPage() {
   // `scheduleBody` needs a name and the seven days; the days are always there now, so the name is the one
   // thing that can be missed — and it is the one thing this dialog used to send empty.
   const check = guard(editing || {}, [['name', 'The schedule name']]);
+  // A day that is ticked on needs both times: payroll divides the month by this grid, so a blank is not a missing
+  // value but a wrong one. Each box says so, and one line above the grid names the days.
+  const timeKeys = editing ? DAY_KEYS.filter((key) => {
+    const day = editing.days[key];
+    return !day.rest && (!isTime(day.start) || !isTime(day.end));
+  }) : [];
+  const timeProblem = timeKeys.length
+    ? `${timeKeys.map((k) => DAY_LABELS[k]).join(', ')} ${timeKeys.length === 1 ? 'is' : 'are'} a worked day without both times.`
+    : null;
 
   async function save() {
     setTried(true);
-    if (!check.ok) { toast.error(missingSentence(check.missing)); return; }
+    if (!check.ok || timeProblem) { toast.error(missingSentence(check.missing) || timeProblem); return; }
     await run('save', () => {
-      const body = {
-        name: editing.name, type: editing.type,
-        timezone: editing.timezone || undefined, description: editing.description || undefined,
-        is_active: editing.is_active ? 'ACTIVE' : 'INACTIVE',
-        days: DAY_KEYS.map((key) => ({ day: dayNumberOf(key), ...editing.days[key] })),
-      };
+      const body = saveBody(editing);
       return editing.id ? org.schedules.update(editing.id, body) : org.schedules.create(body);
     })
       .then(() => { setEditing(null); toast.success('Schedule saved'); reload.reload(); })
       .catch((e) => toast.error(e.message));
     }
+
+  /** Deactivate instead of delete: the answer for a schedule the API will not let go of. PATCH takes the whole
+      body here (the same `scheduleBody` as a create), so the row is read back into the form shape first. */
+  /**
+   * Switch a schedule off rather than deleting it — the answer the API gives when contracts use it.
+   * A one-field call on purpose: sending the whole row back would rebuild the week from whatever the list endpoint
+   * happened to include, and a schedule whose days quietly changed is a payroll that quietly changed.
+   */
+  async function toggleActive(row) {
+    const on = !isActive(row);
+    await run('a' + row.id, () => org.schedules.setActive(row.id, on))
+      .then(() => { toast.success(on ? 'Schedule activated' : 'Schedule deactivated'); reload.reload(); })
+      .catch((e) => toast.error(e.message));
+  }
+  async function confirmDelete(row) {
+    await run('d' + row.id, () => org.schedules.remove(row.id))
+      .then(() => { setDeleting(null); toast.success('Removed — it stays in the list as Inactive, since nothing points at it any more'); reload.reload(); })
+      .catch((e) => {
+        const used = e.details ? Number(e.details.employees || 0) + Number(e.details.contracts || 0) : 0;
+        setDeleting({ row, problem: used
+          ? `${e.message} It is on ${num(e.details.employees || 0)} employee record(s) and ${num(e.details.contracts || 0)} `
+            + `contract(s), so it cannot be deleted. Deactivate it and nobody can be assigned to it again, while the `
+            + `runs already computed keep the numbers they were built from.`
+          : e.message });
+      });
+  }
 
   return (
     <>
@@ -86,10 +117,35 @@ export function WorkingSchedulesPage() {
                      { key: 'days_per_week', label: 'Days', align: 'right', render: (r) => num(r.days_per_week) },
                      { key: 'total_weekly_hours', label: 'Hours / week', align: 'right', render: (r) => Number(r.total_weekly_hours || 0).toFixed(1) },
                      { key: 'is_active', label: 'Status', render: (r) => <StatusChip value={isActive(r) ? 'ACTIVE' : 'INACTIVE'} /> },
-                     { key: '_a', label: '', render: (r) => mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEditing(fromRow(r))}>Edit</button> },
+                     { key: '_a', label: '', render: (r) => mayWrite && (
+                       <span className="flex gap-1.5">
+                         <button className="btn-ghost btn-sm" onClick={() => setEditing(fromRow(r))}>Edit</button>
+                         <button className="btn-ghost btn-sm" onClick={() => toggleActive(r)} disabled={busy === 'a' + r.id}
+                                 title={isActive(r) ? 'Kept for history, but no new contract can point at it' : 'Let contracts use this schedule again'}>
+                           {isActive(r) ? 'Deactivate' : 'Activate'}</button>
+                         <button className="btn-ghost btn-sm text-red-300" onClick={() => setDeleting({ row: r, problem: null })}>Delete</button>
+                       </span>) },
                    ]}
                    empty={<EmptyState title="No schedules" hint="Create a 5-day, 40-hour schedule to start — payroll and attendance both fall back to it." />} />
       </Panel>
+
+      {deleting && (
+        <Modal open onClose={() => setDeleting(null)} width="max-w-md" title={`Delete “${deleting.row.name}”`}
+               subtitle="Only a schedule nothing points at can be removed.">
+          <div className="flex flex-col gap-3 text-sm text-slate-300">
+            <p>{deleting.problem
+              ? deleting.problem
+              : 'Attendance is measured against this grid and payroll takes its day divisor from it. Nothing seeded or saved points at it, so it can go — a run that was already computed keeps the numbers it was built from.'}</p>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-ghost" onClick={() => setDeleting(null)}>Keep it</button>
+              {deleting.problem
+                ? <button className="btn-ghost" onClick={() => { const row = deleting.row; setDeleting(null); toggleActive(row); }}>Deactivate it instead</button>
+                : <button className="btn-danger" disabled={!!busy} onClick={() => confirmDelete(deleting.row)}>
+                    {busy === 'd' + deleting.row.id ? 'Deleting…' : 'Delete schedule'}</button>}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       <Modal open={!!editing} onClose={() => setEditing(null)} width="max-w-3xl"
              title={editing?.id ? 'Edit schedule' : 'New schedule'} subtitle="Uncheck a day to make it a weekly off."
@@ -107,7 +163,8 @@ export function WorkingSchedulesPage() {
               <Field label="Timezone"><Input value={editing.timezone} onChange={(v) => setEditing({ ...editing, timezone: v })} placeholder="Asia/Kolkata" /></Field>
             </div>
 
-            <ScheduleGrid editing={editing} onChange={(key, patch) => setEditing(setDay(editing, key, patch))} />
+            {tried && timeProblem && <Notice tone="warn" title="The week is not complete">{timeProblem} Uncheck the day instead if nobody works it.</Notice>}
+            <ScheduleGrid editing={editing} timeProblem={tried} onChange={(key, patch) => setEditing(setDay(editing, key, patch))} />
 
             <Field label="Description"><Input value={editing.description} onChange={(v) => setEditing({ ...editing, description: v })} /></Field>
             <Checkbox checked={editing.is_active} onChange={(v) => setEditing({ ...editing, is_active: v })} label="Active" hint="Inactive schedules stay for history but cannot be assigned." />
@@ -119,7 +176,7 @@ export function WorkingSchedulesPage() {
 }
 
 /** One row per day: worked, start, end, break. Broken out so the page above reads as list + dialog. */
-function ScheduleGrid({ editing, onChange }) {
+function ScheduleGrid({ editing, onChange, timeProblem }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -136,10 +193,12 @@ function ScheduleGrid({ editing, onChange }) {
                 <td className="td"><input type="checkbox" className="h-4 w-4 accent-brand-600" checked={!day.rest}
                                           onChange={(e) => onChange(key, { rest: !e.target.checked })} /></td>
                 <td className="td text-slate-300">{DAY_LABELS[key]}</td>
-                <td className="td"><input className="input w-28" type="time" value={day.start} disabled={day.rest}
+                <td className="td"><input className={'input w-28 ' + (timeProblem && !day.rest && !isTime(day.start) ? 'border-red-500/60' : '')}
+                                           type="time" value={day.start} disabled={day.rest}
                                            aria-label={DAY_LABELS[key] + ' start time'}
                                            onChange={(e) => onChange(key, { start: e.target.value })} /></td>
-                <td className="td"><input className="input w-28" type="time" value={day.end} disabled={day.rest}
+                <td className="td"><input className={'input w-28 ' + (timeProblem && !day.rest && !isTime(day.end) ? 'border-red-500/60' : '')}
+                                           type="time" value={day.end} disabled={day.rest}
                                            aria-label={DAY_LABELS[key] + ' end time'}
                                            onChange={(e) => onChange(key, { end: e.target.value })} /></td>
                 <td className="td">
@@ -198,6 +257,21 @@ function fromRow(r) {
   }
   return { id: r.id, name: r.name, type: r.type || 'FIXED', timezone: r.timezone || 'Asia/Kolkata',
            description: r.description || '', is_active: isActive(r), days };
+}
+/** What the grid means to the API: a worked day carries its times, a weekly off carries nothing but the fact. */
+function saveBody(form) {
+  return {
+    name: form.name, type: form.type,
+    timezone: form.timezone || undefined, description: form.description || undefined,
+    is_active: form.is_active ? 'ACTIVE' : 'INACTIVE',
+    days: DAY_KEYS.map((key) => {
+      const day = form.days[key];
+      // Sat and Sun used to go out as `{ start: '', end: '' }`, and the API answered "Use HH:MM" about a day
+      // nobody works. The day number is sent as a number, because `dow` is a number and a name was once sent here.
+      if (day.rest) return { day: dayNumberOf(key), rest: true };
+      return { day: dayNumberOf(key), start: day.start, end: day.end, break: Number(day.break || 0), rest: false };
+    }),
+  };
 }
 const setDay = (editing, key, changes) => ({ ...editing, days: { ...editing.days, [key]: { ...editing.days[key], ...changes } } });
 

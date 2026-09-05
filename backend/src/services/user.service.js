@@ -26,9 +26,18 @@ export async function createInvite(id, { auth, sendEmail = true } = {}) {
   assertNotAnotherAdmin(auth, target, 'send a password link to');
   if (!config.features.invite) throw new AppError('INVITES_OFF', 'Invitations are switched off on this server (FEATURE_INVITE=false) — set the password here instead', { status: 409 });
   if (target.is_active === false) throw AppError.conflict('This account is deactivated — activate it before sending an invite', { code: 'USER_INACTIVE' });
+  // The link window is asked for FIRST, because the invitation row, the mail and this response all quote the same
+  // number — and because `minutes` used to be read a dozen lines above the line that computes it, which threw a
+  // ReferenceError before a single row was written: every invite failed, and it looked like the mail server.
+  // `inviteTtlMinutes` is a *local* binding, imported here rather than at module scope (mail.service pulls in
+  // repos this module must not load first) — so the import has to sit above its use. It did not, and
+  // `Cannot access 'inviteTtlMinutes' before initialization` answered every invite with a 500.
+  const { mailStatus, inviteTtlMinutes } = await import('./mail.service.js');
+  const minutes = await inviteTtlMinutes();
+  const ttlSentence = linkTtlSentence(minutes);
   const token = randomBytes(24).toString('base64url');
   const inv = await repo.createInvitation({ email: target.work_email, userId: target.id, tokenHash: hashInvite(token),
-    invitedBy: auth?.userId, ttlHours: config.invite.ttlHours });
+    invitedBy: auth?.userId, ttlMinutes: minutes });
   const link = `${config.appUrl.replace(/\/$/, '')}/set-password?token=${token}`;
   // must_change_pw stays true until the link is used, so a half-finished sign-up cannot get a long session.
   await repo.patchUser(target.id, { must_change_pw: true });
@@ -40,70 +49,65 @@ export async function createInvite(id, { auth, sendEmail = true } = {}) {
   // Computed once, at the top, because both returns below report it: which driver is live *now*, including a
   // login the admin pasted into Settings → Company (an env-only read here would say "preview" about a box that
   // is really sending).
-  const { mailStatus } = await import('./mail.service.js');
-  const mailDriver = (await mailStatus()).driver;
+  const mailDriver = (await mailStatus()).driver;   // the driver that is live right now, settings row included
   // No e-mail requested means nothing to log: the link is the whole delivery, so no task row is made.
   if (!sendEmail) {
-    return { id: inv.id, link, token, expires_at: inv.expires_at, expires_in_hours: config.invite.ttlHours,
+    return { id: inv.id, link, token, expires_at: inv.expires_at, expires_in_minutes: minutes, ttl: ttlSentence,
       task_id: null, email: { skipped: true }, mail_queued: false, mail_sent: false, mail_skipped: true,
       mail_driver: mailDriver, sent_from: config.appUrl, delivery_mode: 'not-requested',
-      how_it_is_delivered: 'No e-mail was requested — the link below is the whole delivery.' };
+      how_it_is_delivered: `No e-mail was requested — the link below is the whole delivery. It works once, for ${ttlSentence}.` };
   }
   // One row in task_queue either way, because that is the log the admin can see (Settings → System) — whether
   // this request sent the message or a worker will. Only the invitation id and the recipient go in it:
   // the token itself is never written to Postgres, only its hash in the invitations table.
   const task = await deliveryRepo.enqueueTask({ task_type: 'SEND_EMAIL', entity_type: 'USER', entity_id: target.id,
     dedupe_key: dedupe, queue_name: QUEUES.email,
-    payload: { kind: 'account-invite', invitation_id: inv.id, to: target.work_email, name: target.name, hours: config.invite.ttlHours, inviter: auth?.name || null } });
+    payload: { kind: 'account-invite', invitation_id: inv.id, to: target.work_email, name: target.name, minutes, inviter: auth?.name || null } });
   let mail = { task_id: task.id };
   if (config.invite.viaQueue) {
     // The opt-in shape: one job per account on the mail queue, so a bulk import of logins costs the admin
     // nothing and the worker's retries cover a provider that is having a bad minute.
     try {
-      await schedule(QUEUES.email, 'account-invite', { taskId: task.id, invitationId: inv.id, token }, { dedupeKey: dedupe });
+      await schedule(QUEUES.email, 'account-invite', { taskId: task.id, invitationId: inv.id, token, inviter: auth?.name || null }, { dedupeKey: dedupe });
       mail = { queued: true, task_id: task.id };
     } catch (e) {
-      mail = await mailInvite({ name: target.name, email: target.work_email, link, hours: config.invite.ttlHours, inviter: auth?.name });
+      mail = await mailInvite({ name: target.name, email: target.work_email, link, ttlMinutes: minutes, inviter: auth?.name });
       mail.queue_fallback_reason = `the queue was unavailable (${e.message}) — sent by this request instead`;
       await deliveryRepo.markTask(task.id, mail.ok ? 'COMPLETED' : 'FAILED', { error: mail.error || (mail.ok ? null : 'send failed') });
     }
   } else {
     // The default: the link goes out from here, now, one message per account. Slow is acceptable — waiting
     // for a worker that may not be running is not.
-    mail = await mailInvite({ name: target.name, email: target.work_email, link, hours: config.invite.ttlHours, inviter: auth?.name });
+    mail = await mailInvite({ name: target.name, email: target.work_email, link, ttlMinutes: minutes, inviter: auth?.name });
     await deliveryRepo.markTask(task.id, mail.ok ? 'COMPLETED' : 'FAILED', { error: mail.error || (mail.ok ? null : 'send failed') });
   }
   return {
-    id: inv.id, link, token, expires_at: inv.expires_at, expires_in_hours: config.invite.ttlHours,
-    task_id: mail.task_id || null, email: mail, mail_queued: !!mail.queued, mail_sent: mail.ok === true,
+    id: inv.id, link, token, expires_at: inv.expires_at, expires_in_minutes: minutes, ttl: ttlSentence,
+    task_id: mail.task_id || task.id || null, email: mail, mail_queued: !!mail.queued, mail_sent: mail.ok === true,
     mail_skipped: !!mail.skipped, mail_driver: mailDriver, sent_from: config.appUrl,
     delivery_mode: mail.queued ? 'queued' : sendEmail ? 'sent-by-request' : 'not-requested',
     how_it_is_delivered: !sendEmail
       ? 'No e-mail was requested — the link below is the whole delivery.'
       : mail.queued
-        ? `One job per account, handed to the worker on queue "${QUEUES.email}"; watch it under Settings → System. Driver: ${driver}.`
+        ? `One job per account, handed to the worker on queue "${QUEUES.email}"; watch it under Settings → System. Driver: ${mailDriver}.`
         : mail.ok === false
-          ? `The account and the link are ready, but the mail server refused the send (${mail.error || driver}). Copy the link below and send it yourself — the invitation stays valid until it is used.`
-          : driver === 'preview'
+          ? `The account and the link are ready, but the mail server refused the send (${mail.error || mailDriver}). Copy the link below and send it yourself — the invitation stays valid until it is used.`
+          : mailDriver === 'preview'
             ? 'Sent by this request. There are no SMTP credentials in Settings \u2192 Company \u2192 E-mail delivery, so the message went to backend/storage/mail as a .eml — open it and copy the link, or set the login there and it will go out for real.'
-            : `Sent to ${target.work_email} by this request via ${mail.driver || driver} — one message per account, no queue in between.`,
+            : `Sent to ${target.work_email} by this request via ${mail.driver || mailDriver} — one message per account, no queue in between. The link works once, for ${ttlSentence}.`,
   };
 }
-async function mailInvite({ name, email, link, hours, inviter }) {
-  const { render } = await import('../lib/mailer/index.js');
+/** The wording lives in the mailer's template module, so the mail and this screen cannot disagree. */
+const { linkTtlSentence, inviteMail } = await import('../lib/mailer/index.js');
+async function mailInvite({ name, email, link, ttlMinutes, inviter }) {
   // `mailerFor` = Settings → Company first, environment second, so the SMTP login an admin pasted into the
   // product is the one that sends. (An earlier round read process.env here, which is why a configured box still
   // wrote .eml files until somebody edited .env by hand.)
   const { mailer: mailerFor } = await import('./mail.service.js');
   const mailer = await mailerFor();
-  const vars = { first_name: String(name || '').split(' ')[0], link, hours, inviter: inviter || 'the payroll team', company: 'PeoplePay360' };
-  const text = render('Hi {{first_name}},\n\nAn account has been created for you on {{company}}. Pick a password and you are in — the link is valid for {{hours}} hours and works once.\n\n{{link}}\n\nIf you did not expect this, ignore the message: nothing happens to your account.', vars);
-  const html = render('<p>Hi <b>{{first_name}}</b>,</p><p>An account has been created for you on <b>{{company}}</b>. Choose a password to finish setting it up.</p>'
-    + '<p><a href="{{link}}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#2f5bd7;color:#fff;text-decoration:none">Choose your password</a></p>'
-    + '<p style="color:#666">The link is valid for {{hours}} hours and can be used once. Or copy this address: <code>{{link}}</code></p>'
-    + '<p style="color:#666">Did not expect this? Ignore it — nothing changes on your account.</p>', vars);
+  const { subject, text, html } = inviteMail({ name, link, minutes: ttlMinutes, inviter });
   try {
-    const out = await mailer.send({ to: email, subject: 'Finish your PeoplePay360 account — choose a password', text, html, previewDir: config.mailDir });
+    const out = await mailer.send({ to: email, subject, text, html, previewDir: config.mailDir });
     return { ok: !!out.ok, sent_inline: true, driver: out.driver, file: out.file || null, messageId: out.messageId || null };
   } catch (e) {
     // The link is already stored, so a provider that says no must not look like a failed invite.
@@ -115,9 +119,16 @@ export async function readInvite(token) {
   const row = await repo.findInvitation(hashInvite(token));
   if (!row) return { valid: false, reason: 'This link is not one we issued. Copy the whole address from the e-mail, or ask for a new link.' };
   if (row.accepted_at) return { valid: false, reason: 'This link has already been used. Ask your admin to send a new one.' };
-  if (new Date(row.expires_at) < new Date()) return { valid: false, reason: 'This link expired. Ask your admin to send a new one.' };
+  if (new Date(row.expires_at) < new Date()) {
+    // Said in minutes, because that is the unit these links are issued in: "expired" alone reads as a bug.
+    const late = Math.max(1, Math.round((Date.now() - new Date(row.expires_at)) / 60_000));
+    return { valid: false, reason: `This link expired ${linkTtlSentence(late)} ago. Ask your admin to send a new one — it takes a moment.` };
+  }
   if (row.is_active === false) return { valid: false, reason: 'This account is switched off, so the link will not open it. Ask your admin to activate it.' };
-  return { valid: true, name: row.name, work_email: row.work_email, expires_at: row.expires_at, already_set: row.must_change_pw !== true };
+  const minutesLeft = Math.max(0, Math.round((new Date(row.expires_at) - Date.now()) / 60_000));
+  return { valid: true, name: row.name, work_email: row.work_email, expires_at: row.expires_at,
+           minutes_left: minutesLeft, works_once: true, already_set: row.must_change_pw !== true,
+           note: `This link works once, and stops working in ${linkTtlSentence(Math.max(1, minutesLeft))}.` };
 }
 export async function completeInvite(token, password) {
   const state = await readInvite(token);

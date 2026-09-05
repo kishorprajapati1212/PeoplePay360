@@ -14,6 +14,20 @@ import { logger } from '../logger.js';
 
 const FLOW = { DRAFT: 'COMPUTED', COMPUTED: 'VALIDATED', VALIDATED: 'PAID' };
 /** Wizard step 1 → step 2: the candidate table, with duplicate-period warnings already computed. */
+async function explainEmptyRun({ from, to, structure }) {
+  const { eligibilityBreakdown } = await import('../repositories/employee.repo.js');
+  const b = await eligibilityBreakdown({ periodStart: toIso(from), periodEnd: toIso(to), structureId: structure.id }).catch(() => ({}));
+  const bits = [];
+  const n = (v) => Number(v || 0);
+  if (!n(b.on_structure)) return `“${structure.name}” is not on any contract yet — assign it to people (Employees → their Salary tab) before a run can use it.`;
+  if (n(b.not_active)) bits.push(`${n(b.not_active)} of the people on it are not active`);
+  if (n(b.draft_contract)) bits.push(`${n(b.draft_contract)} still have a DRAFT contract, which payroll ignores`);
+  if (n(b.outside_period)) bits.push(`${n(b.outside_period)} have a contract that does not cover ${toIso(from)} → ${toIso(to)}`);
+  if (n(b.already_in_a_run)) bits.push(`${n(b.already_in_a_run)} are already inside a run for these dates`);
+  if (n(b.eligible)) bits.push(`${n(b.eligible)} look eligible to the database, so a filter above the list is hiding them`);
+  return `${n(b.on_structure)} contract(s) sit on “${structure.name}”. ` + (bits.length ? bits.join(', ') + '.' : 'None of them is usable for these dates.');
+}
+
 export async function preview({ salary_structure_id, period_start, period_end, pay_frequency, compute_mode, search, department_id, employee_type, page = 1, page_size = 25 }) {
   const structure = await salaryRepo.getStructure(salary_structure_id);
   if (!structure) throw AppError.badRequest('Choose a Pay Structure first', { code: 'STRUCTURE_REQUIRED' });
@@ -33,6 +47,8 @@ export async function preview({ salary_structure_id, period_start, period_end, p
     structure: { id: structure.id, name: structure.name, rules: Number(structure.rules) },
     employees: cand.rows.map((r) => ({ ...r, duplicate: dupeBy.get(r.id) || null,
       expected_days: r.expected_days, worked_hours: Number(r.worked_hours), wages: Number(r.wage) })),
+    // The list is empty: say which of the three reasons it is, in the numbers the database has.
+    why_empty: cand.total ? null : await explainEmptyRun({ from, to, structure }),
     total: cand.total, page: Number(page), page_size: size,
     pages: Math.max(1, Math.ceil(cand.total / size)),
     existing_payrun: existing ? { id: existing.id, name: existing.name, status: existing.status } : null,

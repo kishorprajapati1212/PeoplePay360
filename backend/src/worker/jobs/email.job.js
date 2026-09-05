@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { Worker } from 'bullmq';
-import { payslipEmailVars, render } from '../../lib/mailer/index.js';
+import { payslipEmailVars, render, inviteMail } from '../../lib/mailer/index.js';
 import { mailerFrom, cachedLoader } from '../../lib/mailer/runtime.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -104,15 +104,13 @@ async function sendInvite(job) {
   if (!row) throw new Error(`Invitation ${invitationId} no longer exists`);
   if (row.accepted_at) return { skipped: 'already accepted' };
   const link = `${config.appUrl.replace(/\/$/, '')}/set-password?token=${token}`;
-  const hours = Math.max(1, Math.round((new Date(row.expires_at) - Date.now()) / 3_600_000));
-  const vars = { first_name: String(row.name || '').split(' ')[0], link, hours, inviter: 'the payroll team', company: 'PeoplePay360' };
-  const text = render('Hi {{first_name}},\n\nAn account has been created for you on {{company}}. Pick a password and you are in — the link is valid for {{hours}} hours and works once.\n\n{{link}}\n\nIf you did not expect this, ignore the message: nothing happens to your account.', vars);
-  const html = render('<p>Hi <b>{{first_name}}</b>,</p><p>An account has been created for you on <b>{{company}}</b>. Choose a password to finish setting it up.</p>'
-    + '<p><a href="{{link}}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#2f5bd7;color:#fff;text-decoration:none">Choose your password</a></p>'
-    + '<p style="color:#666">The link is valid for about {{hours}} hours and can be used once. Or copy this address: <code>{{link}}</code></p>'
-    + '<p style="color:#666">Did not expect this? Ignore it — nothing changes on your account.</p>', vars);
+  // Read back from the row rather than from a setting, so the mail can never promise longer than the link has.
+  const minutes = Math.max(1, Math.round((new Date(row.expires_at) - Date.now()) / 60_000));
+  const inviter = job.data?.inviter || null;
+  // Same function the API uses, so an invitation sent now and one retried by the worker are one letter.
+  const { subject, text, html } = inviteMail({ name: row.name, link, minutes, inviter });
   const m = await mailer();
-  const out = await m.send({ to: row.work_email, subject: 'Finish your PeoplePay360 account — choose a password', text, html, previewDir: config.mail.dir });
+  const out = await m.send({ to: row.work_email, subject, text, html, previewDir: config.mail.dir });
   if (!out?.ok) throw new Error(out?.error || 'mail driver refused the message');
   sentToday.n += 1;
   if (taskId) await markTask(taskId, 'COMPLETED', { jobId: String(job.id) });

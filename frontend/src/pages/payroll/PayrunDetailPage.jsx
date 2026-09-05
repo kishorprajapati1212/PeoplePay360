@@ -385,8 +385,10 @@ function PdfPanel({ people, done, watching, mayWrite, status, outcome, onGenerat
              </span>)}>
       {people > 0 && (
         <div className="mt-2">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
-            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: pct + '%' }} />
+          {/* Squared ends for the same reason as the dashboard bars - and the track already clips, so a radius
+              on the fill only doubles it up. */}
+          <div className="h-1.5 w-full overflow-hidden rounded-sm bg-ink-800">
+            <div className="h-full bg-brand-500 transition-all" style={{ width: pct + '%' }} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
             <span>{pct}% ready{status === 'DRAFT' && missing > 0 ? ' · this run is still a draft, so a recompute will make the files stale' : ''}</span>

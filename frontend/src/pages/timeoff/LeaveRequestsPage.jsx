@@ -15,6 +15,7 @@ import { useCan } from '../../rbac/Can.jsx';
 import { date, num, today } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
 import { guard, missingSentence } from '../../utils/form.js';
+import { REQUEST_STATUS, STATUS_LABEL, STATUS_OPTIONS, isWaiting } from '../../utils/leaveStatus.js';
 import { payoffOf } from '../../utils/leave.js';
 
 /** The single approval flow from the mockup: approve or refuse, optionally with a remark. */
@@ -97,7 +98,7 @@ export function LeaveRequestsPage() {
           toolbar={<>
             <SearchInput value={table.term} onChange={table.onSearch} placeholder="Employee…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
-                    options={[{ value: 'PENDING', label: 'Pending' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REFUSED', label: 'Refused' }, { value: 'CANCELLED', label: 'Cancelled' }]} placeholder="Any status" />
+                    options={STATUS_OPTIONS} placeholder="Any status" />
           </>}
           columns={[
             { key: 'employee', label: 'Employee', render: (r) => (<div><p className="text-slate-100">{r.employee}</p><p className="text-xs text-slate-500">{r.employee_code} · {r.department_id ? '' : ''}{r.type}</p></div>) },
@@ -107,15 +108,18 @@ export function LeaveRequestsPage() {
             { key: 'half_day_period', label: 'Part', render: (r) => r.half_day_period || '—' },
             { key: 'reason', label: 'Reason', render: (r) => <span className="text-slate-400">{r.reason || '—'}</span> },
             { key: 'is_unpaid', label: 'Pay', render: (r) => (r.is_unpaid ? <span className="chip border-red-500/30 bg-red-500/10 text-red-300">unpaid</span> : <span className="text-xs text-slate-500">paid</span>) },
-            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
-            { key: '_a', label: '', render: (r) => mayApprove && r.status === 'PENDING' && (
+            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} label={STATUS_LABEL[r.status] || null} /> },
+            // `isWaiting`, not a literal: the enum value is TO_APPROVE (001_enums.sql), and comparing this to
+            // 'PENDING' is what made the two buttons below invisible on every row for every role.
+            { key: '_a', label: '', render: (r) => mayApprove && isWaiting(r) && (
               <span className="flex gap-1.5">
                 <button className="btn-primary btn-sm" onClick={() => openDecision(r, 'approve')}>Approve</button>
                 <button className="btn-danger btn-sm" onClick={() => openDecision(r, 'refuse')}>Refuse</button>
               </span>) },
           ]}
           pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
-          empty={<EmptyState title="No requests" hint="Employees raise leave from their portal; you can also raise one here." />} />
+          empty={<EmptyState title="No requests to show"
+                              hint="Employees raise leave from their portal (and from My time off); you can raise one here with “Raise for someone”. A request appears in this list as “Waiting for approval”, and that is when Approve and Refuse appear in its row." />} />
       </Panel>
 
       <Modal open={!!decision} onClose={() => setDecision(null)} width="max-w-md"

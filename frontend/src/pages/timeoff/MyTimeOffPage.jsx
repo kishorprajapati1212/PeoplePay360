@@ -12,6 +12,7 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { EmptyState, Notice } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { date, num, today } from '../../utils/format.js';
+import { STATUS_LABEL, isCancellable } from '../../utils/leaveStatus.js';
 import { toRows, totalOf } from '../../utils/query.js';
 import { payoffOf } from '../../utils/leave.js';
 import { guard, missingSentence } from '../../utils/form.js';
@@ -95,9 +96,9 @@ export function MyTimeOffPage() {
                 {/* what the approver wrote back, if anything — a decision with a note is not a mystery */}
                 {r.decision_remark && <p className="truncate text-xs text-slate-500">Note from HR: {r.decision_remark}</p>}
               </div>) },
-            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
+            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} label={STATUS_LABEL[r.status] || null} /> },
             { key: 'approver', label: 'Decided by', render: (r) => r.approved_by_name || r.approver || '—' },
-            { key: '_a', label: '', render: (r) => r.status === 'PENDING' && <button className="btn-ghost btn-sm" onClick={() => cancel(r)} disabled={busy === 'c' + r.id}>Cancel</button> },
+            { key: '_a', label: '', render: (r) => isCancellable(r) && <button className="btn-ghost btn-sm" onClick={() => cancel(r)} disabled={busy === 'c' + r.id}>Cancel</button> },
           ]}
           empty={<EmptyState title="No leave taken yet" hint="Request a day off and it appears here with its approval status." />} />
       </Panel>

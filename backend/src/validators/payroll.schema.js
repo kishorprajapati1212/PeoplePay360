@@ -55,12 +55,13 @@ export const companyBody = z.object({ company_name: optText(120), legal_name: op
   esi_employer_pct: pct.optional(), esi_wage_limit: money.optional(), pt_enabled: boolish.optional(), pt_monthly: money.optional(),
   pt_annual_cap: money.optional(), pt_charge_slice: z.enum(['MONTH','HALF_FIRST','HALF_SECOND']).optional(), pt_state: optText(60),
   advance_percentage: z.coerce.number().min(1).max(100).optional(), allow_negative_net: boolish.optional(),
-  payslip_footer: optText(400), mail_from: optText(160), mail_daily_limit: intIn(1, 100000).optional(), document_retention_years: intIn(1, 40).optional(),
+  payslip_footer: optText(400), mail_from: optText(160), mail_daily_limit: intIn(1, 100000).optional(),
+  mail_invite_ttl_minutes: intIn(1, 1440).optional(),   // minutes, not hours: an invitation is read within minutes or not at all document_retention_years: intIn(1, 40).optional(),
   // The SMTP login an admin pastes in. They are ordinary company settings so one PATCH saves them with the
   // rest, with two differences: smtp_password is write-only (never returned, see company.repo.withoutSecret)
   // and an empty string means "keep what is stored", not "erase it" — a settings screen that re-posts its own
   // blank boxes must not be able to switch the company off mid-week.
-  mail_enabled: boolish.optional(), smtp_host: optText(160), smtp_port: intIn(1, 65535).optional(),
+  mail_enabled: boolish.optional(), smtp_host: optText(160), smtp_port: intIn(1, 65535).nullable().optional(),
   smtp_secure: boolish.optional(), smtp_user: optText(160), smtp_password: z.string().max(400).optional(),
   }).partial();
 /** POST /company/mail/test — the address is optional on purpose: blank means "send it to whoever asked". */

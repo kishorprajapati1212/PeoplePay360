@@ -23,6 +23,7 @@ import { landingFor } from '../../frontend/src/App.jsx';
 import { LeaveRequestsPage } from '../../frontend/src/pages/timeoff/LeaveRequestsPage.jsx';
 import { StructuresPage } from '../../frontend/src/pages/salary/StructuresPage.jsx';
 import { CompanyPage } from '../../frontend/src/pages/settings/CompanyPage.jsx';
+import { PayrunsPage } from '../../frontend/src/pages/payroll/PayrunsPage.jsx';
 import { SetPasswordPage } from '../../frontend/src/pages/auth/SetPasswordPage.jsx';
 import { DashboardPage } from '../../frontend/src/pages/DashboardPage.jsx';
 import { UsersPage } from '../../frontend/src/pages/settings/UsersPage.jsx';
@@ -541,7 +542,7 @@ const CASES = {
   'leave decision · a refusal without a reason never reaches the API, and with one the note is sent': async () => {
     who.me = await meFor(['HR_MANAGER']);
     const ROW = { id: 9, employee: 'Aarav Mehta', employee_code: 'EMP0042', type: 'Casual Leave', category: 'CASUAL',
-                  start_date: '2026-06-08', end_date: '2026-06-09', duration: 2, status: 'PENDING', is_unpaid: false,
+                  start_date: '2026-06-08', end_date: '2026-06-09', duration: 2, status: 'TO_APPROVE', is_unpaid: false,
                   requires_allocation: true, reason: 'Family function' };
     table = { ...baseTable(), 'GET /api/time-off/requests': { rows: [ROW], total: 1 },
               'GET /api/employees': { rows: [], total: 0 }, 'GET /api/time-off/types': { rows: [], total: 0 } };
@@ -565,7 +566,7 @@ const CASES = {
   'leave decision · approving fewer days than were asked for is a choice, not a bug': async () => {
     who.me = await meFor(['HR_MANAGER']);
     const ROW = { id: 11, employee: 'Priya Nair', employee_code: 'EMP0061', type: 'Sick Leave', category: 'SICK',
-                  start_date: '2026-06-01', end_date: '2026-06-03', duration: 3, status: 'PENDING', is_unpaid: false,
+                  start_date: '2026-06-01', end_date: '2026-06-03', duration: 3, status: 'TO_APPROVE', is_unpaid: false,
                   requires_allocation: true, reason: 'Fever' };
     table = { ...baseTable(), 'GET /api/time-off/requests': { rows: [ROW], total: 1 },
               'GET /api/employees': { rows: [], total: 0 }, 'GET /api/time-off/types': { rows: [], total: 0 } };
@@ -652,12 +653,18 @@ const CASES = {
   'settings · mail is configured here, and the password stays out of the browser': async () => {
     who.me = await meFor(['ADMIN']);
     table = { ...baseTable(),
-      'GET /api/company': { id: true, company_name: 'OXP', mail_enabled: true, smtp_host: 'smtp.gmail.com', smtp_port: 587,
-                            smtp_secure: false, smtp_user: 'payroll@oxp.com', smtp_password_set: true, mail_from: 'OXP <payroll@oxp.com>',
-                            mail_daily_limit: 200, smtp_password: 'never-should-reach-the-page' },
-      'GET /api/company/mail': { driver: 'gmail', from: 'OXP <payroll@oxp.com>', login: 'payroll@oxp.com', daily_limit: 200,
-                                note: null, enabled: true, host: 'smtp.gmail.com', port: 587, secure: false, user: 'payroll@oxp.com',
-                                password_stored: true },
+      'GET /api/company': { id: true, company_name: 'OXP', mail_enabled: true, smtp_user: 'payroll@gmail.com',
+                            smtp_password_set: true, mail_from: 'OXP <payroll@gmail.com>', mail_daily_limit: 200,
+                            smtp_password: 'never-should-reach-the-page' },
+      // The providers list is the API's copy of backend/src/lib/mailer/providers.js — trimmed here to what the
+      // panel reads, but with the same keys, so a rename in that file fails this case instead of passing quietly.
+      'GET /api/company/mail': { driver: 'gmail', from: 'OXP <payroll@gmail.com>', login: 'payroll@gmail.com', daily_limit: 200,
+                                note: null, enabled: true, host: null, port: null, secure: false, user: 'payroll@gmail.com',
+                                password_stored: true, server: 'smtp.gmail.com:465 · implicit TLS',
+                                inferred: 'Google — Gmail or Google Workspace', needs_app_password: true,
+                                providers: [{ key: 'google', brand: 'Google', label: 'Google — Gmail or Google Workspace',
+                                               domains: ['gmail.com', 'googlemail.com'], host: 'smtp.gmail.com', port: 465,
+                                               secure: true, appPassword: true, note: 'needs an App Password' }] },
       'POST /api/company/mail/check': { connected: true, verify: { ok: true }, mail: null, driver: 'gmail', from: 'OXP <payroll@oxp.com>' } };
     render({ el: <CompanyPage /> });
     await settle(6);
@@ -669,11 +676,166 @@ const CASES = {
     expect(boxes.length >= 1, 'and it is a password box, not text in the clear');
     expect(!text().includes('never-should-reach-the-page'), 'a stored password is never rendered back into the page');
     expect(has('1 of 3') === false && has('Mail right now'), 'and the panel states the live driver');
-    expect(has('smtp.gmail.com:587'), 'including the server it will use');
+    expect(has('smtp.gmail.com:465'), 'including the server it will use');
+    expect(has('picked from the address'), 'and says the address, not a person, chose that server');
+    expect(has('read off the address, so the two boxes above are the whole job'), 'the live line agrees: nothing else to fill');
     click(byText('Check connection')); await settle(5);
     const check = calls.find((c) => c.key === 'POST /api/company/mail/check');
     expect(!!check, 'Check connection is the only thing that contacts the server');
     expect(check.body.to === null, 'and without an address it verifies only, sending nothing');
+  },
+
+  'settings · a host box holding an example value is ignored, and one click clears it': async () => {
+    who.me = await meFor(['ADMIN']);
+    table = { ...baseTable(),
+      'GET /api/company': { id: true, company_name: 'OXP', mail_enabled: true, smtp_user: 'payroll@gmail.com',
+                            smtp_host: 'smtp.reply.example', smtp_port: 587, smtp_secure: false, smtp_password_set: true },
+      'GET /api/company/mail': { driver: 'gmail', login: 'payroll@gmail.com', enabled: true, host: 'smtp.reply.example',
+                                 secure: false, user: 'payroll@gmail.com', password_stored: true,
+                                 server: 'smtp.gmail.com:465 · implicit TLS', inferred: 'Google — Gmail or Google Workspace',
+                                 conflict: { stored_host: 'smtp.reply.example', ignored: true, brand: 'Google',
+                                             wanted_server: 'smtp.gmail.com:465 · implicit TLS' }, providers: [] },
+      'PATCH /api/company': { after: { smtp_host: null }, mail: { enabled: true, driver: 'gmail', note: null } } };
+    render({ el: <CompanyPage /> });
+    await settle(6);
+    expect(has('names no server, so it is ignored'), 'the panel says the box is doing nothing rather than blaming the password');
+    expect(has('smtp.gmail.com:465'), 'and names the server that is actually dialed');
+    click(byText('Clear the host box and use smtp.gmail.com:465 · implicit TLS')); await settle(5);
+    const patch = calls.find((c) => c.key === 'PATCH /api/company');
+    expect(!!patch, 'the fix is one button, not a form to fill in');
+    expect(patch.body.smtp_host === '' && patch.body.smtp_port === null && patch.body.smtp_secure === false,
+      'and it clears host, port and TLS together, since they were typed as one');
+  },
+
+  'settings · an address we do not know names the box that is missing': async () => {
+    who.me = await meFor(['ADMIN']);
+    table = { ...baseTable(),
+      'GET /api/company': { id: true, company_name: 'OXP', mail_enabled: true, smtp_user: 'payroll@acme-biz.example',
+                            mail_from: 'OXP <payroll@acme-biz.example>' },
+      'GET /api/company/mail': { driver: 'preview', from: 'OXP <payroll@acme-biz.example>', login: 'payroll@acme-biz.example',
+                                 enabled: true, host: null, secure: false, user: 'payroll@acme-biz.example',
+                                 password_stored: false, server: null, inferred: null,
+                                 note: 'no mail account is set yet', providers: [] } };
+    render({ el: <CompanyPage /> });
+    await settle(6);
+    expect(has('acme-biz.example is not on our list'), 'an unknown domain is told, not guessed at');
+    expect(has('its SMTP host goes in the box below'), 'with the one box that fixes it named');
+    expect(!has('Sends through'), 'and no server is claimed when there is none');
+  },
+
+  /* ── round 9: a week that saves, a delete that explains itself, an empty payrun that says why, and the
+        status word the enum actually uses. ─────────────────────────────────────────────────────────────── */
+
+  'working schedule · an off day carries no clock time, and a worked day without one is stopped': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    const ROW = { id: 7, name: 'OXP Standard — Mon to Fri', type: 'FIXED', timezone: 'Asia/Kolkata', is_active: true,
+                  days_per_week: 5, total_weekly_hours: 40, description: 'Five days',
+                  days: [{ day: 1, start: '09:30', end: '18:30', break: 60 }, { day: 2, start: '09:30', end: '18:30', break: 60 },
+                         { day: 3, start: '09:30', end: '18:30', break: 60 }, { day: 4, start: '09:30', end: '18:30', break: 60 },
+                         { day: 5, start: '09:30', end: '18:30', break: 60 }, { day: 6, rest: true }, { day: 7, rest: true }] };
+    table = { ...baseTable(), 'GET /api/org/working-schedules': { rows: [ROW], total: 1 }, 'POST /api/org/working-schedules': { id: 12 } };
+    render({ el: <WorkingSchedulesPage /> });
+    await settle();
+    click(byText('+ New schedule')); await settle(3);
+    type(inputLike((i) => i.getAttribute('placeholder') === 'OXP Standard — Mon to Fri'), 'Night Shift — Mon to Fri');
+    await settle(2);
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Fill the standard 5-day week'));
+    await settle(2);
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Save schedule'));
+    await settle(4);
+    const sent = calls.find((c) => c.key === 'POST /api/org/working-schedules');
+    expect(!!sent, 'the week is posted');
+    const days = sent.body.days;
+    expect(days.length === 7 && days.every((d) => Number.isInteger(d.day)), 'each row numbered 1-7, never a name: ' + JSON.stringify(days.map((d) => d.day)));
+    const sat = days.find((d) => d.day === 6);
+    expect(sat.rest === true && !('start' in sat) && !('end' in sat),
+      'and a weekly off sends no clock time at all (got ' + JSON.stringify(sat) + ') — that empty string was the “Use HH:MM” error');
+    // now break a worked day and see whether the dialog catches it before the API has to
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Edit')); await settle(3);
+    const monStart = [...document.querySelectorAll('input[type=time]')][0];
+    expect(!!monStart, 'Monday has a start box');
+    type(monStart, ''); await settle(2);
+    const before = calls.length;
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Save schedule'));
+    await settle(3);
+    expect(calls.length === before, 'a nameless-time day is stopped here instead of being sent');
+    expect(has('Mon is a worked day without both times'), 'and the sentence says which day and what is missing');
+  },
+
+  'working schedule · a delete that is refused says who is on it and offers the way out': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    const ROW = { id: 7, name: 'OXP Standard — Mon to Fri', type: 'FIXED', is_active: true, days_per_week: 5, total_weekly_hours: 40,
+                  days: [{ day: 1, start: '09:30', end: '18:30', break: 60 }, { day: 6, rest: true }] };
+    table = { ...baseTable(), 'GET /api/org/working-schedules': { rows: [ROW], total: 1 },
+      'DELETE /api/org/working-schedules/7': { __status: 409, __body: { error: { code: 'SCHEDULE_IN_USE',
+        message: 'Reassign the employees on this schedule first', details: { employees: 3, contracts: 3 } } } },
+      'PATCH /api/org/working-schedules/7/active': { id: 7, is_active: 'INACTIVE' } };
+    render({ el: <WorkingSchedulesPage /> });
+    await settle();
+    expect(!!byText('Delete'), 'the row offers a delete, as every other CRUD screen does');
+    click(byText('Delete')); await settle(3);
+    expect(has('Only a schedule nothing points at can be removed'), 'and it asks first');
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Delete schedule'));
+    await settle(4);
+    expect(has('It is on 3 employee record(s) and 3 contract(s)'), 'the refusal quotes what is in the way, counted');
+    const wayOut = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Deactivate it instead');
+    expect(!!wayOut, 'and hands over the thing that is allowed');
+    click(wayOut); await settle(4);
+    const patch = calls.find((c) => c.key === 'PATCH /api/org/working-schedules/7/active');
+    expect(!!patch && patch.body.is_active === 'INACTIVE', 'which is a one-field switch, not a rewrite of the row');
+    expect(!('days' in (patch.body || {})), 'and it cannot send a week it did not read (got ' + JSON.stringify(patch.body) + ')');
+  },
+
+  'a bar is a bar: the dashboard breakdown has squared ends': async () => {
+    // rounded-full on an 8px-tall track turns both ends into semicircles, which on a wide desktop is the
+    // "round shape" that shows up even though nobody asked for a circle. The payrun progress bar is checked a
+    // few lines below in run.mjs, where the source can be read - the bundle this runs in has no node:fs.
+    const { StatusBreakdown } = await import('../../frontend/src/pages/dashboards/charts.jsx');
+    render({ at: ['/dashboards/hr'], el: <StatusBreakdown panels={{ ACTIVE: 9, ON_LEAVE: 2, EXITED: 1 }} /> });
+    await settle(3);
+    // Track = the 8px rail; the fill inside it carries `h-2` too, so the selector has to name both halves of
+    // the row's classes or the assertion fails on a div that was never meant to have a radius at all.
+    const tracks = [...document.querySelectorAll('div')].filter((d) => {
+      const c = d.className || '';
+      return c.includes('h-2') && c.includes('flex-1');
+    });
+    expect(tracks.length >= 3, 'the breakdown drew a rail per status, three in this fixture');
+    expect(tracks.every((d) => !(d.className || '').includes('rounded-full')), 'no chart track carries a full radius');
+    expect(tracks.every((d) => (d.className || '').includes('rounded-sm')), 'each track is squared to 2px instead');
+    const fills = tracks.map((d) => d.firstElementChild).filter(Boolean);
+    expect(fills.every((d) => !(d.className || '').includes('rounded')), 'and the fill itself is square - the track clips it');
+  },
+  'payrun wizard · an empty period is explained by the database, not guessed by the page': async () => {
+    who.me = await meFor(['HR_PAYROLL_MANAGER']);
+    table = { ...baseTable(),
+      'GET /api/payruns': { rows: [], total: 0 },
+      'GET /api/salary/structures': { rows: [{ id: 's1', name: 'OXP Standard Salaried', employees: 4, rule_count: 6 }], total: 1 },
+      'GET /api/payruns/employees': { employees: [], total: 0, period: { from: '2026-09-01', to: '2026-09-30' },
+        why_empty: '4 contract(s) sit on “OXP Standard Salaried”. 2 still have a DRAFT contract, which payroll ignores, and 1 are already inside a run for these dates.' } };
+    render({ at: ['/payruns'], el: <PayrunsPage /> });
+    await settle();
+    click(byText('+ New payrun')); await settle(3);
+    click([...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Next: select employees')));
+    await settle(5);
+    expect(has('Nobody is eligible'), 'the list says what it found');
+    expect(has('2 still have a DRAFT contract'), 'and the counted reason, from the same call that came back empty');
+  },
+
+  'time off · a request waiting for approval is called what the enum calls it': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    const WAITING = { id: 1, employee: 'Aarav Mehta', employee_code: 'EMP0001', type: 'Casual Leave', category: 'CASUAL',
+                      start_date: '2026-09-14', end_date: '2026-09-15', duration: 2, status: 'TO_APPROVE', is_unpaid: false,
+                      requires_allocation: true, reason: 'Family function in the hometown' };
+    const DECIDED = { ...WAITING, id: 2, employee: 'Priya Nair', status: 'APPROVED', approved_days: 1 };
+    table = { ...baseTable(), 'GET /api/time-off/requests': { rows: [WAITING, DECIDED], total: 2 },
+              'GET /api/employees': { rows: [], total: 0 }, 'GET /api/time-off/types': { rows: [], total: 0 } };
+    render({ el: <LeaveRequestsPage /> });
+    await settle();
+    expect(has('Waiting for approval'), 'the chip uses the words a person would, for the value the column stores');
+    expect(has('Approved'), 'and the decided one reads as decided');
+    const approve = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Approve');
+    expect(approve.length === 1, 'exactly one Approve button, on the row that needs an answer (found ' + approve.length + ')');
+    expect(!!byText('Refuse'), 'with a Refuse beside it');
   },
 
 };

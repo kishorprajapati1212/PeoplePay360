@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { users, employees } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
 import { useAuth } from '../../auth/useAuth.js';
@@ -322,7 +322,7 @@ export function UsersPage() {
           answer to "did it send?" is in the panel below the button, not in the button. */}
       {invite && (
         <Modal open onClose={() => setInvite(null)} width="max-w-lg" title={'Set-password link for ' + (invite.name || 'this user')}
-               subtitle="Hand it over yourself, or let the queue send it — either way it is single-use and it expires."
+               subtitle="Paste it yourself, or let this request send it — either way the link works once and then stops working."
                footer={<><button className="btn-ghost" onClick={() => setInvite(null)}>Close</button>
                         <button className="btn-primary" onClick={() => setInvite(null)}>Done</button></>}>
           <div className="grid gap-3">
@@ -347,8 +347,12 @@ export function UsersPage() {
             )}
             <p className="text-xs text-slate-500">
               {invite.email ? <>Address: <span className="text-slate-300">{String(invite.email)}</span> · </> : null}
-              {invite.expires_at ? <>Expires {datetime(invite.expires_at)} ({invite.expires_in_hours}h).</> : null}
+              {invite.expires_at
+                ? <>Stops working {datetime(invite.expires_at)} — {invite.ttl || `${invite.expires_in_minutes || 10} minutes`} from now, and it works once.</>
+                : null}
             </p>
+            {/* A countdown, because "can it still be used" is a question whose answer moves while you read it. */}
+            {invite.expires_at && <LinkCountdown expiresAt={invite.expires_at} />}
             <p className="text-xs text-slate-500">Until it is used, the account cannot sign in — that is the point, not a fault. "Send link" again issues a fresh one.</p>
           </div>
         </Modal>
@@ -369,3 +373,24 @@ const ROLE_HINT = {
   HR_PAYROLL_MANAGER: 'payroll end to end: compute, validate, mark paid, generate PDFs, bulk e-mail payslips, edit slip lines and arreares, structures, void/delete a run, read company settings. No user admin and no settings writes.',
   ADMIN: 'everything, including User Access, system/jobs and writing company settings. Only ADMIN can create a login — and no admin can change another admin: role, password and status are self-service at that level.',
 };
+
+/**
+ * Ticks down the minutes an invitation link has left. Deliberately dumb: it reads `expires_at` and says either
+ * "still open" or "closed", because the question it answers ("can this still be used?") has no other answer.
+ */
+function LinkCountdown({ expiresAt }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
+  const left = Math.round((new Date(expiresAt).getTime() - now) / 60_000);
+  if (left <= 0) {
+    return <Notice tone="bad">This link is closed — it either expired or the password has been set. “Send link” again makes a fresh one.</Notice>;
+  }
+  return (
+    <Notice tone="info">
+      Open for about {left === 1 ? '1 more minute' : `${left} more minutes`}. Until it is used, the account cannot sign in — that is the point, not a fault.
+    </Notice>
+  );
+}

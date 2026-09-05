@@ -61,8 +61,10 @@ export function StatusBreakdown({ panels }) {
       {buckets.map((b) => (
         <div key={b.status} className="flex items-center gap-2">
           <span className="w-24 shrink-0"><StatusChip value={b.status} /></span>
-          <div className="h-2 flex-1 rounded-full bg-ink-800">
-            <div className="h-2 rounded-full bg-brand-500" style={{ width: (b.n / max) * 100 + '%' }} />
+          {/* 2px ends, deliberately: at 8px tall a full radius makes each end a semicircle, and on a wide
+              desktop bar that reads as a round shape stuck in the middle of the panel. */}
+          <div className="h-2 flex-1 overflow-hidden rounded-sm bg-ink-800">
+            <div className="h-2 bg-brand-500" style={{ width: (b.n / max) * 100 + '%' }} />
           </div>
           <span className="w-6 text-right text-xs text-slate-400">{b.n}</span>
         </div>

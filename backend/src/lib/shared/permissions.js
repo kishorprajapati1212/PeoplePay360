@@ -8,8 +8,11 @@
  *               button or a whole screen disappears when its permission is not in the list.
  *  • menus    : ROLE_NAV below, sent to the browser as `menus` — a link is only shown for a screen
  *               the role can open, so nobody clicks into a "not part of your role" panel.
+ *               The rule runs both ways: a permission that needs a screen (approving leave, voiding a run) must
+ *               ship with that menu link too, or it looks like the feature was never built.
  *
- *  Deny wins over allow, `*` means everything, `resource:*` means every action on a resource.
+ *  A DENIES entry is a veto only for permissions no held role grants; to take a real power off a
+ *  role, remove it from that role's allow list. `*` means everything, `resource:*` every action on a resource.
  *
  *  TO CHANGE WHO CAN DO WHAT → edit ROLE_PERMISSIONS below. Nothing else.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -117,6 +120,21 @@ const PAYROLL_CONTROL = [
   'salary:structure_write', 'salary:rule_write', 'payroll:payrun_delete', 'payslip:edit_lines',
   'payslip:arrear', 'payroll:export', 'payroll:send_bulk', 'settings:read',
 ];
+// Payroll roles read everything they need to compute pay and they approve leave, but they do not administer
+// people. These HR_CORE entries are therefore not granted to them — which also means their screens show no
+// Edit/Delete control that the API would refuse. Admin and Hr Manager own the HR-admin writes.
+const PAYROLL_NO_HR_ADMIN = [
+  'employee:create', 'employee:write', 'employee:terminate', 'department:write',
+  'schedule:write', 'holiday:write', 'contract:write', 'contract:terminate',
+  'attendance:write', 'attendance:approve_overtime', 'timeoff:type_write', 'timeoff:allocation_write',
+];
+// Removed from the allow list rather than added to DENIES: a denial only bites for a permission no held
+// role grants, so denying what you also grant reads like a rule and changes nothing.
+const HR_CORE_PAYROLL = HR_CORE.filter((p) => !PAYROLL_NO_HR_ADMIN.includes(p));
+
+/**
+ * Payroll roles = the HR reads and self-service bits, minus the HR-admin writes (see above), plus payroll.
+ */
 export const ROLE_PERMISSIONS = {
   EMPLOYEE: [
     'profile:read', 'attendance:read_own', 'attendance:clock', 'contract:read_own',
@@ -124,13 +142,28 @@ export const ROLE_PERMISSIONS = {
     'department:read', 'schedule:read', 'holiday:read',
   ],
   HR_MANAGER: HR_CORE,
-  HR_PAYROLL_USER: [...HR_CORE, ...PAYROLL_CALC],
-  HR_PAYROLL_MANAGER: [...HR_CORE, ...PAYROLL_CALC, ...PAYROLL_CONTROL],
+  HR_PAYROLL_USER: [...HR_CORE_PAYROLL, ...PAYROLL_CALC],
+  HR_PAYROLL_MANAGER: [...HR_CORE_PAYROLL, ...PAYROLL_CALC, ...PAYROLL_CONTROL],
   ADMIN: ['*'],
+};
+
+/**
+ * The Time Off menu, written once. Approving leave changes paid days, so this group is given to the
+ * payroll roles too — a permission a role holds but has no link for is a button that "does not show up",
+ * which is what this constant prevents (there is a unit test for exactly that).
+ */
+const TIMEOFF_GROUP = {
+  key: 'timeoff', label: 'Time Off', to: '/time-off', perm: 'timeoff:approve', children: [
+    { label: 'Dashboard', to: '/time-off', perm: 'timeoff:approve' },
+    { label: 'Time Off Requests', to: '/time-off/requests', any: ['timeoff:approve', 'timeoff:request'] },
+    { label: 'Time Off Types', to: '/time-off/types', any: ['timeoff:approve', 'timeoff:type_write'] },
+    { label: 'Allocations', to: '/time-off/allocations', perm: 'timeoff:approve' },
+  ],
 };
 
 /** Roles that may open the "User Access" screen at all (Admin only, per the mockup). */
 export const USER_ADMIN_ROLES = ['ADMIN'];
+
 
 /** Explicit denials, evaluated after allows. Kept here so "who can never do what" is also one-glance. */
 export const DENIES = {
@@ -172,12 +205,7 @@ export const ROLE_NAV = {
     ] },
     { key: 'contracts', label: 'Contracts', to: '/contracts', perm: 'contract:read' },
     { key: 'attendance', label: 'Attendance', to: '/attendance', perm: 'attendance:read' },
-    { key: 'timeoff', label: 'Time Off', to: '/time-off', perm: 'timeoff:approve', children: [
-      { label: 'Dashboard', to: '/time-off', perm: 'timeoff:approve' },
-      { label: 'Time Off Requests', to: '/time-off/requests', any: ['timeoff:approve', 'timeoff:request'] },
-      { label: 'Time Off Types', to: '/time-off/types', any: ['timeoff:approve', 'timeoff:type_write'] },
-      { label: 'Allocations', to: '/time-off/allocations', perm: 'timeoff:approve' },
-    ] },
+    TIMEOFF_GROUP,
     { key: 'payroll', label: 'Payroll', to: '/salary/structures', perm: 'salary:structure_read', children: [
       { label: 'Structures', to: '/salary/structures', perm: 'salary:structure_read' },
       { label: 'Rules', to: '/salary/rules', perm: 'salary:rule_read' },
@@ -197,6 +225,9 @@ export const NAV_OVERRIDES = {
       { label: 'Structures', to: '/salary/structures', perm: 'salary:structure_read' },
       { label: 'Rules', to: '/salary/rules', perm: 'salary:rule_read' },
     ] },
+    // …and the leave screens: these roles hold timeoff:approve, and LOP days come out of pay.
+    // A permission without a menu link is a button that "does not show up" — so the link ships with it.
+    TIMEOFF_GROUP,
   ],
   payrun_admin: [
     { key: 'settings', label: 'Settings', to: '/company', perm: 'settings:read', children: [

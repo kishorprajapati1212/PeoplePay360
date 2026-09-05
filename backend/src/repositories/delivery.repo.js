@@ -18,12 +18,18 @@ export const enqueueTask = async ({ task_type, entity_type, entity_id, payrun_id
   if (rows[0]) q(`select pg_notify('task.ready', $1::text)`, [`${queue_name}:${rows[0].id}`]).catch(() => {});
   return rows[0];
 };
+// The status arrives as a string, so Postgres has to be told which side of the comparison is the enum: a bare
+// `set status = $2` next to `case when $2 = 'COMPLETED'` makes it deduce `queue_status` from one use and `text`
+// from the other, and it refuses the statement with `inconsistent types deduced for parameter $2`. Every task
+// in the system passes through here \u2014 payslip mails, PDF renders, the worker's retries \u2014 so before the casts
+// were added an invite that mailed a link answered 500 while the link itself was already stored. The `::text`
+// on the comparisons is the same shape payslip.repo and timeoff.repo already use.
 export const markTask = (id, status, { error, jobId, attempts } = {}, q = query) =>
-  q(`update task_queue set status = $2, error_message = $3, job_id = coalesce($4, job_id),
-           attempts = coalesce($5, attempts + case when $2 = 'PROCESSING' then 1 else 0 end),
-           processed_at = case when $2 = 'PROCESSING' and processed_at is null then now() else processed_at end,
-           completed_at = case when $2 = 'COMPLETED' then now() else completed_at end,
-           failed_at = case when $2 in ('FAILED','DEAD') then now() else failed_at end,
+  q(`update task_queue set status = $2::queue_status, error_message = $3, job_id = coalesce($4, job_id),
+           attempts = coalesce($5, attempts + case when $2::text = 'PROCESSING' then 1 else 0 end),
+           processed_at = case when $2::text = 'PROCESSING' and processed_at is null then now() else processed_at end,
+           completed_at = case when $2::text = 'COMPLETED' then now() else completed_at end,
+           failed_at = case when $2::text in ('FAILED','DEAD') then now() else failed_at end,
            updated_at = now()
      where id = $1 returning *`, [id, status, error || null, jobId || null, attempts ?? null]).then((r) => r.rows[0]);
 export const taskOf = (idOrDedupe, q = query) =>

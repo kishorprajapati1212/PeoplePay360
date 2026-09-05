@@ -74,6 +74,27 @@ if (typeof window.__runProbe !== 'function') {
   process.exit(2);
 }
 const report = await window.__runProbe();
+
+/**
+ * Rules about source the DOM cannot reach, in the same format and the same exit code as the rendered cases.
+ * A browser bundle has no `fs`, so anything that has to read a file belongs here rather than in the probe:
+ * the payrun progress bar, for instance, is three state transitions behind a computed run.
+ */
+const SOURCE_RULES = [
+  ['a bar is a bar · no chart or progress track is drawn with round ends', /rounded-full/,
+    ['pages/dashboards/charts.jsx', 'pages/payroll/PayrunDetailPage.jsx'],
+    'a 6px or 8px track with rounded-full is a pill; use rounded-sm and let the track clip the fill'],
+];
+const sourceLines = [];
+for (const [name, forbidden, files, advice] of SOURCE_RULES) {
+  const hits = files.filter((rel) => forbidden.test(readFileSync(join(FRONTEND, 'src', rel), 'utf8')));
+  if (hits.length) {
+    sourceLines.push(`  ✗ ${name}\n      found in ${hits.join(', ')} — ${advice}`);
+    errors.push(`${name}: rounded ends still drawn in ${hits.join(', ')}`);
+  } else sourceLines.push(`  ok   ${name}`);
+}
 console.log(report);
+if (sourceLines.length) console.log('\nscreen rules read from source\n' + sourceLines.join('\n'));
+if (errors.length) console.log('');
 if (errors.length) console.log('\nwindow errors:\n' + errors.slice(0, 4).join('\n'));
 process.exit(/probe cases clean/.test(report) && errors.length === 0 ? 0 : 1);

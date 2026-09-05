@@ -89,6 +89,10 @@ export async function saveSchedule(id, data, q = query) {
   }
   return getSchedule(row.id);
 }
+/** The one-column update the deactivate button needs, so it never has to re-send a week of times. */
+export const setScheduleActive = (id, on) =>
+  query(`update working_schedules set is_active = $2 where id = $1 returning id, name, is_active`,
+        [id, on ? 'ACTIVE' : 'INACTIVE']).then((r) => r.rows[0] || null);
 export const deleteSchedule = (id) =>
   query(`update working_schedules set is_active = 'INACTIVE' where id = $1
          and not exists (select 1 from employees e where e.working_schedule_id = $1)

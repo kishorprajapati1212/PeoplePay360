@@ -8,11 +8,12 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { ErrorPanel } from '../../components/ui/Feedback.jsx';
 import { num, date } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
+import { REQUEST_STATUS } from '../../utils/leaveStatus.js';
 
 /** Time-off landing screen: what is pending, what the balances look like, which types exist. */
 export function TimeOffOverviewPage() {
   const overview = useApi(useCallback(() => timeOff.overview({}), []), []);
-  const pending = useApi(useCallback(() => timeOff.requests.list({ status: 'PENDING', page: 1, page_size: 8 }), []), []);
+  const pending = useApi(useCallback(() => timeOff.requests.list({ status: REQUEST_STATUS.WAITING, page: 1, page_size: 8 }), []), []);
   const types = useApi(useCallback(() => timeOff.types.list({}), []), []);
   const data = overview.data || {};
 

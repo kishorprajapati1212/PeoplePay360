@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { uuid, dateStr, optDate, money, hours, trimmed, optText, pagination, timeStr, dtStr, dow, boolish, pct, intIn } from './common.js';
+import { uuid, dateStr, optDate, money, hours, trimmed, optText, pagination, timeStr, dtStr, dow, boolish, pct, intIn,
+        scheduleDay as scheduleDayShape } from './common.js';
 export const idParam = z.object({ id: uuid });
 export const periodQuery = z.object({ from: optDate, to: optDate, month: z.string().regex(/^\d{4}-\d{2}$/).optional(), day: optDate,
   employee_id: uuid.optional(), department_id: uuid.optional(), status: z.string().max(20).optional(), q: z.string().max(80).optional(),
   only_exceptions: boolish.optional(), ...pagination });
 export const deptBody = z.object({ name: trimmed(80), code: optText(20), manager_id: uuid.optional(), parent_id: uuid.optional(), is_active: boolish.optional() });
-export const scheduleDay = z.object({ day: dow, start: timeStr.optional(), end: timeStr.optional(), break: intIn(0, 480).optional(), rest: z.boolean().optional(), code: optText(40) });
+export const scheduleDay = scheduleDayShape({ code: optText(40) });   // same grid row, plus the free-text code
 export const scheduleBody = z.object({ name: trimmed(80), type: z.enum(['FIXED', 'FLEXIBLE', 'SHIFT', 'PART_TIME']).optional(),
   company_name: optText(80), timezone: optText(60), description: optText(500), is_active: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   total_weekly_hours: z.coerce.number().min(0).max(168).optional(), days: z.array(scheduleDay).min(1).max(7) });

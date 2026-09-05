@@ -64,16 +64,48 @@ docker compose down             # stop (data survives in named volumes)
 docker compose down -v          # stop and wipe back to a clean database
 ```
 
+### Which variable do I change when it runs in Docker?
+
+One rule decides it: `backend/.env` is mounted into the api, worker and migrate containers, and the config loader
+only fills in a key that the process does not already have — so **whatever `docker-compose.yml` lists under
+`environment:` wins**, and everything else comes from `backend/.env`.
+
+| you want to change | change it here | to apply |
+|---|---|---|
+| the mail account and App Password | **nowhere** — Settings → Company → E-mail delivery, as admin | the next send, no restart (the row is cached 15 s and a save invalidates it at once) |
+| `EMAIL_NAME`, `EMAIL_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `MAIL_FROM`, `MAIL_DAILY_LIMIT`, `INVITE_TTL_MINUTES`, `INVITE_VIA_QUEUE`, `SEED_EMPLOYEES`, `SEED_PAYRUN_MONTHS`, `DEMO_PASSWORD`, `PDF_RENDERER`, `PUBLIC_APP_URL` | `backend/.env` | `docker compose restart api worker` (no rebuild: the file is bind-mounted) |
+| `DATABASE_URL`, `REDIS_HOST`, `PORT`, `HOST`, `NODE_ENV`, `JWT_SECRET`, `JWT_*`, `WEB_ORIGIN`, `CORS_ORIGINS`, `WORKER_PORT` | `docker-compose.yml` — those are the ones compose *sets*, so the same key in `.env` is ignored | `docker compose up -d` |
+| a link in an e-mail that must be reachable from another machine | `PUBLIC_APP_URL=http://<host-or-ip>:5173` in `backend/.env` (compose does not set it) | `docker compose restart api worker` |
+| Postgres/Redis credentials a container uses | `docker-compose.yml` (`POSTGRES_USER/PASSWORD/DB` + the `DATABASE_URL` above — they must agree) | `docker compose up -d`, and `down -v` if the database already got created with the old ones |
+
+The file's own header says the same: no variable in `docker-compose.yml` needs touching to send real mail.
+
+
 ## 2 · Or run it bare (no Docker)
 
 Needs Node 20+ and a local Postgres + Redis listening on the default ports (then `backend/.env` already matches; edit it only if your credentials differ).
 
 ```bash
 npm run setup        # backend/ + frontend/ dependencies (that is all it does)
-npm run db:migrate   # 11 SQL migrations — needs a Postgres on :5432, which backend/.env already assumes
-npm run db:seed      # demo company: 13 employees, 5 staff logins + a login per employee, pay runs (db:reset = start over)
+npm run db:migrate   # 15 SQL migrations — needs a Postgres on :5432, which backend/.env already assumes
+npm run db:seed      # demo company: ~160 employees (SEED_EMPLOYEES), 5 staff logins + a login per employee,
+                     # pay runs for the recent months (SEED_PAYRUN_MONTHS). Already seeded? It stops and says so.
+                     # for a payroll-from-zero demo: npm run db:seed -- --no-payruns
 npm run dev          # api :4000 + worker :4100 + web :5173 in one terminal, printing the URLs below
 ```
+
+A database that already has data is left alone on purpose — recomputing months of payroll for nothing is slow. So
+if your box still has the older thirteen-person demo company, grow it from `backend/` with `npm run db:seed -- --force`
+(the thirteen are updated in place, the rest of the 160 are added, attendance, pay runs and leave queues are topped
+up), or start clean with `npm run db:reset`.
+
+**Payroll from zero.** A pay run already marked PAID is the one thing that makes a demo look like a report instead of
+a product, so the seeder can leave payroll out entirely: `cd backend && node db/seed/seed.js --no-payruns` (same flag
+as `--skip-payroll`; `SEED_PAYRUNS=false` is the environment form for Docker). Everything the first run needs stays
+real — contracts, attendance, leave requests waiting for an approver, 34 salary rules — so Create → Compute produces
+genuine payslips for the month, and `GET /api/payruns` answers zero until you make the first one. Crowd size is
+`SEED_EMPLOYEES=100` to `400` (160 by default; 35 of them are hand-written with deliberate wrinkles, the rest
+generated, and the two flags combine: `SEED_EMPLOYEES=200 node db/seed/seed.js --no-payruns`).
 
 `backend/.env` is committed with working dev defaults (same credentials Postgres ships with), so there is
 nothing to copy or edit; `backend/.env.example` is the same file for reference. If your Postgres/Redis are not
@@ -111,8 +143,8 @@ second admin in *Settings → User Access* rather than by keeping a spare admin 
 |---|---|---|---|
 | Admin | `admin@oxp.com` | `ADMIN` | everything: User Access, writing company settings, queues, audit log. Cannot change a peer admin's role, password or status |
 | HR Manager | `hr@oxp.com` | `HR_MANAGER` | employees, contracts, org, attendance, time off (approve, assign balances), salary structures to read, company settings to read. No computation, no release. |
-| Payroll Officer | `hr2@oxp.com` | `HR_PAYROLL_USER` | the HR screens, plus create / compute / validate a run and mark it paid. No bulk payslip e-mail, no structure writes, no void or delete. |
-| Payroll Manager | `payroll@oxp.com` | `HR_PAYROLL_MANAGER` | a run end to end: compute, validate, mark paid, generate PDFs, **bulk e-mail the payslips**, edit slip lines and arreares, structures and rules, void/delete a run. Cannot create users and cannot write company settings. |
+| Payroll Officer | `hr2@oxp.com` | `HR_PAYROLL_USER` | the Payroll menu (create / compute / validate a run, mark it paid) and the Time Off menu — including **Approve / Refuse** on leave, because a leave day changes the pay. Reads employees and attendance; does not edit them. No bulk payslip e-mail, no structure writes, no void or delete. |
+| Payroll Manager | `payroll@oxp.com` | `HR_PAYROLL_MANAGER` | a run end to end: compute, validate, mark paid, generate PDFs, **bulk e-mail the payslips**, edit slip lines and arreares, structures and rules, void/delete a run, and approve leave (Time Off menu). Cannot edit employees, contracts, attendance rows or schedules, cannot create users and cannot write company settings. |
 | Employee | `aarav.mehta@oxp.com` (any seeded work email) | `EMPLOYEE` | only My pay: own profile, own attendance, own leave requests, own payslips (download goes through `/api/portal/payslips/:id/pdf`). |
 
 Signing in takes each role to the screen that role works from — `landingFor()` in `frontend/src/App.jsx`, from a
@@ -156,6 +188,12 @@ prints the same grid from the server if you want the authoritative version.
   same row (15-second cache, invalidated on save), `.env` stays the fallback, and the password is never sent back to
   the browser. *Check connection* and *Send a test mail to my address* go through the live mailer, so an invitation, a
   password reset, a leave decision or a payslip cover letter all work the moment that line is green.
+* **The demo company is a company** — the seeder grows to ~160 people (`SEED_EMPLOYEES`), each with a contract that
+  covers the current period, attendance for the last months, a leave balance for this financial year and some
+  requests waiting for an approver, and it drives the real payroll engine for the last full month (`SEED_PAYRUN_MONTHS`)
+  while leaving this month as a DRAFT run so the first thing you press has work to do. Dates are counted back from
+  today, never written into the file: a demo that goes stale in a month is the bug that made "Nobody is eligible"
+  look like a broken payrun.
 * **Every required field says so** — the star, the box highlight and the sentence that blocks a submit come from one
   list per form (`frontend/src/utils/form.js`), built by reading the API validator that will actually refuse you; a
   field that may stay empty is labelled *Optional* rather than starred, and no Save button is left disabled without a
@@ -176,8 +214,9 @@ prints the same grid from the server if you want the authoritative version.
   decided by the permissions the API sent, not by a role string in React, and a key nobody registered renders a message
   naming the registered kinds instead of a blank screen. Adding a dashboard is one entry there plus a component file.
 * **New accounts set their own password** — creating a user (or *Send link* on any row) issues a single-use invitation:
-  192 random bits, stored only as a SHA-256 hash, valid `INVITE_TTL_HOURS` (72) hours, and the account stays unusable
-  until it is used. **The message is sent by the request that made it** — one SMTP conversation per account, in order,
+  192 random bits, stored only as a SHA-256 hash, valid for `INVITE_TTL_MINUTES` (10) minutes **or until it is
+  used**, whichever comes first, and the account stays unusable until it is. A used link is dead even inside the
+  window, and the minutes are editable in Settings → Company → E-mail delivery. **The message is sent by the request that made it** — one SMTP conversation per account, in order,
   no Redis in between — so "sent" means sent, and a bulk press of *Send links (N waiting)* takes as long as the mail
   server needs while reporting every account individually. `INVITE_VIA_QUEUE=true` is the alternative for a
   deployment that would rather have the worker dial SMTP with its retries; the answer and the UI then say "queued".
@@ -240,22 +279,46 @@ no page knows which theme is on, and a new screen is themed for free. Your choic
 
 1. Google account → Security → 2-Step Verification → **App passwords** → create one (16 characters). A normal login
    password is refused by Google with *"Username and Password not accepted"*; that sentence is what the app shows you
-   back, because it is the usual mistake.
-2. Sign in as an admin → **Settings → Company → E-mail delivery**: host `smtp.gmail.com`, port `587`, *implicit TLS*
-   **off**, the address as the mail account, the App Password in the password box, and *Send real mail* left on.
+   back, because it is the usual mistake. Google issues an App Password as **16 characters in four groups of four**, so the app counts what you
+   saved and says so when the length is wrong — the other usual mistake, and it looks identical from the outside,
+   because Google answers `535 BadCredentials` either way. (`Settings → Company → E-mail delivery` prints
+   `password_length` for exactly this reason; nothing on that screen ever prints the password itself.)
+2. Sign in as an admin → **Settings → Company → E-mail delivery** and fill in **two boxes**: the address
+   (`payroll@gmail.com`) and the App Password. Leave *SMTP host*, *port* and the TLS box **empty** — a Gmail address
+   *is* `smtp.gmail.com:465 · implicit TLS`, and the app looks that up in
+   `backend/src/lib/mailer/providers.js` (Google, Microsoft, Zoho, Yahoo, Apple, Fastmail, QQ Mail). The line under
+   the boxes tells you what it picked before you save, and says so plainly when a domain is not on the list.
+   If a host is already in that box from an earlier attempt, it is used only when it names a real server:
+   `smtp.reply.example`-style values resolve to nothing, so the app ignores them, says so on the screen, and offers
+   **Clear the host box and use smtp.gmail.com:465 · implicit TLS** as one button. That stale box — not the
+   password — is why *Check connection* used to answer `getaddrinfo ENOTFOUND` however many addresses were tried.
 3. Press **Send a test mail to my address**. It goes through the same mailer an invitation or a payslip uses, so a
    green line there means the real thing arrives. No restart, and no file to edit.
+
+Those are also the only two lines `backend/.env` needs — `EMAIL_NAME` (or `EMAIL_USER`) and `EMAIL_PASSWORD`
+(or `EMAIL_PASS`); the shorter names are accepted because they are what people type from memory. Everything else in
+that file has a working default, and the port/TLS variables are documented as "only for a host you typed".
 
 | where it can be set | wins |
 |---|---|
 | Settings → Company → E-mail delivery (stored on `company_settings`, migration `013_mail_transport.sql`) | this one, per key — the login lives in the database so a box with no shell access can still be configured |
-| `backend/.env` (`EMAIL_NAME`, `EMAIL_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `MAIL_FROM`, `MAIL_DAILY_LIMIT`) | the fallback, for a deployment that keeps its secret outside the database; leave the four fields blank and this is what runs |
+| `backend/.env` (`EMAIL_NAME`, `EMAIL_PASSWORD` — two lines, and nothing else unless you are off the provider list) | the fallback, for a deployment that keeps its secret outside the database; leave the two boxes on the screen blank and this is what runs |
 
 The password is write-only: `GET /api/company` returns `smtp_password_set: true` and never the value, and saving the
 form with an empty password box keeps what is stored rather than erasing it. *Send real mail* off means preview: every
 message becomes `backend/storage/mail/*.eml`, which is what happens on a demo box with no credentials at all, so the
-flow (link, set-password page, first sign-in) is still testable offline. `GET http://localhost:4100/health` prints
+flow (link, set-password page, first sign-in) is still testable offline. A preview file is written as a real
+`multipart/alternative` message with the raw link on a line of its own in the text part, so opening it and
+double-clicking the URL is the whole delivery — that is the path an invitation mail takes when nobody has typed a
+password anywhere yet. `GET http://localhost:4100/health` prints
 which driver the worker picked up — the worker reads the same database row, cached for 15 seconds.
+
+One more box sits in that group: **Set-password link lives for** — minutes an invitation stays usable, 10 by
+default, `INVITE_TTL_MINUTES` as the deployment fallback. It is short on purpose and it is single-use as well
+(`invitations.accepted_at`): once the person has set a password, that link is dead even inside the window, and the
+Users page counts the remaining minutes down under the link so you can see whether it is still open. Press
+**Check connection** first: a refused login and an unanswered host are different faults with different fixes, and the
+panel says which one you have (a `Username and Password not accepted` from Google means an App Password is required).
 
 An address you typed into *mail_from* is also the reply-to and where bounces land. Gmail's personal accounts are
 capped near 500 recipients a day, so keep *Daily mail cap* below that: the app then refuses to queue past it rather
@@ -266,7 +329,8 @@ The invitation mail uses the same driver, with three more knobs:
 | variable | default | what it decides |
 |---|---|---|
 | `PUBLIC_APP_URL` | `WEB_ORIGIN` → `http://localhost:5173` | the origin of the link in the mail — set it to what the browser actually types, or every invitation is unreachable |
-| `INVITE_TTL_HOURS` | `72` | how long a set-password link stays valid |
+| `INVITE_TTL_MINUTES` | `10` | how long a set-password link stays valid — and the box in Settings → Company → E-mail delivery beats it, so this is only for a deployment that keeps the number out of the database |
+| `INVITE_TTL_HOURS` | — | the older knob, still read when `INVITE_TTL_MINUTES` is unset (72 was far too long for a link that travels by e-mail) |
 | `FEATURE_INVITE` | `true` | switched off, `POST /users/:id/invite` answers 409 and the Users page falls back to typing a temporary password |
 | `INVITE_VIA_QUEUE` | `false` | `true` hands each invitation to the worker as one job per account instead of the request mailing it |
 | `INVITE_BULK_LIMIT` | `50` | how many accounts one *Send links* press works through (the API caps it at 100) |
@@ -326,12 +390,13 @@ Roles, permissions and menu entries live in [`backend/src/lib/shared/permissions
 ```js
 export const ROLE_PERMISSIONS = {
   ADMIN: ['*'],
-  HR_MANAGER: ['employee:read', 'employee:write', 'attendance:write', 'payroll:run:approve', ...],
+  HR_MANAGER: ['employee:read', 'employee:write', 'schedule:write', 'timeoff:approve', ...],
+  HR_PAYROLL_USER: [...HR_CORE_PAYROLL, ...PAYROLL_CALC],   // payroll reads HR data, it does not administer it
   ...
 };
 ```
 
-Add `'report:read'` to a role, or a new entry to `ROLE_NAV`, and the API's `/api/auth/me` immediately starts returning it — the sidebar item and the button visibility follow, because both are read from that response. `DENIES` holds the few things that are withheld even from a broad role (e.g. an HR Manager approving more than 3 days of leave).
+Add `'report:read'` to a role, or a new entry to `ROLE_NAV`, and the API's `/api/auth/me` immediately starts returning it — the sidebar item and the button visibility follow, because both are read from that response. A role's menu is generated from the same list (`ROLE_NAV`, plus `NAV_OVERRIDES` for the groups a role inherits): a screen a role can open is a link it is given, and a write a role is given is a screen it can reach — `scripts/test-unit.js` checks both, because either half missing looks like "the button was never built". `DENIES` is a veto only for permissions no held role grants (e.g. an employee's `payroll:*`), so take a power off a role by removing it from that role's list, not by denying it.
 
 ## 7b · Single-port mode (no Vite)
 

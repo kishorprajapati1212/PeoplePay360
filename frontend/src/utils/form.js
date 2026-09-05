@@ -13,6 +13,9 @@
 
 export const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
 
+/** The one time shape the API accepts (`timeStr` in backend/src/validators/common.js): 24-hour HH:MM. */
+export const isTime = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || '').trim());
+
 /**
  * `guard(values, spec)` → `{ problems, missing, ok }`.
  *

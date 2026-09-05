@@ -37,17 +37,26 @@ const SETTINGS = {
   // configuration like everything else on this screen: four fields and a switch, and Check mail below proves it.
   'E-mail delivery': [
     { key: 'mail_enabled', label: 'Send real mail', type: 'checkbox', full: true,
-      hint: 'Off means nothing leaves this machine: every message is written to backend/storage/mail as a .eml file instead. On means the login below is used.' },
-    { key: 'smtp_host', label: 'SMTP host', max: 160, placeholder: 'smtp.gmail.com',
-      hint: 'For a Google inbox that is smtp.gmail.com. Leave all four blank to use EMAIL_NAME / EMAIL_PASSWORD from the environment instead.' },
-    { key: 'smtp_port', label: 'SMTP port', unit: 'port', type: 'number', min: 1, max: 65535, step: 1, integer: true, placeholder: '587',
-      hint: '587 with Gmail (STARTTLS). 465 needs the box below ticked.' },
-    { key: 'smtp_secure', label: 'Implicit TLS on connect (port 465 style)', type: 'checkbox' },
-    { key: 'smtp_user', label: 'Mail account', max: 160, pattern: 'email', placeholder: 'payroll@company.com' },
+      hint: 'Off means nothing leaves this machine: every message is written to backend/storage/mail as a .eml file instead. On means the two boxes below are used.' },
+    // Two boxes, then. A Gmail / Outlook / Zoho / Yahoo / iCloud / Fastmail / QQ address carries its own host,
+    // port and TLS mode (backend/src/lib/mailer/providers.js), and the three fields underneath it are only for a
+    // mailbox that table has never heard of.
+    { key: 'smtp_user', label: 'Mail account', max: 160, pattern: 'email', placeholder: 'payroll@gmail.com',
+      hint: 'The address that sends the mail — a Gmail address needs nothing else on this screen.' },
     { key: 'smtp_password', label: 'Password / App Password', type: 'password', max: 400, full: true,
       placeholder: 'Stored as-is and never read back — blank keeps what is already stored',
-      hint: 'A Google account needs an App Password (2-Step Verification must be on); a normal login password is refused with "Username and Password not accepted", which Check mail will show you. Gmail allows about 500 recipients a day on a personal account.' },
+      hint: 'Paste the App Password (16 characters, spaces included) for a Google, Apple, Yahoo, Fastmail or QQ account — their login password is refused with "Username and Password not accepted", which Check mail quotes back at you.' },
+    { key: 'smtp_host', label: 'SMTP host — only if we do not know your provider', max: 160,
+      placeholder: 'empty is correct for Gmail, Outlook, Zoho, Yahoo, iCloud, Fastmail, QQ',
+      hint: 'Fill it only when your provider handed you a host (a company relay, a cPanel mailbox). A value like smtp.reply.example resolves to nothing, so it is ignored and the address decides.' },
+    { key: 'smtp_port', label: 'SMTP port', unit: 'port', type: 'number', min: 1, max: 65535, step: 1, integer: true, placeholder: 'only with a host',
+      hint: '587 is STARTTLS, 465 is implicit TLS. Blank means whatever the address decides.' },
+    { key: 'smtp_secure', label: 'Implicit TLS on connect (port 465 style)', type: 'checkbox',
+      hint: 'Only meaningful next to a host you typed — an address we recognise already knows.' },
     { key: 'mail_from', label: 'Reply-to / sender mailbox', max: 160, pattern: 'email', hint: 'Also where bounce notices land.' },
+    { key: 'mail_invite_ttl_minutes', label: 'Set-password link lives for', unit: 'minutes', type: 'number', min: 1, max: 1440, step: 1,
+      integer: true, placeholder: '10',
+      hint: 'Minutes an invitation link works, and only once. 10 is the default: short enough that a link left in an inbox stops being a way in, long enough to be opened on a phone. Leave it blank to fall back to INVITE_TTL_MINUTES in backend/.env.' },
     { key: 'mail_daily_limit', label: 'Daily mail cap', unit: 'mails/day', type: 'number', min: 1, max: 100000, step: 1, integer: true, placeholder: '400', hint: 'What the app refuses to queue past this, so a bulk run cannot get the domain blocked.' },
   ],
   'Payroll conventions': [
@@ -99,6 +108,9 @@ export function CompanyPage() {
   // Bumped after a save so the mail panel below re-reads the driver — a settings change should be visible in
   // the same screen that made it, not after a reload.
   const [savedAt, setSavedAt] = useState(0);
+  // Read once for the panel below *and* for the line that says what the settings dial — two fetches of the
+  // same row would be two chances to show different answers.
+  const mail = useApi(useCallback(() => company.mail.get(), [savedAt]), [savedAt]);
   const { run, busy } = useAction();
   const form = values || data || {};
 
@@ -143,7 +155,14 @@ export function CompanyPage() {
                     <button className="btn-primary btn-sm" disabled={!values || !!busy} onClick={save}>{busy === 'save' ? 'Saving…' : 'Save settings'}</button>
                   </>} />
 
-      <MailPanel savedAt={savedAt} />
+      {!mayWrite && (
+        <Notice tone="info" title="Read-only for your role">
+          <p>The settings can be read here; saving them belongs to an Admin — that includes the mail server
+             (address, app password) and how long a set-password link stays open.</p>
+        </Notice>
+      )}
+
+      <MailPanel status={mail} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         {Object.entries(SETTINGS).map(([title, fields]) => (
@@ -173,6 +192,7 @@ export function CompanyPage() {
                 </Field>
               ))}
             </div>
+            {title === 'E-mail delivery' && <MailServerHint form={form} status={mail.data || {}} loading={mail.loading} />}
           </Panel>
         ))}
 
@@ -212,9 +232,37 @@ export function CompanyPage() {
  * the next "Send link" arrives, and a red one quotes the provider's own words instead of leaving you to guess
  * whether an App Password was what it wanted.
  */
-function MailPanel({ savedAt }) {
-  const status = useApi(useCallback(() => company.mail.get(), [savedAt]), [savedAt]);
+/**
+ * The line that answers "what will this dial?" before anything is saved. The provider list comes from the API
+ * (`providers`, built in backend/src/lib/mailer/providers.js), so this file repeats no rules of its own: a known
+ * address means the two boxes are the job, an unknown one names the box that is missing, and a host you typed
+ * always wins.
+ */
+function MailServerHint({ form, status, loading }) {
+  if (loading) return <p className="mt-3 text-xs text-slate-500">Reading which server your address implies…</p>;
+  const address = String(form.smtp_user ?? status.user ?? '').trim();
+  const domain = address.includes('@') ? address.slice(address.lastIndexOf('@') + 1).toLowerCase() : '';
+  const typed = String(form.smtp_host ?? status.host ?? '').trim();
+  const match = (status.providers || []).find((p) => p.domains.includes(domain));
+  const said = status.conflict?.ignored
+    // The server the API dialed is a fact; a box holding an example value is not a wish.
+    ? { text: `${status.conflict.stored_host} names no server, so it is ignored — this dials ${status.conflict.wanted_server}, which the address decides. Clear the box below and the note goes away.`, tone: 'text-slate-400' }
+    : typed
+    ? { text: `${typed}${form.smtp_port ? `:${form.smtp_port}` : ''} · ${form.smtp_secure || status.secure ? 'implicit TLS' : 'STARTTLS'} — the host you typed wins over our list, unless it is an example value, which resolves to nothing`, tone: 'text-slate-400' }
+      : match
+        ? { text: `${match.host}:${match.port} · ${match.secure ? 'implicit TLS' : 'STARTTLS'} — read off the address, so the two boxes above are the whole job${match.appPassword ? ', and it wants an App Password rather than your login password' : ''}`, tone: 'text-emerald-200' }
+        : domain
+          ? { text: `${domain} is not on our list — its SMTP host goes in the box below (your provider's "SMTP settings" page prints it). Leave it blank and every mail stays a file in backend/storage/mail.`, tone: 'text-amber-200' }
+          : { text: 'a mail address and its password is the whole of it: the server comes with the address for the providers we know.', tone: 'text-slate-500' };
+  // Only a real server gets the "Sends through" lead-in; the other two sentences are about what is missing.
+  const prefix = status.conflict?.ignored || typed || match ? 'Sends through ' : '';
+  return <p className={'mt-3 text-xs leading-relaxed ' + said.tone}>{prefix}{said.text}</p>;
+}
+
+function MailPanel({ status }) {
   const { run, busy } = useAction();
+  // POST /settings/mail/check needs settings:write, so the buttons only appear for a role that can press them.
+  const mayWrite = useCan('settings:write');
   const [result, setResult] = useState(null);
   const s = status.data || {};
   const preview = s.driver === 'preview';
@@ -231,8 +279,8 @@ function MailPanel({ savedAt }) {
     if (result.error) return { tone: 'warn', title: 'The settings screen could not ask the server', text: result.error };
     if (!result.connected) {
       return { tone: 'warn', title: 'The mail server refused the connection',
-               text: (result.verify && result.verify.error) || result.note
-                 || 'The host, port or TLS mode does not answer. Nothing was sent.' };
+               text: [result.verify?.error || result.note || 'The host, port or TLS mode does not answer. Nothing was sent.',
+                      result.verify?.hint].filter(Boolean).join(' — ') };
     }
     if (!result.mail) return { tone: 'good', title: 'The login works', text: 'Connected to the server. No message was sent — you only asked it to check.' };
     if (result.mail.ok) {
@@ -251,6 +299,7 @@ function MailPanel({ savedAt }) {
           ['Sending as', s.login || 'nobody', s.password_stored ? 'A password is stored here.' : 'No password stored in the database.'],
           ['From', s.from || '—', 'The address a bounce comes back to.'],
           ['Daily cap', s.daily_limit ? `${num(s.daily_limit)} messages` : '—', 'Stops a bulk run past the provider limit.'],
+          ['Invitation link', s.invite_ttl_minutes ? `${num(s.invite_ttl_minutes)} minutes, once` : '10 minutes (from the server)', 'How long a set-password link stays open. A used link never opens again.'],
         ].map(([label, value, hint]) => (
           <div key={label}>
             <p className="label">{label}</p>
@@ -260,15 +309,41 @@ function MailPanel({ savedAt }) {
         ))}
       </div>
       {s.note && <p className="mt-3 text-xs text-amber-200">{s.note}</p>}
-      {s.host && <p className="mt-2 text-xs text-slate-500">Configured server: {s.host}{s.port ? `:${s.port}` : ''}{s.secure ? ' · implicit TLS' : ' · STARTTLS'}.</p>}
+      {s.password_shape && <p className="mt-2 text-xs text-amber-200">{s.password_shape}</p>}
+      <p className="mt-2 text-xs text-slate-500">
+        {s.server ? <>Server: <span className="text-slate-100">{s.server}</span>{s.inferred ? `, picked from the address (${s.inferred}) — nothing was typed for it` : ' — the host you typed'}</>
+                  : 'No server yet: a mail address and its App Password is the whole of it, because the server comes with the address.'}
+      </p>
+      {s.conflict && (
+        <Notice tone="warn" title="The SMTP host box disagrees with the address">
+          <p>
+            <span className="text-slate-100">{s.conflict.stored_host}</span>
+            {s.conflict.ignored
+              ? <> names no server, so it is ignored: this app dials <span className="text-slate-100">{s.conflict.wanted_server}</span>, which is what a {s.conflict.brand} address means.</>
+              : <> is not what {s.conflict.brand} uses ({s.conflict.wanted_server}). The box wins, so that host is what gets dialed — if it refuses, that is why.</>}
+          </p>
+          <p className="mt-1">
+            {mayWrite
+              ? <button className="btn-ghost btn-sm" disabled={!!busy} onClick={() => run('fix', () => company.update({ smtp_host: '', smtp_port: null, smtp_secure: false }).then(() => status.reload?.()))}>
+                  {busy === 'fix' ? 'Clearing…' : `Clear the host box and use ${s.conflict.wanted_server}`}
+                </button>
+              : 'An Admin can empty that box under E-mail delivery below; the address then decides on its own.'}
+          </p>
+        </Notice>
+      )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button className="btn-ghost btn-sm" disabled={!!busy} onClick={() => check(false)}>
-          {busy === 'check' ? 'Connecting…' : 'Check connection'}</button>
-        <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => check(true)}>
-          {busy === 'send' ? 'Sending…' : 'Send a test mail to my address'}</button>
-        <span className="text-xs text-slate-500">Both use the live settings, so save first if you just changed one.</span>
-      </div>
+      {mayWrite ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button className="btn-ghost btn-sm" disabled={!!busy} onClick={() => check(false)}>
+            {busy === 'check' ? 'Connecting…' : 'Check connection'}</button>
+          <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => check(true)}>
+            {busy === 'send' ? 'Sending…' : 'Send a test mail to my address'}</button>
+          <span className="text-xs text-slate-500">Both use the live settings, so save first if you just changed one.</span>
+        </div>
+      ) : (
+        <p className="mt-4 text-xs text-slate-500">Asking the server, or sending a test message, is filed as a settings
+          change — so only an Admin can press those two buttons. You are reading the numbers they saved.</p>
+      )}
       {verdict && <div className="mt-3"><Notice tone={verdict.tone} title={verdict.title}><p>{verdict.text}</p></Notice></div>}
     </Panel>
   );
