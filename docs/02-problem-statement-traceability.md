@@ -1,7 +1,8 @@
 # 02 — Problem statement → implementation traceability
 
 Every requirement extracted from the PDF (sections 4A/4B, 7, 8), mapped to how we satisfy it.
-`Phase` refers to `09-build-plan-phases.md`. **M** = must-have for scoring, **S** = stretch.
+**M** = must-have for scoring, **S** = stretch. "Where implemented" names the screen, the endpoint and the
+table, so any row can be checked in one minute; `../README.md` §5 is the running-thing version of the same list.
 
 ## A. HR Backend (configuration & master data)
 
@@ -78,7 +79,7 @@ Every requirement extracted from the PDF (sections 4A/4B, 7, 8), mapped to how w
 | Deliverable | Plan |
 | --- | --- |
 | Functional platform with representative data | `npm run db:seed`: 13 employees, 5 staff logins (one per role) plus a login per employee, 3 structures, 3 schedules, 6 months of attendance, half-month and monthly payruns, leave history, deliberately seeded anomalies |
-| 5-min live demo, two end-to-end scenarios | Script in `09-build-plan-phases.md` §Demo. Scenario 1 hire→payslip→PDF→email. Scenario 2 allocation→request→approval→LOP on payslip. |
+| 5-min live demo, two end-to-end scenarios | Sign in as `admin@oxp.com` (README §4). Scenario 1: Employees → New (10-digit mobile, code assigned for you) → Contracts (wage) → Payroll → Payruns → compute → validate → PDFs → mark paid → send → the employee downloads the same PDF from /portal/payslips. Scenario 2: Time Off → Allocations (grant days) → a request from the employee's login → approve → the next compute shows the LOP line, with the engine's own sentence under it (`13-how-a-payslip-is-computed.md`). |
 | Future roadmap slide | 1-page: tax filing/Form 16, employer cost & accruals, loans/advances, multi-currency, ESIC/PF challans, biometric integration, audit diff view, mobile app |
 | Mockup reference | `https://app.excalidraw.com/l/65VNwvy7c4X/17vHpCNFjex` — open it once and mirror layout so UI matches the brief's mental model |
 

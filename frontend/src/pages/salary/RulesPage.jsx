@@ -18,6 +18,25 @@ import { toRows, totalOf } from '../../utils/query.js';
  * Formulas run in the sandboxed parser in backend/src/lib/formula — no eval, no function calls, only
  * the variables the engine exposes. The tester below calls the same code the payroll engine uses.
  */
+/**
+ * One plain sentence per rule. The engine decides a line from these fields and nothing else, so reading
+ * them back in order is an honest description of what will happen to a payslip.
+ * (docs/13-how-a-payslip-is-computed.md explains the whole calculation with a worked example.)
+ */
+function explainRule(r) {
+  const bits = [];
+  if (r.computation_type === 'FIXED') bits.push(`pays a fixed ${inr(r.amount)}`);
+  else if (r.computation_type === 'PERCENTAGE') bits.push(`${r.percentage}% of ${r.base_code || 'BASIC'}`);
+  else bits.push(`runs ${r.formula || 'its formula'}`);
+  if (r.cap_amount) bits.push(`max ${inr(r.cap_amount)} a ${String(r.evaluation_period || 'PERIOD').toLowerCase().replace('_', ' ')}`);
+  if (r.annual_cap) bits.push(`max ${inr(r.annual_cap)} a year`);
+  if (r.condition_expr) bits.push(`only when ${r.condition_expr}`);
+  if (r.pro_rata) bits.push('scaled by days worked');
+  if (String(r.evaluation_period) === 'MONTH_ONCE') bits.push('once per month, so a half-month run does not pay it twice');
+  bits.push(r.appears_on_payslip ? 'shown on the slip' : 'kept off the slip');
+  return `Evaluated at #${r.sequence ?? '—'} — ${bits.join(', ')}.`;
+}
+
 export function RulesPage() {
   const toast = useToast();
   const mayWrite = useCan('salary:rule_write');
@@ -36,14 +55,18 @@ export function RulesPage() {
   return (
     <>
       {mayWrite && (
-        <Panel title="Formula tester" subtitle="Safe before you save: this runs the real evaluator with a sample wage." className="mb-4">
+        <Panel title="Formula tester" subtitle="Safe before you save: this runs the same evaluator the payroll engine uses, with a sample wage and day count." className="mb-4">
           <div className="grid items-end gap-3 sm:grid-cols-4">
             <Field label="Formula" required className="sm:col-span-2">
-              <Input value={test.formula} onChange={(v) => setTest({ ...test, formula: v })} placeholder="BASIC * 0.45" />
+              <Input value={test.formula} onChange={(v) => setTest({ ...test, formula: v })} placeholder="BASIC * 0.45" maxLength={600} />
             </Field>
-            <Field label="Wage"><Input type="number" value={test.wage} onChange={(v) => setTest({ ...test, wage: v })} /></Field>
+            <Field label="Wage" hint="What BASIC and GROSS are set to">
+              <Input type="number" inputMode="decimal" min={0} max={10000000} suffix="₹" placeholder="50000" value={test.wage} onChange={(v) => setTest({ ...test, wage: v })} />
+            </Field>
             <div className="flex items-end gap-2">
-              <Field label="Days"><Input type="number" value={test.days} onChange={(v) => setTest({ ...test, days: v })} /></Field>
+              <Field label="Days" hint="Out of the days in the period">
+                <Input type="number" inputMode="numeric" min={1} max={31} suffix="days" placeholder="26" value={test.days} onChange={(v) => setTest({ ...test, days: v })} />
+              </Field>
               <button className="btn-primary btn-sm mb-0.5" onClick={validate} disabled={!!busy || !test.formula}>{busy === 'test' ? '…' : 'Test'}</button>
             </div>
           </div>
@@ -55,11 +78,26 @@ export function RulesPage() {
         subtitle="Fixed amounts, percentages of another line, or a formula. Sequence decides the order the engine evaluates in."
         api={salary.rules}
         readPerm="salary:rule_read" writePerm="salary:rule_write" deletePerm="salary:rule_write"
+        // A salary rule has no is_active column: it is retired by its end date, because a rule that a
+        // paid payslip used must stay readable. This button writes the date for you instead of making
+        // you open the form and guess which of the two date boxes means "stop after".
+        rowActions={[{
+          key: 'retire', label: 'Retire', perm: 'salary:rule_write', title: 'Stop applying this rule to future runs; already-computed payslips keep it',
+          show: (row) => !row.active_to,
+          onClick: (row, { reload, toast }) => salary.rules.update(row.id, { active_to: new Date(Date.now() - 864e5).toISOString().slice(0, 10) })
+            .then(() => { reload(); toast.success(`${row.name} is retired — it stops applying from tomorrow`); })
+            .catch((e) => toast.error(e.message)),
+        }]}
         search={false}
         filters={[{ key: 'structure_id', label: 'All structures', options: options }]}
         columns={[
           { key: 'sequence', label: '#', width: 'w-12' },
-          { key: 'name', label: 'Rule', render: (r) => (<div><p className="text-slate-100">{r.name}</p><p className="text-xs text-slate-500">{r.code} · {r.structure || 'shared'}</p></div>) },
+          { key: 'name', label: 'Rule', render: (r) => (
+              <div>
+                <p className="text-slate-100">{r.name}</p>
+                <p className="text-xs text-slate-500">{r.code} · {r.structure || 'shared'}</p>
+                <p className="mt-0.5 max-w-md text-xs leading-snug text-slate-400">{explainRule(r)}</p>
+              </div>) },
           { key: 'category', label: 'Category', render: (r) => <StatusChip value={r.category} /> },
           { key: 'line_kind', label: 'Line', render: (r) => (r.line_kind === 'EARNING' ? <span className="text-emerald-300">earning</span> : r.line_kind === 'DEDUCTION' ? <span className="text-red-300">deduction</span> : <span className="text-slate-400">{String(r.line_kind).toLowerCase()}</span>) },
           { key: 'computation_type', label: 'Computation', render: (r) => (r.computation_type === 'FIXED' ? `fixed ${inr(r.amount)}` : r.computation_type === 'PERCENTAGE' ? `${r.percentage}% of ${r.base_code || 'BASIC'}` : <code className="text-xs text-amber-200">{r.formula}</code>) },
@@ -80,15 +118,20 @@ export function RulesPage() {
           { key: 'salary_structure_id', label: 'Structure', type: 'select', options, required: true },
           { key: 'category', label: 'Category', type: 'select', required: true, options: ['BASIC', 'ALLOWANCE', 'REIMBURSEMENT', 'DEDUCTION', 'GROSS', 'NET'].map((v) => ({ value: v, label: v.charAt(0) + v.slice(1).toLowerCase() })) },
           { key: 'line_kind', label: 'Line kind', type: 'select', options: ['EARNING', 'DEDUCTION', 'ADJUSTMENT', 'REPORT'].map((v) => ({ value: v, label: v.charAt(0) + v.slice(1).toLowerCase() })) },
-          { key: 'sequence', label: 'Sequence', type: 'number', hint: 'Lower is evaluated first. Totals (GROSS, NET) come last.' },
+          { key: 'sequence', label: 'Sequence', type: 'number', min: 1, max: 999, step: 1, placeholder: '10', unit: 'order',
+            hint: 'Lower is evaluated first, so a rule can use an earlier line. Totals (GROSS, NET) come last.' },
           { key: 'computation_type', label: 'Computation', type: 'select', options: [{ value: 'FIXED', label: 'Fixed amount' }, { value: 'PERCENTAGE', label: 'Percentage of a line' }, { value: 'FORMULA', label: 'Formula' }] },
-          { key: 'amount', label: 'Amount', type: 'money', hint: 'Fixed rules only.' },
-          { key: 'percentage', label: 'Percentage', type: 'number', hint: 'Percentage rules: 40 means 40%.' },
-          { key: 'base_code', label: 'Base line code', placeholder: 'BASIC', hint: 'What the percentage or cap is measured against.' },
-          { key: 'formula', label: 'Formula', type: 'textarea', rows: 2, placeholder: 'min(BASIC * 0.5, 5000)', hint: 'Variables: BASIC, GROSS, HRA, days, expected_days, wage, plus any rule code.' },
-          { key: 'cap_amount', label: 'Cap per period', type: 'money', hint: 'e.g. PF employer capped at ₹1,500' },
-          { key: 'annual_cap', label: 'Cap per year', type: 'money' },
-          { key: 'condition_expr', label: 'Apply only when', placeholder: 'days >= 15', hint: 'Optional formula that must be true for the rule to fire.' },
+          { key: 'amount', label: 'Amount', type: 'money', min: -999999, max: 999999, step: '0.01', unit: '₹ / month', placeholder: '5000',
+            hint: 'Fixed rules only. A negative amount turns the line into a deduction.' },
+          { key: 'percentage', label: 'Percentage', type: 'number', min: 0, max: 1000, step: '0.01', unit: '%', placeholder: '40',
+            hint: 'Percentage rules: 40 means 40%. Above 100 is allowed (a multiplier, not a share).' },
+          { key: 'base_code', label: 'Base line code', placeholder: 'BASIC', hint: 'What the percentage or cap is measured against — any code on this structure, or wage.' },
+          { key: 'formula', label: 'Formula', type: 'textarea', rows: 2, placeholder: 'min(BASIC * 0.5, 5000)', hint: 'Names you can use: BASIC, GROSS, wage, days, expected_days, overtime_hours, bonus_rate … plus any rule code above. Operators + - * / ( ) and min() max() round() floor() ceil() abs() if(test, then, else).' },
+          { key: 'cap_amount', label: 'Cap per period', type: 'money', min: 0, max: 9999999, step: '0.01', unit: '₹', placeholder: '1500',
+            hint: 'The most this line can be inside one evaluation window — e.g. PF employer capped at ₹1,500.' },
+          { key: 'annual_cap', label: 'Cap per year', type: 'money', min: 0, max: 9999999, step: '0.01', unit: '₹', placeholder: '18000',
+            hint: 'The most this line can be across the window below, added up over earlier slips.' },
+          { key: 'condition_expr', label: 'Apply only when', placeholder: 'days >= 15', hint: 'Optional formula that must be true for the rule to fire. Use > < >= <= = != — e.g. days >= 15.' },
           { key: 'evaluation_period', label: 'Evaluation window', type: 'select', options: ['PERIOD', 'MONTH', 'MONTH_ONCE', 'FISCAL_YEAR'].map((v) => ({ value: v, label: v.replace('_', ' ').toLowerCase() })),
             hint: 'Month / fiscal year is the window the caps below are measured against. "month once" charges the rule on the first slip of the calendar month only — what a half-month run needs so a monthly amount is not paid twice.' },
           { key: 'rounding_mode', label: 'Rounding', type: 'select', options: [{ value: 'half_up', label: 'Exact (paise, half up)' }, { value: 'down', label: 'Down to the rupee' }, { value: 'up', label: 'Up to the rupee' }],
@@ -98,8 +141,8 @@ export function RulesPage() {
           { key: 'statutory', label: 'Statutory', type: 'checkbox', checkboxLabel: 'PF / ESI / PT / LWF' },
           { key: 'appears_on_payslip', label: 'Print on payslip', type: 'checkbox' },
           { key: 'is_report_only', label: 'Report only', type: 'checkbox', checkboxLabel: 'Shown in registers, not on the slip' },
-          { key: 'active_from', label: 'Active from', type: 'date' },
-          { key: 'active_to', label: 'Active to', type: 'date' },
+          { key: 'active_from', label: 'Active from', type: 'date', hint: 'Blank = applies from the start' },
+          { key: 'active_to', label: 'Active to', type: 'date', hint: 'Blank = still applying. A rule a paid payslip used is retired with this date, never deleted.' },
           { key: 'notes', label: 'Notes', type: 'textarea', rows: 2 },
         ]}
       />

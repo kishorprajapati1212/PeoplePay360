@@ -56,7 +56,7 @@ export function SystemPage() {
               { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
               { key: 'attempts', label: 'Tries', align: 'right', render: (r) => `${num(r.attempts)}/${num(r.max_attempts)}` },
               { key: 'queue_name', label: 'Queue', render: (r) => <span className="text-xs text-slate-500">{r.queue_name}</span> },
-              { key: 'error_message', label: 'Error', render: (r) => (r.error_message ? <span className="text-xs text-amber-200/80">{String(r.error_message).slice(0, 60)}</span> : <span className="text-slate-600">—</span>) },
+              { key: 'error_message', label: 'Error', render: (r) => (r.error_message ? <span className="text-xs text-amber-200">{String(r.error_message).slice(0, 60)}</span> : <span className="text-slate-600">—</span>) },
               { key: 'updated_at', label: 'Updated', render: (r) => <span className="text-xs text-slate-500">{datetime(r.updated_at)}</span> },
               { key: '_a', label: '', render: (r) => mayRetry && ['DEAD', 'FAILED'].includes(r.status) && <button className="btn-ghost btn-sm" onClick={() => run('r' + r.id, () => system.retry(r.id)).then(() => { toast.success('Retried'); setTick((n) => n + 1); }).catch((e) => toast.error(e.message))}>Retry</button> },
             ]} empty={<p className="px-4 py-6 text-sm text-slate-500">Nothing queued.</p>} />

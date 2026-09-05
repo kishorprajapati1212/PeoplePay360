@@ -127,6 +127,49 @@ export async function remove(id, { auth }) {
 }
 export const allocationsFor = (employeeId) => repo.allocationsFor(employeeId);
 export const createAllocation = (d) => repo.createAllocation(d);
+/**
+ * One grant, many people. "Assign balance" on the types screen and the bulk panel on Allocations both
+ * land here, because the single-row form is unusable for a 40-person annual grant.
+ *
+ * on_existing says what to do when the person already has an allocation for exactly those dates:
+ * skip it (default — a second press of the button must not double-grant), add the days on top, or
+ * replace the grant. Rows are written in one transaction, and a day count outside 0–400 is refused
+ * up front instead of half-applying.
+ */
+export async function allocateMany({ time_off_type_id, employee_ids, allocated_days, valid_from, valid_until, description, on_existing = 'skip' }) {
+  const type = await repo.getType(time_off_type_id);
+  if (!type) throw AppError.notFound('Time off type not found');
+  const days = Number(allocated_days);
+  if (!Number.isFinite(days) || days < 0 || days > 400) throw AppError.badRequest('Days granted must be between 0 and 400', { code: 'DAYS_RANGE' });
+  if (String(valid_until) < String(valid_from)) throw AppError.badRequest('Valid until has to be on or after valid from', { code: 'DATE_RANGE' });
+  const out = { created: 0, adjusted: 0, skipped: [], not_found: [] };
+  await transaction(async (client) => {
+    const q = (sql, params) => client.query(sql, params).then((r) => ({ rows: r.rows, rowCount: r.rowCount }));
+    for (const employeeId of employee_ids) {
+      const emp = await q(`select id, name from employees where id = $1`, [employeeId]).then((r) => r.rows[0]);
+      if (!emp) { out.not_found.push(employeeId); continue; }
+      const existing = await q(`select * from time_off_allocations where employee_id = $1 and time_off_type_id = $2 and valid_from = $3 and valid_until = $4`,
+        [employeeId, time_off_type_id, valid_from, valid_until]).then((r) => r.rows[0]);
+      if (existing) {
+        if (on_existing === 'skip') {
+          out.skipped.push({ employee_id: employeeId, employee: emp.name, reason: 'an allocation for these dates already exists' });
+          continue;
+        }
+        const next = on_existing === 'replace' ? days : Math.min(400, Number(existing.allocated_days) + days);
+        await repo.updateAllocation(existing.id, { allocated_days: next, ...(description ? { description } : {}) }, q);
+        out.adjusted++;
+        continue;
+      }
+      await repo.createAllocation({ employee_id: employeeId, time_off_type_id, allocated_days: days, valid_from, valid_until,
+        status: 'APPROVED', description: description || `Annual grant — ${type.name}` }, q);
+      out.created++;
+    }
+  });
+  const applied = out.created + out.adjusted;
+  return { type: type.name, unit: type.unit, applied, created: out.created, adjusted: out.adjusted,
+           days: applied * days, skipped: out.skipped, skipped_count: out.skipped.length, not_found: out.not_found.length,
+           note: out.skipped.length ? `${out.skipped.length} employee(s) already had a balance for these dates and were left alone.` : null };
+}
 export const updateAllocation = (id, p) => repo.updateAllocation(id, p);
 /** End-of-year carry forward, from the type's policy — runs in a transaction because it writes many rows. */
 export async function carryForward({ typeId, fromYear, toYear, cap }) {

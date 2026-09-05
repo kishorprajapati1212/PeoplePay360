@@ -17,6 +17,9 @@ export function DepartmentsPage() {
       subtitle="Who reports where. A department can have a parent and a manager — both are used by the org chart and by approval routing."
       api={org.departments}
       readPerm="department:read" writePerm="department:write" deletePerm="department:write"
+      // A department you no longer use should be switched off, not deleted: history (employees, contracts,
+      // attendance) points at it. is_active is a boolean here, so the button writes true/false.
+      active={{ field: 'is_active' }}
       searchPlaceholder="Department name or code…"
       columns={[
         { key: 'name', label: 'Department' },

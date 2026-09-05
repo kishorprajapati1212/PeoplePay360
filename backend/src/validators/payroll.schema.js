@@ -30,6 +30,12 @@ export const candidateQuery = wizardStep1.extend({ q: z.string().max(80).optiona
 export const payslipListQuery = z.object({ employee_id: uuid.optional(), payrun_id: uuid.optional(), status: z.enum(['DRAFT','COMPUTED','VALIDATED','PAID','VOID']).optional(),
   period_key: optText(30), month: z.string().regex(/^\d{4}-\d{2}$/).optional(), from: optDate, to: optDate, q: z.string().max(80).optional(),
   missing_bank: boolish.optional(), ...pagination });
+/** POST /payslips/send — bulk release for a selection; at least one selector has to narrow it. */
+export const bulkSendBody = z.object({ payslip_ids: z.array(uuid).min(1).max(500).optional(), employee_ids: z.array(uuid).min(1).max(500).optional(),
+  payrun_id: uuid.optional(), period_key: z.string().regex(/^\d{4}-\d{2}$/, 'Use YYYY-MM').optional(),
+  cc_hr: z.boolean().optional(), only_missing: z.boolean().optional() })
+  .refine((b) => b.payslip_ids?.length || b.payrun_id || b.period_key || b.employee_ids?.length,
+    { message: 'Choose payslips, a payrun or a period (YYYY-MM) to send', path: ['payslip_ids'] });
 export const linePatch = z.object({ replace: z.boolean().default(false), lines: z.array(z.object({
   id: uuid.optional(), rule_code: optText(30), rule_name: optText(80), category: z.enum(['BASIC','ALLOWANCE','REIMBURSEMENT','DEDUCTION','GROSS','NET']).optional(),
   line_kind: z.enum(['EARNING','DEDUCTION','ADJUSTMENT','REPORT']).optional(), sequence: intIn(1, 999).optional(),

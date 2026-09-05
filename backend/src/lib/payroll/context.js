@@ -1,3 +1,15 @@
+/**
+ * What a formula is allowed to see — the one place the expression language gets its variables from.
+ *
+ * `buildFormulaContext()` returns a plain object of rupee amounts (the engine itself works in paise), and
+ * `backend/src/lib/formula/eval.js` refuses any name that is not in its allow-list, so "is a variable
+ * available to a rule?" is answered by looking at these two files and nothing else. Everything here is
+ * derived from what was passed in: attendance rows, approved leave, the pay inputs for this run, and what
+ * the earlier slips of the month/year already paid.
+ *
+ * Also in this file: `dayHours` / `attendanceStats` / `leaveStats`, the three counters the payslip quotes
+ * in its per-line explanation (paid days, unpaid days, hours worked, approved OT hours).
+ */
 import { toPaise, fromPaise } from '../shared/index.js';
 import { eachDay, toIso, addDays, isoDow, daysInMonth } from '../shared/index.js';
 

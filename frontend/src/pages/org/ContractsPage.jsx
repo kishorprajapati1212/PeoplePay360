@@ -21,7 +21,7 @@ import { toRows, totalOf } from '../../utils/query.js';
  */
 const FIELDS = [
   { key: 'employee_id', label: 'Employee', type: 'select', required: true, options: [] },
-  { key: 'wage', label: 'Monthly wage', type: 'money', required: true, hint: 'Basic wage. Allowances are added by the salary structure.' },
+  { key: 'wage', label: 'Monthly wage', type: 'money', required: true, min: 0, max: 99999999, step: '0.01', unit: '₹ / month', placeholder: '85000', hint: 'Basic wage. Allowances are added by the salary structure.' },
   { key: 'start_date', label: 'Starts', type: 'date', required: true },
   { key: 'end_date', label: 'Ends', type: 'date', hint: 'Blank = open ended.' },
   { key: 'salary_structure_id', label: 'Salary structure', type: 'select', options: [] },

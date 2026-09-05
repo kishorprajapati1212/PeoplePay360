@@ -7,18 +7,28 @@ import { Field, Input } from '../components/ui/controls.jsx';
  * The mockup's login card, plus a role switcher: one click fills the demo credentials for that role so
  * you can see exactly what that role may do. Password is the seeded default for every account.
  */
+/**
+ * One button per seeded login — the addresses here are copied from backend/db/seed/data.js and must
+ * stay identical to it. An earlier version of this list typed "payroll.admin@oxp.com" for the account
+ * the seeder creates as "payroll-admin@oxp.com", and clicking it produced a sign-in failure that looked
+ * like a broken account rather than a typo.
+ * The notes are what the roles actually hold (see backend/src/lib/shared/permissions.js).
+ */
 const DEMO = [
   { role: 'Admin', email: 'admin@oxp.com', note: 'everything, incl. users & settings' },
-  { role: 'HR', email: 'hr@oxp.com', note: 'employees, attendance, time off' },
-  { role: 'Payroll', email: 'payroll@oxp.com', note: 'payruns, compute, payslips' },
-  { role: 'Payroll Admin', email: 'payroll.admin@oxp.com', note: '+ send, exports, structures' },
+  { role: 'HR Manager', email: 'hr@oxp.com', note: 'people, contracts, attendance, time off' },
+  { role: 'Payroll Officer', email: 'hr2@oxp.com', note: 'runs: compute, validate, mark paid — no bulk mail' },
+  { role: 'Payroll Manager', email: 'payroll@oxp.com', note: '+ bulk e-mail, PDFs, structures, delete a run' },
+  { role: 'Payroll Admin', email: 'payroll-admin@oxp.com', note: 'the above + edit employees & contracts' },
   { role: 'Employee', email: 'aarav.mehta@oxp.com', note: 'own payslips, leave, attendance' },
 ];
+/** The seeder's default (config.demo.password). A deployment that set DEMO_PASSWORD must change this. */
 const PASSWORD = 'Password@123';
 
 export function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState('admin@oxp.com');
+  const [showPw, setShowPw] = useState(false);
   const [password, setPassword] = useState(PASSWORD);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -66,8 +76,12 @@ export function LoginPage() {
             <Field label="Company email" required>
               <Input value={email} onChange={setEmail} type="email" autoComplete="username" placeholder="you@company.com" />
             </Field>
-            <Field label="Password" required error={error}>
-              <Input value={password} onChange={setPassword} type="password" autoComplete="current-password" placeholder="••••••••" />
+            <Field label="Password" required error={error} hint={error ? 'Check the address with the buttons below — most failures here are a typo in the email.' : undefined}>
+              <div className="relative">
+                <Input value={password} onChange={setPassword} type={showPw ? 'text' : 'password'} autoComplete="current-password" placeholder="Password" className="pr-16" />
+                <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 hover:text-slate-200"
+                        onClick={() => setShowPw((v) => !v)}>{showPw ? 'Hide' : 'Show'}</button>
+              </div>
             </Field>
           </div>
 
@@ -84,7 +98,12 @@ export function LoginPage() {
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-[11px] text-slate-500">Password for all of them: <code className="text-slate-300">{PASSWORD}</code></p>
+            <p className="mt-3 text-[11px] text-slate-500">Password for all of them: <code className="text-slate-300">{PASSWORD}</code> — the shared
+              <code className="text-slate-400">DEMO_PASSWORD</code> from backend/.env, applied to every seeded and newly created login.</p>
+            <p className="mt-1.5 text-[11px] text-slate-600">
+              If a sign-in is refused twice, stop retyping it: the guard allows 8 attempts per 5 minutes per address and
+              then waits 15 minutes out before it will try again. Pick the address with a button above instead.
+            </p>
           </div>
         </form>
       </div>

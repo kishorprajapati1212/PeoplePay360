@@ -137,8 +137,12 @@ export const USERS = [
   { key: 'admin', name: 'Anita Rao', work_email: 'admin@oxp.com', role: 'ADMIN', roles: ['ADMIN', 'HR_MANAGER'] },
   { key: 'hr', name: 'Kunal Shah', work_email: 'hr@oxp.com', role: 'HR_MANAGER', roles: ['HR_MANAGER'] },
   { key: 'hr_user', name: 'Sneha Kulkarni', work_email: 'hr2@oxp.com', role: 'HR_PAYROLL_USER', roles: ['HR_PAYROLL_USER'] },
-  { key: 'payroll', name: 'Meera Iyer', work_email: 'payroll@oxp.com', role: 'HR_PAYROLL_USER', roles: ['HR_PAYROLL_USER', 'HR_MANAGER'] },
-  { key: 'payroll_admin', name: 'Rahul Verma', work_email: 'payroll-admin@oxp.com', role: 'HR_PAYROLL_MANAGER', roles: ['HR_PAYROLL_MANAGER'] },
+  // The two payroll addresses are deliberately different: "payroll" owns a run end to end (compute →
+  // validate → release) and nothing else, while "payroll-admin" is the same authority plus the HR
+  // grant, so it can also fix the employee record sitting behind a wrong payslip. Both are printed by
+  // the seeder and both are in the README table — the roles here are what that documentation describes.
+  { key: 'payroll', name: 'Meera Iyer', work_email: 'payroll@oxp.com', role: 'HR_PAYROLL_MANAGER', roles: ['HR_PAYROLL_MANAGER'] },
+  { key: 'payroll_admin', name: 'Rahul Verma', work_email: 'payroll-admin@oxp.com', role: 'HR_PAYROLL_MANAGER', roles: ['HR_PAYROLL_MANAGER', 'HR_MANAGER'] },
 ];
 
 /**

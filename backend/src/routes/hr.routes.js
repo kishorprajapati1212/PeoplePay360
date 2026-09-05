@@ -26,18 +26,23 @@ export const attendanceRoutes = bind([
   post('/:id/overtime', { perm: 'attendance:approve_overtime', params: idParam(), body: v.overtimeBody, h: att.overtime }),
 ]);
 export const timeOffRoutes = bind([
-  get('/types', { any: ['timeoff:approve', 'timeoff:type_write'], query: v.typeListQuery, h: to.types, read: true }),
+  // The request form in "My time off" fills its Leave type picker from this list, so anyone who can
+  // request leave (timeoff:type_read — every employee and every staff role) has to be able to read it.
+  // With only the two admin perms here, an employee got a 403 → an empty dropdown in a 34px box.
+  get('/types', { any: ['timeoff:type_read', 'timeoff:approve', 'timeoff:type_write'], query: v.typeListQuery, h: to.types, read: true }),
   post('/types', { perm: 'timeoff:type_write', body: v.timeOffTypeBody, h: to.createType }),
-  get('/types/:id', { perm: 'timeoff:approve', params: idParam(), h: to.type, read: true }),
+  get('/types/:id', { any: ['timeoff:type_read', 'timeoff:approve'], params: idParam(), h: to.type, read: true }),
   patch('/types/:id', { perm: 'timeoff:type_write', params: idParam(), body: v.timeOffTypeBody.partial(), h: to.updateType }),
   del('/types/:id', { perm: 'timeoff:type_write', params: idParam(), h: to.deleteType }),
-  get('/allocations', { perm: 'timeoff:approve', h: to.allocations, read: true }),
+  get('/allocations', { any: ['timeoff:allocation_read', 'timeoff:approve'], h: to.allocations, read: true }),
   post('/allocations', { perm: 'timeoff:allocation_write', body: v.allocationBody, h: to.createAllocation }),
+  // Same grant for many people at once — what the "Assign balance" button on the types screen uses.
+  post('/allocations/bulk', { perm: 'timeoff:allocation_write', body: v.allocateManyBody, h: to.allocateMany, idem: true }),
   patch('/allocations/:id', { perm: 'timeoff:allocation_write', params: idParam(), body: v.allocationBody.partial().omit({ employee_id: true, time_off_type_id: true }), h: to.updateAllocation }),
-  get('/balances/:employeeId', { perm: 'timeoff:approve', params: idParam('employeeId'), h: to.balances, read: true }),
+  get('/balances/:employeeId', { any: ['timeoff:allocation_read', 'timeoff:approve'], params: idParam('employeeId'), h: to.balances, read: true }),
   post('/count-days', { any: ['timeoff:approve', 'timeoff:request'], body: v.countDaysBody, h: to.countDays, read: false }),
   post('/carry-forward', { perm: 'timeoff:allocation_write', body: v.carryBody, h: to.carryForward }),
-  get('/overview', { perm: 'timeoff:approve', query: v.periodQuery, h: to.overview, read: true }),
+  get('/overview', { any: ['timeoff:allocation_read', 'timeoff:approve'], query: v.periodQuery, h: to.overview, read: true }),
   get('/requests', { any: ['timeoff:approve', 'timeoff:request'], query: v.periodQuery, h: to.requests, read: true }),
   post('/requests', { perm: 'timeoff:request', body: v.timeOffRequestBody, h: to.createRequest, idem: true }),
   get('/requests/:id', { any: ['timeoff:approve', 'timeoff:request'], params: idParam(), h: to.request, read: true }),

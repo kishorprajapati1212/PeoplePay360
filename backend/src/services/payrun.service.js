@@ -1,4 +1,4 @@
-import { AppError, toIso, periodKey, monthAnchor, eachDay, fromPaise, inferKind } from '../lib/shared/index.js';
+import { AppError, toIso, periodKey, monthAnchor, eachDay, fromPaise, inferKind, resolvePeriodEnd } from '../lib/shared/index.js';
 import * as repo from '../repositories/payrun.repo.js';
 import * as payslipRepo from '../repositories/payslip.repo.js';
 import * as employeeRepo from '../repositories/employee.repo.js';
@@ -18,7 +18,7 @@ export async function preview({ salary_structure_id, period_start, period_end, p
   const structure = await salaryRepo.getStructure(salary_structure_id);
   if (!structure) throw AppError.badRequest('Choose a Pay Structure first', { code: 'STRUCTURE_REQUIRED' });
   if (!Number(structure.rules)) throw new AppError('STRUCTURE_EMPTY', `“${structure.name}” has no rules — add salary rules before running payroll`, { status: 422 });
-  const from = toIso(period_start), to = toIso(period_end || period_start);
+  const from = toIso(period_start), to = resolvePeriodEnd(period_start, period_end);
   if (to < from) throw AppError.badRequest('Period end must be on or after the period start', { code: 'DATE_RANGE' });
   const key = periodKey(from, to, pay_frequency);
   const size = Math.min(200, Math.max(1, Number(page_size) || 25));
@@ -45,7 +45,8 @@ export async function preview({ salary_structure_id, period_start, period_end, p
  */
 export async function create({ name, salary_structure_id, period_start, period_end, pay_frequency, compute_mode, employee_ids, notes, idempotency_key }, { auth }) {
   if (!Array.isArray(employee_ids) || !employee_ids.length) throw AppError.badRequest('Select at least one employee record', { code: 'EMPLOYEES_REQUIRED' });
-  const from = toIso(period_start), to = toIso(period_end || period_start);
+  const from = toIso(period_start), to = resolvePeriodEnd(period_start, period_end);
+  if (to < from) throw AppError.badRequest('Period end must be on or after the period start', { code: 'DATE_RANGE' });
   const key = periodKey(from, to, pay_frequency);
   const kind = inferKind(from, to, pay_frequency);
   const structure = await salaryRepo.getStructure(salary_structure_id);

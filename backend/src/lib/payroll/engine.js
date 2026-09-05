@@ -10,6 +10,14 @@ const EarningCat = new Set(['BASIC', 'ALLOWANCE', 'REIMBURSEMENT']);
  * Compute one payslip from ordered rules. Pure: nothing here touches the DB, so the same engine
  * backs the UI "preview computation" button, the payrun batch and the tests.
  *
+ * The whole calculation is four steps, and each step writes one line that the payslip prints verbatim:
+ *   1. order the rules (sequence, with a dependency pulled in front of what needs it);
+ *   2. for each rule: condition gate → statutory resolver / FIXED / PERCENTAGE / FORMULA → caps → rounding;
+ *   3. total the lines (gross, deductions, adjustments, net, employer cost) — totals are never stored
+ *      separately, so the printed slip cannot disagree with the arithmetic;
+ *   4. add the two lines the rules did not produce: a carry-in arrear line, and a rounding-off line.
+ * docs/13-how-a-payslip-is-computed.md walks through a real month with numbers.
+ *
  * input = { employee, contract, structure, rules, ptSlabs, period, attendance, leaves, inputs,
  *           arrears, prior, settings, worksheetSeed }
  * period  = { from, to, key, half, factor, expectedMonthDays, expectedSliceDays, monthEquivalent,
@@ -25,7 +33,7 @@ export function computePayslip(input) {
   const worksheet = {};           // rule_code -> paise
   const lines = [];
   const warnings = [];
-  const stats = { prorated: 0, skipped: 0, formula: 0, statutory: 0 };
+  const stats = { prorated: 0, skipped: 0 };   // only two numbers are ever reported, so only two are counted
 
   const earningsSoFar = () => lines.filter((l) => l.line_kind === 'EARNING').reduce((a, l) => a + l.amount, 0);
   const ordered = orderRules([...rules].filter((rl) => rl.active !== false && isRuleActive(rl, period))
@@ -45,7 +53,7 @@ export function computePayslip(input) {
       res = evaluateRule({ rule, contract, employee, period, settings, prior, ptSlabs, worksheet, ctx, inputs, arrears, attendance, leaves, factor, earningsSoFar });
     } catch (e) {
       warnings.push({ severity: 'ERROR', code: 'RULE_ERROR', rule: code,
-                      message: `${rule.name}: ${e instanceof FormulaError ? e.message : e.message}` });
+                      message: `${rule.name}: ${e.message}` });
       res = { paise: 0, log: `ERROR: ${e.message}`, error: true };
     }
     let paise = applyRoundingMode(Math.round(Number(res.paise) || 0), rule.rounding_mode);
@@ -221,13 +229,19 @@ function baseOf(rule, { worksheet, contract }) {
   if (key in worksheet) return worksheet[key];
   throw new FormulaError(`base_code “${rule.base_code}” does not match any rule in this structure (and is not CONTRACT_WAGE/BASIC/GROSS)`);
 }
-/** MONTH / FISCAL_YEAR caps and MONTH_ONCE, evaluated against what has already been paid. */
+/**
+ * Caps and the "once per month" marker, measured against what this employee has already been paid.
+ *  · cap_amount   — the most the line may be in one window (MONTH / FISCAL_YEAR, per evaluation_period),
+ *                   less whatever earlier slips in that window already used up.
+ *  · annual_cap   — the same idea over the financial year.
+ *  · MONTH_ONCE   — a half-month payrun asks the question twice, so the second slip gets 0 for this rule
+ *                   unless it is a per-day amount (see evaluation_period on the rule).
+ */
 function capPaise(paise, { rule, prior, period }) {
   let out = paise;
   const monthCap = toPaise(rule.cap_amount ?? 0);
   const yearCap = toPaise(rule.annual_cap ?? 0);
   const already = { MONTH: prior?.by_rule_month?.[rule.code], FISCAL_YEAR: prior?.by_rule_fy?.[rule.code], PERIOD: 0 }[rule.evaluation_period] ?? 0;
-  if (rule.evaluation_period === 'MONTH_ONCE' && period.evaluationPeriod !== 'MONTH_ONCE') { /* fall through */ }
   if (rule.evaluation_period === 'MONTH_ONCE' && (prior?.month_codes || []).includes(rule.code)) {
     return 0;
   }

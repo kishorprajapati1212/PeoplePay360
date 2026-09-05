@@ -37,7 +37,13 @@ export async function create(data, { auth } = {}) {
       must_change_pw: !!data.must_change_pw }, q);
     await repo.setRoles(user.id, roles, auth?.userId, q);
     if (employeeId) await repo.linkEmployee(user.id, employeeId, q);
-    return repo.getUser(user.id, q);
+    const full = await repo.getUser(user.id, q);
+    // The app never shows a password, but "the shared demo password works" and "the password you typed
+    // works" are two different hand-overs. Without saying which one happened, the create dialog looks
+    // like a form that ate the credentials and the first sign-in fails with no explanation.
+    return { ...full, password_source: data.password ? 'provided' : 'demo', sign_in_note: data.password
+      ? 'Signed in with the password you typed here.'
+      : `Signed in with the shared demo password (DEMO_PASSWORD in backend/.env — ${config.demo.password.length} characters).` };
   });
 }
 export async function update(id, patch, { auth } = {}) {

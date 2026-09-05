@@ -43,6 +43,8 @@ export const payrunRoutes = bind([
 ]);
 export const payslipRoutes = bind([
   get('/', { any: ['payslip:read_all', 'payslip:download_own'], query: v.payslipListQuery, h: ps.index, read: true }),
+  // Bulk release for a selection — declared before /:id so the path is never read as a payslip id.
+  post('/send', { perm: 'payroll:send_bulk', body: v.bulkSendBody, h: ps.bulkSend, idem: true }),
   get('/:id', { perm: 'payslip:read_all', params: v.idParam, h: ps.show, read: true }),
   post('/:id/compute', { perm: 'payroll:compute', params: v.idParam, h: ps.recompute, read: false }),
   patch('/:id/lines', { perm: 'payslip:edit_lines', params: v.idParam, body: v.linePatch, h: ps.lines }),

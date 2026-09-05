@@ -22,14 +22,45 @@ let onUnauthorized = () => {};
 /** AuthContext registers a handler so a 401 anywhere lands the user back on the login screen. */
 export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
 
-async function request(method, path, { body, query, raw = false, signal } = {}) {
+let refreshing = null;
+/**
+ * One refresh at a time. The access token is short-lived on purpose (15 min in the dev .env), and a
+ * screen that has been open while someone read a PDF used to die with "Session expired" mid-click — the
+ * httpOnly refresh cookie was there the whole time and nothing was asking it. Concurrency matters: a
+ * page that fires six requests at once must send one refresh, and rotating the refresh token twice in
+ * parallel would revoke the cookie the other five are about to use.
+ */
+function tryRefresh() {
+  if (!refreshing) {
+    refreshing = fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include',
+                          headers: { 'content-type': 'application/json' }, body: '{}' })
+      .then(async (r) => {
+        if (!r.ok) return false;
+        const data = await r.json().catch(() => null);
+        const fresh = data?.token || data?.accessToken;
+        if (!fresh) return false;
+        token.write(fresh);
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
+async function request(method, path, { body, query, raw = false, signal } = {}, retried = false) {
   const url = API_BASE + path + (query ? `?${new URLSearchParams(clean(query))}` : '');
   const headers = {};
   const jwt = token.read();
   if (jwt) headers.authorization = `Bearer ${jwt}`;
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal });
-  if (res.status === 401 && !path.startsWith('/auth/login')) { onUnauthorized(); }
+  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal, credentials: 'include' });
+  // A 401 on any call other than logging in means the access token aged out, not that the password was
+  // wrong: ask for a new one and replay the call once, then give up and let the app show the login screen.
+  if (res.status === 401 && !retried && path !== '/auth/login' && path !== '/auth/refresh' && await tryRefresh()) {
+    return request(method, path, { body, query, raw, signal }, true);
+  }
+  if (res.status === 401 && path !== '/auth/login') { onUnauthorized(); }
   if (raw) return res;
   const text = await res.text();
   const data = text ? safeJson(text) : null;

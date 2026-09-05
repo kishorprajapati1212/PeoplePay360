@@ -37,7 +37,7 @@ html.dark {
   --slate-300: 203 213 225;
   --slate-400: 148 163 184;
   --slate-500: 133 149 173;   /* the app's muted-text level: hints, secondary lines, table captions */
-  --slate-600: 106 123 148;    /* the faintest grey we use for real text (an empty cell, a locked row) */
+  --slate-600: 124 140 166;    /* the faintest grey we use for real text (an empty cell, a locked row) */
   --slate-700: 51 65 85;
   --slate-800: 30 41 59;
   --slate-900: 15 23 42;
@@ -89,15 +89,18 @@ html.dark {
 }
 
 html.light {
-  --ink-950: 243 246 251;   /* page background — grey enough that a white panel reads as a panel */
-  --ink-900: 255 255 255;   /* panel / sidebar        */
-  --ink-850: 248 250 253;   /* inputs, recessed rows  */
-  --ink-800: 226 234 246;   /* hover — visible on white, this is what a row looks like when you touch it */
-  --ink-700: 203 216 236;   /* active row / selected tab */
-  --ink-600: 176 194 220;   /* raised border          */
-  --line: 205 216 232;      /* every hairline         */
-  --brand-50: 238 242 255;
-  --brand-100: 224 231 255;  /* tints stay pale — they are used behind text, not as text */
+  /* OFF-WHITE, not white. Every surface is a warm paper tone: the page is the darkest of the three, a panel
+     floats above it, an input sits in between. Nothing here is pure white, which is what made the first
+     light theme feel like a glare and made grey text on grey rows hard to read. */
+  --ink-950: 247 245 240;   /* page background                     */
+  --ink-900: 253 252 250;   /* panel / sidebar                     */
+  --ink-850: 250 248 244;   /* inputs, recessed rows               */
+  --ink-800: 240 236 229;   /* hover                               */
+  --ink-700: 228 222 212;   /* active row / selected tab           */
+  --ink-600: 199 191 178;   /* raised border                       */
+  --line: 223 217 206;      /* every hairline                      */
+  --brand-50: 238 239 251;
+  --brand-100: 226 228 248;  /* tints stay pale — they sit behind text, not as text */
   --brand-200: 55 48 163;    /* the shades used as *text* flip to dark indigo … */
   --brand-300: 67 56 202;
   --brand-400: 79 70 229;
@@ -110,23 +113,23 @@ html.light {
   --good: 22 163 74;
   --warn: 180 83 9;
   --bad: 220 38 38;
-  --panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 28px -22px rgba(15, 23, 42, 0.35);
-  --scroll-thumb: 186 200 220;
-  --slate-50: 2 6 23;
-  --slate-100: 15 23 42;
-  --slate-200: 30 41 59;
-  --slate-300: 51 65 85;
-  --slate-400: 71 85 105;
-  --slate-500: 100 116 139;
-  --slate-600: 96 112 136;    /* the faintest grey the app uses for real text — still passes on white */
-  --slate-700: 203 213 225;
-  --slate-800: 226 232 240;
-  --slate-900: 241 245 249;
-  --slate-950: 248 250 252;
+  --panel-shadow: 0 1px 2px rgba(60, 50, 35, 0.05), 0 12px 28px -22px rgba(60, 50, 35, 0.3);
+  --scroll-thumb: 205 198 186;
+  --slate-50: 24 22 20;
+  --slate-100: 28 26 23;
+  --slate-200: 41 38 34;
+  --slate-300: 60 56 51;
+  --slate-400: 82 77 70;
+  --slate-500: 104 98 90;    /* muted text (timestamps, subtitles)  */
+  --slate-600: 112 106 98;    /* the faintest grey used for real text — 4.5:1 even on a hovered row */
+  --slate-700: 216 210 200;
+  --slate-800: 228 223 214;
+  --slate-900: 240 237 231;
+  --slate-950: 246 244 239;
   --emerald-50: 2 44 34;
   --emerald-100: 6 78 59;
   --emerald-200: 6 95 70;
-  --emerald-300: 4 120 87;
+  --emerald-300: 4 115 84;  /* 4.8:1 on bg-good/10, where the stat cards put it */
   --emerald-400: 5 150 105;
   --emerald-500: 16 185 129;
   --emerald-600: 52 211 153;
@@ -137,7 +140,7 @@ html.light {
   --amber-50: 69 26 3;
   --amber-100: 120 53 15;
   --amber-200: 146 64 14;
-  --amber-300: 180 83 9;
+  --amber-300: 162 75 8;    /* 4.8:1 on a tinted chip, in both themes' surfaces */
   --amber-400: 217 119 6;
   --amber-500: 245 158 11;
   --amber-600: 251 191 36;

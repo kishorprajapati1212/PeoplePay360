@@ -1,4 +1,5 @@
 import { timeOff } from '../../api/endpoints.js';
+import { useNavigate } from 'react-router-dom';
 import { CrudPage } from '../../components/crud/CrudPage.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { num } from '../../utils/format.js';
@@ -9,6 +10,7 @@ import { num } from '../../utils/format.js';
  * that appears as a deduction when leave is unpaid.
  */
 export function LeaveTypesPage() {
+  const navigate = useNavigate();
   return (
     <CrudPage
       title="Time off types"
@@ -16,6 +18,14 @@ export function LeaveTypesPage() {
       api={timeOff.types}
       readPerm="timeoff:type_read" writePerm="timeoff:type_write" deletePerm="timeoff:type_write"
       search={false}
+      // The API stores ACTIVE/INACTIVE here and accepts ?include_inactive=true on the list, so a
+      // switched-off type stays reachable instead of vanishing forever.
+      active={{ field: 'is_active', on: 'ACTIVE', off: 'INACTIVE', includeInactive: true }}
+      rowActions={[{
+        key: 'assign', label: 'Assign balance', perm: 'timeoff:allocation_write', title: 'Grant this type to many employees at once',
+        show: (row) => !!row.requires_allocation,
+        onClick: (row) => navigate('/time-off/allocations?assign=' + row.id),
+      }]}
       columns={[
         { key: 'name', label: 'Type', render: (r) => (<span className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: r.display_color || '#6366f1' }} />
@@ -32,14 +42,19 @@ export function LeaveTypesPage() {
       ]}
       fields={[
         { key: 'name', label: 'Name', required: true, placeholder: 'Sick Leave' },
-        { key: 'code', label: 'Code', required: true, placeholder: 'SICK' },
-        { key: 'unit', label: 'Unit', type: 'select', options: ['DAYS', 'HALF_DAYS', 'HOURS'].map((v) => ({ value: v, label: v.replace('_', ' ') })) },
-        { key: 'max_days_per_year', label: 'Maximum days per year', type: 'number', hint: 'Empty = no cap.' },
-        { key: 'min_notice_days', label: 'Minimum notice (days)', type: 'number' },
-        { key: 'approval_route', label: 'Approval route', type: 'select', options: ['MANAGER', 'HR', 'MANAGER_THEN_HR'].map((v) => ({ value: v, label: v.replace('_THEN_', ' then ').toLowerCase() })) },
-        { key: 'work_entry_type', label: 'Work entry', type: 'select', options: ['NONE', 'ATTENDANCE_100', 'LEAVE_UNPAID'].map((v) => ({ value: v, label: v.replace('_', ' ').toLowerCase() })) },
-        { key: 'payslip_code', label: 'Payslip deduction code', hint: 'e.g. LOP — must exist as a salary rule to be applied.' },
-        { key: 'display_color', label: 'Colour', type: 'text', placeholder: '#f59e0b' },
+        { key: 'code', label: 'Code', required: true, pattern: 'code', hint: 'UPPERCASE, 2-21 characters — used by imports and payslip codes.' },
+        // The API accepts DAYS or HOURS only (timeOffTypeBody in backend/src/validators/hr.schema.js).
+        // A "HALF DAYS" option used to sit here and fail with a validation error on save; half days are
+        // chosen per request instead (the Morning/Afternoon switch on the request form).
+        { key: 'unit', label: 'Unit', type: 'select', options: ['DAYS', 'HOURS'].map((v) => ({ value: v, label: v.toLowerCase() })) },
+        { key: 'max_days_per_year', label: 'Maximum days per year', type: 'number', min: 0, max: 400, step: 1, unit: 'days', placeholder: '12', hint: 'Empty = no cap. Whole days only.' },
+        { key: 'min_notice_days', label: 'Minimum notice', type: 'number', min: 0, max: 120, step: 1, unit: 'days', placeholder: '3', hint: 'A request inside this window is refused before anyone approves it.' },
+        // Same two lists the server enum allows (approval_route NONE|MANAGER|HR|PAYROLL_OFFICER and
+        // work_entry_type is free text up to 60 chars) — an option the API rejects must not be offered.
+        { key: 'approval_route', label: 'Approval route', type: 'select', options: ['NONE', 'MANAGER', 'HR', 'PAYROLL_OFFICER'].map((v) => ({ value: v, label: v.toLowerCase() })) },
+        { key: 'work_entry_type', label: 'Work entry', placeholder: 'LEAVE', hint: 'Free text, up to 60 characters — matches the attendance import mapping.' },
+        { key: 'payslip_code', label: 'Payslip deduction code', pattern: 'code', hint: 'e.g. LOP — must exist as a salary rule to be applied.' },
+        { key: 'display_color', label: 'Colour', type: 'text', pattern: 'hex_color' },
         { key: 'description', label: 'Description', type: 'textarea', rows: 2 },
         { key: 'requires_allocation', label: 'Requires a leave allocation', type: 'checkbox', checkboxLabel: 'Employees can only take it if they have a balance' },
         { key: 'is_unpaid', label: 'Unpaid', type: 'checkbox', checkboxLabel: 'Deducted from pay' },

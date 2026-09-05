@@ -8,7 +8,11 @@ export const auth = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   logout: () => api.post('/auth/logout', {}),
   me: () => api.get('/auth/me'),
+  /** Rotates the refresh cookie and returns a new access token; client.js calls this itself on a 401. */
+  refresh: () => api.post('/auth/refresh', {}),
   accessMatrix: () => api.get('/auth/access-matrix'),
+  /** Anyone may change their own password; the API then revokes the session cookie, so you sign in again. */
+  changePassword: (body) => api.post('/auth/change-password', body),
   /** 5-minute signed link so a plain <a> can stream the payslip PDF. */
   slipToken: (payslipId) => api.get(`/auth/token-for-payslip/${payslipId}`),
 };
@@ -86,6 +90,7 @@ export const timeOff = {
   allocations: {
     list: (query) => api.get('/time-off/allocations', query),
     create: (body) => api.post('/time-off/allocations', body),
+    bulk: (body) => api.post('/time-off/allocations/bulk', body),
     update: (id, body) => api.patch(`/time-off/allocations/${id}`, body),
   },
   balances: (employeeId) => api.get(`/time-off/balances/${employeeId}`),
@@ -142,6 +147,7 @@ export const payroll = {
     arrear: (id, body) => api.post(`/payslips/${id}/arrear`, body || {}),
     lines: (id, body) => api.patch(`/payslips/${id}/lines`, body),
     inputs: (id, body) => api.patch(`/payslips/${id}/inputs`, body),
+    bulkSend: (body) => api.post('/payslips/send', body),
     history: (id) => api.get(`/payslips/${id}/history`),
     downloads: (id) => api.get(`/payslips/${id}/downloads`),
   },

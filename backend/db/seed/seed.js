@@ -403,7 +403,10 @@ function printLogins() {
     ['Web', `http://localhost:${config.webPort}`],
     ['Admin', `http://localhost:${config.webPort}/login`],
   ], 'PeoplePay360 — sign in');
-  console.log('   admin@oxp.com · hr@oxp.com · payroll@oxp.com · payroll-admin@oxp.com   password: ' + config.demo.password);
+  // Every address the README lists has to be printed here with the roles it carries — otherwise a
+  // login that was never seeded reads as a broken account.
+  console.log('   ' + USERS.map((u) => u.work_email).join(' · ') + '   password: ' + config.demo.password);
+  console.log('   roles: ' + USERS.map((u) => u.work_email.split('@')[0] + '=' + u.roles.join('+')).join('  '));
   console.log('   every employee address above works too (e.g. aarav.mehta@oxp.com) as a plain employee login\n');
 }
 async function main() {

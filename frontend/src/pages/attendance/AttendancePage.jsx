@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { date, num, today } from '../../utils/format.js';
+import { download } from '../../utils/download.js';
 import { toRows, totalOf } from '../../utils/query.js';
 
 /**
@@ -70,6 +71,11 @@ export function AttendancePage() {
                       <span className="label">Month</span>
                       <input type="month" className="input ml-2 w-40" value={month} onChange={(e) => table.onFilter('month', e.target.value)} />
                     </label>
+                    {mayReadAll && (
+                      <button className="btn-ghost btn-sm" title="The month as the API sees it, with the same filters applied"
+                              onClick={() => run('csv', () => download(`/attendance/export.csv?month=${month}${table.query.status ? `&status=${table.query.status}` : ''}`, `attendance-${month}.csv`)).catch((e) => toast.error(e.message))}
+                              disabled={busy === 'csv'}>{busy === 'csv' ? 'Preparing…' : 'Export CSV'}</button>
+                    )}
                     {mayWrite && <button className="btn-primary btn-sm" onClick={() => setEntry({ day: today(), employee_id: '', check_in: '09:30', check_out: '18:30', reason: '' })}>+ Mark entry</button>}
                   </>} />
 
@@ -98,7 +104,7 @@ export function AttendancePage() {
                      : mayApprove ? <button className="btn-ghost btn-sm" onClick={() => approveOvertime(r)} disabled={busy === 'ot' + r.id}>Approve</button>
                      : <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">pending</span>)
                   : <span className="text-slate-600">—</span>) },
-              { key: '_a', label: '', render: (r) => mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEntry({ id: r.id, employee_id: r.employee_id, day: String(r.day).slice(0, 10), check_in: String(r.check_in || '').slice(11, 16) || '09:30', check_out: String(r.check_out || '').slice(11, 16) || '18:30', reason: r.manual_reason || '' })}>Fix</button> },
+              { key: '_a', label: '', render: (r) => mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEntry({ id: r.id, employee_id: r.employee_id, employee: r.employee, day: String(r.day).slice(0, 10), check_in: String(r.check_in || '').slice(11, 16) || '09:30', check_out: String(r.check_out || '').slice(11, 16) || '18:30', reason: r.manual_reason || '' })}>Edit</button> },
             ]}
             pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
             empty={<EmptyState title="Nothing marked this month" hint="Punches land here from the kiosk, or use “Mark entry” to add a corrected day." />} />
@@ -126,11 +132,19 @@ export function AttendancePage() {
                       <button className="btn-primary" disabled={!!busy} onClick={saveEntry}>{busy === 'entry' ? 'Saving…' : 'Save entry'}</button></>}>
         {entry && (
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Employee" required className="sm:col-span-2">
-              <Select value={entry.employee_id} onChange={(v) => setEntry({ ...entry, employee_id: v })} placeholder="Choose…"
-                      options={toRows(people.data).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} />
-            </Field>
-            <Field label="Day" required><Input type="date" value={entry.day} onChange={(v) => setEntry({ ...entry, day: v })} /></Field>
+            {/* A correction stays on the day it belongs to — the API ignores a changed employee/day, so the
+                dialog shows them as facts instead of letting you type something that would be thrown away. */}
+            {entry.id ? (
+              <Field label="Employee" className="sm:col-span-2" hint="Correcting an existing day — the person and the date cannot change here.">
+                <div className="rounded-lg border border-line bg-ink-850 px-3 py-2 text-sm text-slate-300">{entry.employee} · {entry.day}</div>
+              </Field>
+            ) : (
+              <Field label="Employee" required className="sm:col-span-2">
+                <Select value={entry.employee_id} onChange={(v) => setEntry({ ...entry, employee_id: v })} placeholder="Choose…"
+                        options={toRows(people.data).map((p) => ({ value: p.id, label: p.name + ' · ' + p.employee_code }))} />
+              </Field>
+            )}
+            {!entry.id && <Field label="Day" required><Input type="date" value={entry.day} onChange={(v) => setEntry({ ...entry, day: v })} /></Field>}
             <Field label="Reason"><Input value={entry.reason} onChange={(v) => setEntry({ ...entry, reason: v })} placeholder="Punch card lost" /></Field>
             <Field label="Check-in"><Input type="time" value={entry.check_in} onChange={(v) => setEntry({ ...entry, check_in: v })} /></Field>
             <Field label="Check-out"><Input type="time" value={entry.check_out} onChange={(v) => setEntry({ ...entry, check_out: v })} /></Field>

@@ -31,6 +31,9 @@ export function StructuresPage() {
         subtitle="Rules grouped into a template you can assign to a contract. GROSS and NET lines are totals, not inputs."
         api={salary.structures}
         readPerm="salary:structure_read" writePerm="salary:structure_write" deletePerm="salary:structure_write"
+        // Structures store ACTIVE/INACTIVE (structureBody in backend/src/validators/payroll.schema.js),
+        // so the same button writes the enum instead of a boolean.
+        active={{ field: 'is_active', on: 'ACTIVE', off: 'INACTIVE' }}
         search={false}
         actions={<span className="text-xs text-slate-500">click a row for its rules</span>}
         columns={[

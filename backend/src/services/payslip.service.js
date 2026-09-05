@@ -7,6 +7,9 @@ import * as salaryRepo from '../repositories/salary.repo.js';
 import * as deliveryRepo from '../repositories/delivery.repo.js';
 import { computeOne, computeStructureFor } from './payroll.compute.js';
 import { renderPayslipPdf } from '../lib/pdf/index.js';
+import { resolveDriver } from '../lib/mailer/index.js';
+import { schedule, QUEUES } from '../queue/queues.js';
+import { logger } from '../logger.js';
 import { transaction } from '../db/tx.js';
 import { query } from '../db/pool.js';
 import { config } from '../config.js';
@@ -190,4 +193,72 @@ export async function zipPayslips(payrunId, { auth }) {
     entries.push({ name: `payslip-${s.employee_code}-${run.period_key}.pdf`, data: buffer });
   }
   return { buffer: makeZip(entries), fileName: `payslips-${run.period_key}.zip`, count: entries.length };
+}
+
+/**
+ * Release payslips by e-mail for a *selection* rather than for one whole payrun.
+ *
+ * POST /payruns/:id/send is the right button when a period is finished; this is the one for the awkward
+ * cases: someone was added to the run late, one message bounced, HR wants a single period across two
+ * structures. It queues through the same task/ledger plumbing as the run send, so the "one message per
+ * document version" dedupe still holds however many payslips are selected.
+ *
+ * only_missing (default true) skips slips whose current version has already been posted, so the button can
+ * be pressed twice without spamming the staff.
+ */
+export async function bulkEmail({ payslip_ids, payrun_id, period_key, employee_ids, cc_hr, only_missing }, { auth } = {}) {
+  const where = [], params = [];
+  const add = (sql, value) => { params.push(value); where.push(sql.replace('$@', '$' + params.length)); };
+  if (payslip_ids?.length) add('p.id = any($@::uuid[])', payslip_ids);
+  if (payrun_id) add('p.payrun_id = $@::uuid', payrun_id);
+  if (period_key) add('p.period_key = $@', period_key);
+  if (employee_ids?.length) add('p.employee_id = any($@::uuid[])', employee_ids);
+  if (!where.length) throw AppError.badRequest('Pick payslips, a payrun or a period to email', { code: 'SELECTOR_REQUIRED' });
+  const rows = await query(`
+    select p.id as payslip_id, p.payrun_id, p.document_version, p.email_status, p.status, p.period_key, p.net_amount,
+           e.work_email, e.name as employee, d.storage_path, d.sha256, d.version, r.name as payrun
+    from payslips p
+    join employees e on e.id = p.employee_id
+    join payruns r on r.id = p.payrun_id
+    left join lateral (select * from payslip_documents x where x.payslip_id = p.id and x.kind = 'PAYSLIP'
+                       order by x.version desc limit 1) d on true
+    where ${where.join(' and ')} and p.status in ('PAID','VALIDATED')
+    order by e.name limit 500`, params).then((r) => r.rows);
+  const company = await companyRepo.getCompany();
+  const skipped = { missing_pdf: [], missing_email: [], already_sent: [] };
+  const jobs = [];
+  for (const r of rows) {
+    const label = { payslip_id: r.payslip_id, employee: r.employee, period: r.period_key };
+    if (!r.work_email) { skipped.missing_email.push(label); continue; }
+    if (only_missing !== false && r.email_status === 'SENT' && Number(r.document_version) <= Number(r.version || 0)) {
+      skipped.already_sent.push(label); continue;
+    }
+    if (!r.storage_path) { skipped.missing_pdf.push(label); continue; }
+    const dedupe = `mail:${r.payslip_id}:v${r.document_version}`;
+    const task = await deliveryRepo.enqueueTask({ task_type: 'SEND_EMAIL', entity_type: 'PAYSLIP', entity_id: r.payslip_id,
+      payrun_id: r.payrun_id, dedupe_key: dedupe, queue_name: QUEUES.email,
+      payload: { payslipId: r.payslip_id, to: r.work_email, employee: r.employee, period: r.period_key, net: r.net_amount,
+                 pdfPath: r.storage_path, sha256: r.sha256, version: r.document_version, subject: null, ccHr: cc_hr,
+                 from: company?.mail_from, template: company?.payslip_footer ? { footer: company.payslip_footer } : null } });
+    await deliveryRepo.queueEmail({ payslip_id: r.payslip_id, payrun_id: r.payrun_id, document_version: r.document_version,
+      recipient: r.work_email, employee_name: r.employee, subject: `Payslip ${r.period_key}`, status: 'QUEUED' });
+    await schedule(QUEUES.email, 'payslip-email', { taskId: task.id, payslipId: r.payslip_id, version: r.document_version }, { dedupeKey: dedupe });
+    jobs.push({ payslip_id: r.payslip_id, employee: r.employee, to: r.work_email, task_id: task.id });
+  }
+  if (jobs.length) {
+    await query(`update payslips set email_status = 'QUEUED' where id = any($1::uuid[]) and coalesce(email_status,'') <> 'QUEUED'`,
+      [jobs.map((j) => j.payslip_id)]).catch(() => {});
+  }
+  const mail = resolveDriver(config.mail);
+  logger.info({ queued: jobs.length, matched: rows.length, by: auth?.userId }, 'bulk payslip mail queued');
+  return {
+    matched: rows.length, queued: jobs.length,
+    skipped_missing_pdf: skipped.missing_pdf.length, skipped_missing_email: skipped.missing_email.length,
+    already_sent: skipped.already_sent.length,
+    skipped: { ...skipped, total: skipped.missing_pdf.length + skipped.missing_email.length + skipped.already_sent.length },
+    jobs, mail_driver: mail.driver, mail_note: mail.note,
+    how_it_is_delivered: mail.driver === 'preview'
+      ? 'No SMTP credentials are configured, so each message is written as a .eml file under backend/storage/mail — that is the preview driver, not a failure.'
+      : `Handed to the worker (queue "${QUEUES.email}") with the "${mail.driver}" driver; it attaches the signed PDF and retries on its own.`,
+  };
 }

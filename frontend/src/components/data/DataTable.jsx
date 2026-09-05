@@ -61,7 +61,7 @@ export function Pagination({ page = 0, size = 20, total = 0, onPage, onSize }) {
   const pages = Math.max(1, Math.ceil((Number(total) || 0) / size));
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-slate-400">
-      <span>{Number(total).toLocaleString('en-IN')} rows · page {page + 1} of {pages}</span>
+      <span>{Number(total).toLocaleString('en-IN')} {Number(total) === 1 ? 'row' : 'rows'} · page {page + 1} of {pages}</span>
       <div className="flex items-center gap-2">
         <select className="input w-auto px-2 py-1 text-xs" value={size} onChange={(e) => onSize?.(Number(e.target.value))}>
           {[10, 20, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}

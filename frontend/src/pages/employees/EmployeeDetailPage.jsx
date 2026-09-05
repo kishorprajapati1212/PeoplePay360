@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { employees } from '../../api/endpoints.js';
+import { useCallback, useMemo, useState } from 'react';
+import { useEffect } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { employees, org } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
 import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
@@ -25,6 +26,7 @@ export function EmployeeDetailPage() {
   const mayTerminate = useCan('employee:terminate');
   const [tab, setTab] = useState('profile');
   const [editOpen, setEditOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
   const [exitOpen, setExitOpen] = useState(false);
   const [exit, setExit] = useState({ date_of_exit: today(), reason: '' });
 
@@ -32,6 +34,22 @@ export function EmployeeDetailPage() {
   const { data: counts } = useApi(useCallback(() => employees.summary(id), [id]), [id]);
   const { run, busy } = useAction();
   const [values, setValues] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});   // what the API said about a specific box, shown under it
+  const depts = useApi(useCallback(() => org.departments.list({ page_size: 200 }), []), []);
+  /* The department picker is the one field on this form that names another table, so it gets real options
+     instead of an id to paste. */
+  const fields = useMemo(() => EDIT_FIELDS.map((f) => (f.key === 'department_id'
+    ? { ...f, options: toRows(depts.data).map((d) => ({ value: d.id, label: d.name })) }
+    : f)), [depts.data]);
+
+  /* `/employees?edit=1` from the list row opens this dialog straight away, so the directory does not need a
+     second copy of the form. The flag is removed once it has been used. */
+  useEffect(() => {
+    if (params.get('edit') !== '1' || !emp || !mayEdit) return;
+    setValues(valuesFromRow(fields, emp));
+    setEditOpen(true);
+    setParams({}, { replace: true });
+  }, [emp, mayEdit, fields, params, setParams]);
 
   if (loading) return <Panel><p className="text-sm text-slate-400">Loading the record…</p></Panel>;
   if (error) return <ErrorPanel error={error} onRetry={reload} />;
@@ -54,7 +72,7 @@ export function EmployeeDetailPage() {
                      basic_salary: Number(values.basic_salary || 0) };
       await employees.update(id, body);
       setEditOpen(false); reload(); toast.success('Employee updated');
-    }).catch((e) => toast.error(e.message));
+    }).catch((e) => { toast.error(e.message); setFieldErrors(e.fieldErrors || {}); });
   }
 
   async function terminate() {
@@ -69,7 +87,7 @@ export function EmployeeDetailPage() {
         subtitle={`${emp.employee_code} · ${emp.job_position || 'no role set'} · ${emp.department || 'no department'} · joined ${date(emp.date_of_joining)}`}
         actions={<>
           <Link className="btn-ghost btn-sm" to="/employees">All employees</Link>
-          {mayEdit && <button className="btn-ghost btn-sm" onClick={() => { setValues(valuesFromRow(EDIT_FIELDS, emp)); setEditOpen(true); }}>Edit</button>}
+          {mayEdit && <button className="btn-ghost btn-sm" onClick={() => { setValues(valuesFromRow(fields, emp)); setFieldErrors({}); setEditOpen(true); }}>Edit</button>}
           {mayTerminate && emp.status !== 'TERMINATED' && <button className="btn-danger btn-sm" onClick={() => setExitOpen(true)}>Terminate</button>}
         </>}
       />
@@ -178,7 +196,7 @@ export function EmployeeDetailPage() {
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title={'Edit ' + emp.name} width="max-w-3xl"
              footer={<><button className="btn-ghost" onClick={() => setEditOpen(false)}>Cancel</button>
                       <button className="btn-primary" onClick={saveEdit} disabled={!!busy}>{busy === 'edit' ? 'Saving…' : 'Save changes'}</button></>}>
-        <SchemaForm fields={EDIT_FIELDS} values={values} onChange={(k, v) => setValues((s) => ({ ...s, [k]: v }))} />
+        <SchemaForm fields={fields} values={values} onChange={(k, v) => setValues((s) => ({ ...s, [k]: v }))} errors={fieldErrors} />
       </Modal>
 
       <Modal open={exitOpen} onClose={() => setExitOpen(false)} title="Terminate employment" width="max-w-md"
@@ -194,23 +212,26 @@ export function EmployeeDetailPage() {
   );
 }
 
+/* The fields the employee PATCH accepts (see updateBody in backend/src/validators/employee.schema.js):
+   the person, the job, the pay, and the money the payslip needs. The contract itself is a separate screen
+   because it is a separate table — `?edit=1` from the employee list lands here. */
 const EDIT_FIELDS = [
-  { key: 'name', label: 'Full name', required: true },
-  { key: 'work_email', label: 'Work email', required: true },
+  { key: 'name', label: 'Full name', required: true, placeholder: 'Aarav Mehta' },
+  { key: 'work_email', label: 'Work email', required: true, pattern: 'email' },
   { key: 'phone', label: 'Phone', type: 'phone', hint: '10 digits.' },
-  { key: 'job_position', label: 'Job position' },
-  { key: 'department_id', label: 'Department id', hint: 'Paste the id, or use the employee list action for a picker.' },
+  { key: 'job_position', label: 'Job position', placeholder: 'Senior Backend Engineer' },
+  { key: 'department_id', label: 'Department', type: 'select', options: [], placeholder: 'No department' },
   { key: 'employee_type', label: 'Employment type', type: 'select', options: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].map((v) => ({ value: v, label: v.replace('_', ' ') })) },
   { key: 'status', label: 'Status', type: 'select', options: ['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'TERMINATED'].map((v) => ({ value: v, label: v.replace('_', ' ') })) },
   { key: 'date_of_joining', label: 'Date of joining', type: 'date' },
-  { key: 'work_location', label: 'Work location' },
-  { key: 'basic_salary', label: 'Basic salary', type: 'money' },
-  { key: 'bank_account_number', label: 'Bank account' },
-  { key: 'bank_ifsc', label: 'IFSC' },
-  { key: 'bank_name', label: 'Bank name' },
-  { key: 'pan_number', label: 'PAN' },
-  { key: 'uan_number', label: 'UAN' },
-  { key: 'esi_number', label: 'ESIC number' },
+  { key: 'work_location', label: 'Work location', placeholder: 'Ahmedabad HQ' },
+  { key: 'basic_salary', label: 'Basic salary', type: 'money', min: 0, max: 99999999, step: '0.01', unit: '₹ / month', placeholder: '85000' },
+  { key: 'bank_account_number', label: 'Bank account', pattern: 'bank_account', hint: 'The payslip masks all but the last 4 digits.' },
+  { key: 'bank_ifsc', label: 'IFSC', pattern: 'ifsc' },
+  { key: 'bank_name', label: 'Bank name', placeholder: 'HDFC Bank' },
+  { key: 'pan_number', label: 'PAN', pattern: 'pan' },
+  { key: 'uan_number', label: 'UAN', pattern: 'uan' },
+  { key: 'esi_number', label: 'ESIC number', pattern: 'esic' },
 ];
 
 function hintFor(key, counts) {

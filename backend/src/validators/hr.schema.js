@@ -36,6 +36,10 @@ export const decideBody = z.object({ status: z.enum(['APPROVED', 'REFUSED', 'CAN
 export const allocationBody = z.object({ employee_id: uuid, time_off_type_id: uuid, allocated_days: z.coerce.number().min(0).max(400),
   taken_days: z.coerce.number().min(0).max(400).optional(), valid_from: dateStr, valid_until: dateStr,
   status: z.enum(['DRAFT', 'TO_APPROVE', 'APPROVED']).optional(), description: optText(300) });
+/** POST /time-off/allocations/bulk — the same grant for a list of employees. */
+export const allocateManyBody = z.object({ time_off_type_id: uuid, employee_ids: z.array(uuid).min(1).max(500),
+  allocated_days: z.coerce.number().min(0).max(400), valid_from: dateStr, valid_until: dateStr,
+  description: optText(300).optional(), on_existing: z.enum(['skip', 'add', 'replace']).default('skip') });
 export const carryBody = z.object({ type_id: uuid, from_year: intIn(2000, 2100), to_year: intIn(2000, 2100), cap: z.coerce.number().min(0).max(400).optional() });
 export const terminateBody = z.object({ date_of_exit: dateStr, reason: optText(300) });
 export const renewBody = z.object({ start_date: dateStr, end_date: optDate.optional(), wage: money.optional(), notes: optText(500) });

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { employees, org, salary } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
 import { useTable } from '../../hooks/useTable.js';
@@ -19,7 +19,8 @@ import { toRows, totalOf } from '../../utils/query.js';
 export function EmployeesPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const mayWrite = useCan('employee:create');
+  const mayCreate = useCan('employee:create');
+  const mayEdit = useCan('employee:write');
   const [open, setOpen] = useState(false);
   const table = useTable({});
 
@@ -37,7 +38,7 @@ export function EmployeesPage() {
   return (
     <>
       <PageHeader title="Employees" subtitle="Everyone on the roster. Click a row for the full record — profile, contract, attendance, leave and payslips."
-                  actions={mayWrite && <button className="btn-primary btn-sm" onClick={() => setOpen(true)}>+ New employee</button>} />
+                  actions={mayCreate && <button className="btn-primary btn-sm" onClick={() => setOpen(true)}>+ New employee</button>} />
 
       <Panel pad={false}>
         <DataTable
@@ -60,6 +61,9 @@ export function EmployeesPage() {
             { key: 'date_of_joining', label: 'Joined', render: (r) => date(r.date_of_joining) },
             { key: 'contract_wage', label: 'Wage', align: 'right', render: (r) => inr(r.contract_wage ?? r.basic_salary) },
             { key: 'payslip_count', label: 'Slips', align: 'right', render: (r) => num(r.payslip_count) },
+            { key: '_a', label: '', width: 'w-24', align: 'right', render: (r) => (mayEdit
+                ? <Link className="btn-ghost btn-sm" to={'/employees/' + r.id + '?edit=1'} onClick={(e) => e.stopPropagation()}>Edit</Link>
+                : null) },
             { key: 'flags', label: '', render: (r) => (r.missing_bank || r.missing_schedule
                 ? <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">{[r.missing_bank && 'no bank', r.missing_schedule && 'no schedule'].filter(Boolean).join(' · ')}</span> : null) },
           ]}

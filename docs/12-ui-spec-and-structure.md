@@ -78,7 +78,7 @@ Practical consequences: adding a permission to a role in that one file changes t
 ## Endpoints consumed (generated from the live router)
 
 Every row below is what the router actually registers — `node backend/scripts/routes-list.js` prints the same list
-(151 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
+(153 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
 `frontend/src/api/endpoints.js`.
 
 | area | endpoints |
@@ -104,20 +104,33 @@ Every row below is what the router actually registers — `node backend/scripts/
 
 ```jsx
 <CrudPage
-  endpoint="/api/company-or-resource"        // list is GET, create is POST, edit is PATCH, delete is DELETE
-  columns={[{key, label, type, render}]}     // type drives sorting/filter/formatting
-  filters={[{key, label, kind:'select', options}]}
-  schema={zodSchemaFromTheBackendDomain}     // the form and its errors come from the same validators
-  canCreate={useCan('employee:write')}       // buttons appear only if the API said so
-  rowActions={(row) => [...]}
+  title="Departments" subtitle="…"
+  api={org.departments}                      // { list(query), create(body), update(id, body), remove(id) } from api/endpoints.js
+  columns={[{ key, label, align, width, render }]}
+  fields={[{ key, label, type, required, hint, unit, min, max, step, placeholder, options }]}
+  readPerm="department:read" writePerm="department:write"   // buttons exist only if the API granted the permission
+  filters={[{ key, label, options }]} searchPlaceholder="…"
+  makeExtra={() => ({ salary_structure_id })}                // create-time values the fields cannot know
+  canDelete={(row) => !row.locked}                           // rows that are history show "locked", not a doomed delete
 />
 ```
 
-Pages that are not a plain list (employee detail, pay-run wizard, payslip detail, my portal) are hand-written JSX, but still only use `ui/` primitives and `api/` calls.
+That is the whole contract: the list, the **Edit**/**Delete** buttons in each row, the dialog, the empty state,
+the paging line and the error handling all come from `components/crud/CrudPage.jsx`, and the boxes inside the
+dialog come from `components/crud/schemaForm.jsx`. `type` on a field picks the control (`text | phone | number |
+money | date | month | select | textarea | checkbox | static`); a `number`/`money` field with `min`/`max` warns
+under the box while you type, using the same limits as the API's validator, and `unit` paints the measure inside
+the box (₹, %, hours, days) so a bare number never has to be guessed. A refused save comes back as
+`400 { details: { fields: [{ field, message }] } }` and lands under the right box, not only in a toast.
+
+Pages that are not a plain list (employee detail, pay-run wizard, payslip detail, my portal, company settings)
+are hand-written JSX, but still only use `ui/` primitives and `api/` calls. Where such a screen has its own
+dialog, its row **Edit** button opens that one; the employee directory does it with a link to
+`/employees/:id?edit=1`, which the detail page reads once and then clears — the form is written in one place.
 
 ## Deliberate omissions
 
-* No automated browser test yet — behaviour is proven through the API (`node backend/scripts/smoke.js` drives all 151 endpoints), so the UI layer is thin by design.
+* No automated browser test yet — behaviour is proven through the API (`node backend/scripts/smoke.js` drives all 153 endpoints), so the UI layer is thin by design.
 * `CrudPage` does not offer a page-size selector for endpoints that return a plain array (departments, schedules, structures, time-off types have no server-side paging).
 * The chart on the dashboard is the only bespoke SVG; everything else is tables, chips and forms.
 * Dark mode, i18n, and the per-day attendance *edit* grid in the sketch's exact 2-column form were simplified into a dialog + table.
@@ -139,9 +152,18 @@ and every download is written to `payslip_downloads` so HR can see who fetched w
 
 `html.dark` (default, the mockup's navy) and `html.light` are two variable blocks in `src/theme.css`;
 `tailwind.config.js` points every colour utility at those variables, so no page, table or chip mentions the theme.
-`src/theme.js` owns the toggle (localStorage key `pp360.theme`), and `index.html` re-applies the saved choice before
-the first paint so a reload never flashes the wrong one. The dashboard charts are the only exception — Recharts takes
-literal colours, so they read `useTheme().palette`.
+`html.light` is deliberately **off-white**, not white: page `247 245 240`, panel `253 252 250`, input
+`250 248 244`, with warm text greys — on a pure white page a panel cannot look raised, a hover cannot look like a
+hover, and grey-on-pale-grey table text stops being readable. Every pairing was measured against the surface it
+sits on; the weakest is 4.5:1 (AA for normal text). `src/theme.js` owns the toggle (localStorage key
+`pp360.theme`), and `index.html` re-applies the saved choice before the first paint so a reload never flashes the
+wrong one. The dashboard's Recharts panels are the only exception — a chart prop takes a literal colour, not a
+class — so `useTheme().palette` carries both ramps, and `light.surface` matches the panel colour exactly.
+
+The same two files keep the page from ever scrolling sideways: `html { overflow-x: clip }`,
+`.panel { min-width: 0 }` so a wide table scrolls inside its own box instead of widening the window,
+`code { overflow-wrap: anywhere }` so a long path or formula cannot push a column out, and the painted `Select`
+list clamps itself inside the viewport.
 
 ## Rendering and payload contracts (what was fixed, and why it stays fixed)
 

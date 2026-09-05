@@ -10,6 +10,8 @@ import { expectedDays, attendanceStats, leaveStats } from '../src/lib/payroll/in
 import { computePayslip } from '../src/lib/payroll/index.js';
 import { resolvePeriod, scaleToNet, trueUp, netOf, byCode } from '../src/lib/payroll/index.js';
 import { settingsFrom } from '../src/lib/payroll/index.js';
+import { resolvePeriodEnd } from '../src/lib/shared/index.js';
+import { readFileSync } from 'node:fs';
 import { payslipWarnings } from '../src/lib/payroll/index.js';
 import { compile, run } from '../src/lib/formula/index.js';
 import { can, permissionsFor, navFor, scopeFor, isDenied } from '../src/lib/shared/index.js';
@@ -416,6 +418,46 @@ t('nav never offers a screen the role cannot open', () => {
   assert.ok(!manager.some((n) => typeof n === 'string'), 'a nav entry is never left as a bare string');
   assert.ok(navFor(['HR_PAYROLL_USER']).find((n) => n.key === 'payroll').children.some((c) => c.to === '/payruns'));
   assert.ok(!navFor(['EMPLOYEE']).some((n) => n.to === '/payruns'), 'an employee has no payroll screens at all');
+});
+
+// ── round 4: period resolution, the routes the UI now calls, and who may call them ──────────
+console.log('\nround 4');
+t('a blank period end resolves to the last day of the start month', () => {
+  assert.equal(resolvePeriodEnd('2028-02-03', ''), '2028-02-29', 'leap February');
+  assert.equal(resolvePeriodEnd('2027-02-05', null), '2027-02-28', 'ordinary February');
+  assert.equal(resolvePeriodEnd('2026-12-01', undefined), '2026-12-31');
+  assert.equal(resolvePeriodEnd('2026-09-01', '2026-09-15'), '2026-09-15', 'a chosen end date is never overwritten');
+  // The bug this pins: `to = period_end || period_start` gave a one-day run, so pro-rata paid ~1/30th.
+  assert.notEqual(resolvePeriodEnd('2026-09-01', ''), '2026-09-01');
+});
+t('the routes every new button calls are registered where the UI expects them', () => {
+  const payroll = readFileSync(new URL('../src/routes/payroll.routes.js', import.meta.url), 'utf8');
+  const hr = readFileSync(new URL('../src/routes/hr.routes.js', import.meta.url), 'utf8');
+  const auth = readFileSync(new URL('../src/routes/auth.routes.js', import.meta.url), 'utf8');
+  assert.ok(payroll.includes("post('/send', { perm: 'payroll:send_bulk', body: v.bulkSendBody"), 'bulk payslip mail: POST /api/payslips/send');
+  assert.ok(hr.includes("post('/allocations/bulk', { perm: 'timeoff:allocation_write', body: v.allocateManyBody"), 'bulk balances: POST /api/time-off/allocations/bulk');
+  assert.ok(auth.includes("post('/change-password', { body: v.changePasswordBody"), 'self-service password: POST /api/auth/change-password');
+});
+t('the leave-type list is readable by the role that fills the request form', () => {
+  const hr = readFileSync(new URL('../src/routes/hr.routes.js', import.meta.url), 'utf8');
+  const line = hr.split('\n').find((l) => l.includes("get('/types',"));
+  assert.ok(line && line.includes("'timeoff:type_read'"), `GET /time-off/types must accept timeoff:type_read, saw: ${line}`);
+  const employee = permissionsFor(['EMPLOYEE']);
+  assert.ok(employee.list.includes('timeoff:type_read'), 'and EMPLOYEE must actually hold it');
+  assert.ok(!employee.list.includes('timeoff:approve'), 'without letting an employee approve their own leave');
+});
+t('bulk mail is a payroll-manager power, not a payroll-officer one', () => {
+  const officer = permissionsFor(['HR_PAYROLL_USER']);
+  const manager = permissionsFor(['HR_PAYROLL_MANAGER']);
+  const holds = (bag, perm) => bag.all || bag.list.includes(perm);
+  assert.ok(holds(manager, 'payroll:send_bulk'), 'the payroll manager may mail a selection');
+  assert.ok(!holds(officer, 'payroll:send_bulk'), 'the payroll officer may not — the line the README draws');
+});
+t('a retired salary rule is written as a date, not a flag', () => {
+  const src = readFileSync(new URL('../src/validators/payroll.schema.js', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export const ruleBody'), src.indexOf('export const', src.indexOf('export const ruleBody') + 10));
+  assert.ok(!/is_active/.test(body), 'ruleBody has no is_active — the UI must not PATCH one');
+  assert.ok(/active_to/.test(body), 'active_to is the switch that exists');
 });
 
 console.log(`\n${fails.length ? `FAILED ${fails.length}/${passed + fails.length}` : `all ${passed} unit tests passed`}`);

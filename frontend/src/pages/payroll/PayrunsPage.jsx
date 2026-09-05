@@ -13,7 +13,7 @@ import { SearchInput } from '../../components/ui/controls.jsx';
 import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
-import { inr, inrCompact, num, date, periodLabel, firstOfMonth } from '../../utils/format.js';
+import { inr, inrCompact, num, date, periodLabel, firstOfMonth, endOfMonth } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
 
 /**
@@ -60,8 +60,13 @@ export function PayrunsPage() {
             { key: 'total_gross', label: 'Gross', align: 'right', render: (r) => inr(r.total_gross) },
             { key: 'total_deductions', label: 'Deductions', align: 'right', render: (r) => inr(r.total_deductions) },
             { key: 'total_net', label: 'Net', align: 'right', render: (r) => <span className="font-medium text-slate-100">{inr(r.total_net)}</span> },
+                        // Both counters are *payslips* affected, not individual checks — the run detail lists the
+            // checks themselves, so the two numbers are deliberately described differently.
             { key: 'flags', label: '', render: (r) => (Number(r.warning_count) > 0 || Number(r.error_count) > 0
-                ? <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">{num(r.warning_count)} warn{Number(r.error_count) ? ` · ${num(r.error_count)} err` : ''}</span> : null) },
+                ? <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300"
+                         title="Payslips carrying at least one flag from the last compute. Open the run to read them.">
+                    {num(r.warning_count)} flagged{Number(r.error_count) ? ` · ${num(r.error_count)} blocked` : ''}</span>
+                : null) },
             { key: '_a', label: '', render: (r) => (r.status === 'DRAFT' && mayCreate
                 ? <button className="btn-danger btn-sm" onClick={(e) => { e.stopPropagation(); remove(r); }}>Void</button> : null) },
           ]}
@@ -69,7 +74,12 @@ export function PayrunsPage() {
           empty={<EmptyState title="No payruns yet" hint="Create one for this month: pick a structure, tick the people, then compute." />} />
       </Panel>
 
-      {wizard && <PayrunWizard wizard={wizard} setWizard={setWizard} structures={structureOptions} onDone={() => { setWizard(null); list.reload(); navigate(0); }} />}
+      {wizard && <PayrunWizard wizard={wizard} setWizard={setWizard} structures={structureOptions}
+                                onDone={(newId) => { setWizard(null); list.reload();
+                                  // Straight to the run: the wizard's numbers are worth nothing if you
+                                  // have to find the row again in a list to see whether they took.
+                                  if (newId) navigate('/payruns/' + newId); else navigate(0);
+                                  if (newId) toast.success('Payrun created as a draft — press Compute payslips to run the rules.'); }} />}
     </>
   );
 }
@@ -91,11 +101,18 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
   const toggle = (id) => { const next = new Set(wizard.selected); next.has(id) ? next.delete(id) : next.add(id); setWizard({ ...wizard, selected: next }); };
   const goStep2 = () => setWizard({ ...wizard, step: 2, selected: new Set(rows.map((r) => r.id)) });
 
+  // The blank end date is a promise, not a gap: the API reads "no end date" as "end of that month"
+  // (resolvePeriodEnd in payrun.service.js), so the wizard prints the dates it will actually send.
+  const resolvedEnd = wizard.period_end || endOfMonth(wizard.period_start);
+  const periodNote = wizard.period_end ? null : `Period ends on ${resolvedEnd} — the last day of that month, because the box is blank.`;
+
   async function create() {
     const body = { salary_structure_id: wizard.salary_structure_id, period_start: wizard.period_start, period_end: wizard.period_end || undefined,
                    pay_frequency: wizard.pay_frequency, compute_mode: wizard.compute_mode, employee_ids: [...wizard.selected],
                    name: wizard.name || undefined, notes: wizard.notes || undefined, idempotency_key: 'web-' + Date.now() };
-    await run('create', () => payroll.payruns.create(body)).then(() => { toast.success('Payrun created as draft'); onDone(); }).catch((e) => toast.error(e.message));
+    await run('create', () => payroll.payruns.create(body))
+      .then((out) => { onDone(out?.id); })
+      .catch((e) => toast.error(e.code === 'PAYRUN_EXISTS' ? e.message + ' — open it from the Payruns list instead of creating a second one.' : e.message));
   }
 
   return (
@@ -119,8 +136,13 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
               { value: 'MONTHLY', label: 'Monthly' }, { value: 'HALF_MONTH_FIRST', label: '1st half (1–15)' }, { value: 'HALF_MONTH_SECOND', label: '2nd half (16–end)' },
               { value: 'BI_MONTHLY', label: 'Bi-monthly' }, { value: 'WEEKLY', label: 'Weekly' }, { value: 'CUSTOM', label: 'Custom dates' }]} />
           </Field>
-          <Field label="Period starts" required><Input type="date" value={wizard.period_start} onChange={(v) => setWizard({ ...wizard, period_start: v })} /></Field>
-          <Field label="Period ends" hint="Blank = end of the month of the start date."><Input type="date" value={wizard.period_end} onChange={(v) => setWizard({ ...wizard, period_end: v })} /></Field>
+          <Field label="Period starts" required hint={periodNote || undefined}>
+            <Input type="date" value={wizard.period_start} onChange={(v) => setWizard({ ...wizard, period_start: v })} />
+          </Field>
+          <Field label="Period ends" hint={`Blank = ${resolvedEnd} (end of that month). Must be on or after the start date.`}
+                 error={wizard.period_end && wizard.period_end < wizard.period_start ? 'Ends before it starts — nothing can be computed for those dates' : null}>
+            <Input type="date" value={wizard.period_end} min={wizard.period_start} onChange={(v) => setWizard({ ...wizard, period_end: v })} />
+          </Field>
           <Field label="Compute mode" required hint="Advance 50% pays half the monthly net up-front and trues it up in the second half.">
             <Select value={wizard.compute_mode} onChange={(v) => setWizard({ ...wizard, compute_mode: v })}
                     options={[{ value: 'PRO_RATA', label: 'Pro-rata on days worked' }, { value: 'ADVANCE_50', label: 'Advance 50% + true-up' }]} />
@@ -138,7 +160,13 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
             <button className="btn-ghost btn-sm" onClick={() => setWizard({ ...wizard, selected: new Set(rows.map((r) => r.id)) })}>All</button>
             <button className="btn-ghost btn-sm" onClick={() => setWizard({ ...wizard, selected: new Set() })}>None</button>
           </div>
-          {candidates.loading ? <p className="py-6 text-sm text-slate-400">Checking who is on the payroll for these dates…</p> : (
+          {candidates.error && (
+            <p className="rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+              The eligibility check failed: {candidates.error.message}
+              <button className="btn-ghost btn-sm ml-2" onClick={() => candidates.reload()}>Try again</button>
+            </p>
+          )}
+          {candidates.loading ? <p className="py-6 text-sm text-slate-400">Checking who is on the payroll for {date(wizard.period_start)} → {date(resolvedEnd)}…</p> : (
             <div className="max-h-96 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-ink-850"><tr><th className="th w-10"></th><th className="th">Employee</th><th className="th">Contract</th><th className="th text-right">Wage</th><th className="th text-right">Days</th></tr></thead>
@@ -152,7 +180,12 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
                       <td className="td text-right">{num(r.working_days ?? r.expected_days ?? '—')}</td>
                     </tr>
                   ))}
-                  {!rows.length && <tr><td className="td text-slate-500" colSpan={5}>Nobody is on this structure with a contract covering these dates.</td></tr>}
+                  {!rows.length && (
+                    <tr><td className="td" colSpan={5}>
+                      <p className="text-slate-300">Nobody is eligible for {date(wizard.period_start)} → {date(resolvedEnd)} on this structure.</p>
+                      <p className="mt-1 text-xs text-slate-500">Three things cause this: the employees are assigned to a different pay structure (Employees → their Salary tab), their contract does not cover these dates (Contracts → new/renew), or the contract is still a DRAFT. A run created with nobody in it computes to nothing, so fix one of those first.</p>
+                    </td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

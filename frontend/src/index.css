@@ -7,7 +7,8 @@
 
 /* The mockup is a dense dark admin: a handful of component classes keeps the pages readable. */
 @layer components {
-  .panel { @apply rounded-xl border border-line bg-ink-900 shadow-panel; }
+  /* min-width: 0 so a panel that holds a wide table shrinks instead of widening the page. */
+  .panel { min-width: 0; @apply rounded-xl border border-line bg-ink-900 shadow-panel; }
   .panel-pad { @apply p-4 sm:p-5; }
   .label { @apply block text-[11px] font-medium uppercase tracking-wider text-slate-400; }
   .input { @apply w-full rounded-lg border border-line bg-ink-850 px-3 py-2 text-sm text-slate-100
@@ -29,16 +30,23 @@
 }
 
 /* The light theme is a real theme, not a dark one with the colours forgotten: these three rules are what
-   makes a control look pressable on white instead of washed out. */
-html.light .panel { border-color: rgba(15, 23, 42, 0.10); }
-html.light aside { border-color: rgba(15, 23, 42, 0.12); }
-html.light .fixed.inset-0 { background: rgba(15, 23, 42, 0.35); }   /* a white app does not need a black scrim */
-/* which nav item is current: the tint alone is too pale on white, so the active one gets a brand bar */
+   makes a control look pressable on paper instead of washed out. */
+html.light .panel { border-color: rgba(60, 50, 35, 0.14); }
+html.light aside { border-color: rgba(60, 50, 35, 0.16); }
+html.light .fixed.inset-0 { background: rgba(60, 50, 35, 0.32); }   /* a white app does not need a black scrim */
+/* which nav item is current: the tint alone is too pale on paper, so the active one gets a brand bar */
 nav a[aria-current='page'] { box-shadow: inset 2px 0 0 rgb(var(--brand-500)); }
-html.light .input { box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.04); }
+html.light .input { box-shadow: inset 0 1px 1px rgba(60, 50, 35, 0.05); }
 html.light .row { @apply border-line; }
 
 html, body, #root { height: 100%; }
+/* Nothing may push the page sideways. Wide things are supposed to scroll inside their own box (a table's
+   overflow-x-auto wrapper) — `clip` is the backstop that keeps that promise if one ever forgets. `clip`
+   rather than `hidden` because `hidden` would make <html> a scroll container and break the sticky top bar. */
+html { overflow-x: clip; }
+/* A path or a formula has no spaces to break at, so one long <code> token was enough to make the whole
+   page wider than the window. Let it wrap anywhere instead. */
+code { overflow-wrap: anywhere; }
 :focus-visible { outline: 2px solid rgb(var(--brand-500)); outline-offset: 1px; }
 ::selection { background: rgb(var(--brand-500) / 0.3); }
 body { background: rgb(var(--ink-950)); color: rgb(var(--slate-200)); }

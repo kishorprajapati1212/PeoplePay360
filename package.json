@@ -17,6 +17,7 @@
     "routes": "npm --prefix backend run routes",
     "check": "bash scripts/check-syntax.sh && npm --prefix backend run check && node backend/scripts/test-unit.js && node backend/scripts/routes-list.js | tail -1",
     "build": "npm --prefix frontend run build",
+    "test:ui": "node scripts/ui-probe/run.mjs",
     "up": "docker compose up -d --build",
     "down": "docker compose down",
     "logs": "docker compose logs -f api worker web"

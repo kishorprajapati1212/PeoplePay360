@@ -19,8 +19,21 @@ export function Field({ label, hint, error, required, children, className = '' }
   );
 }
 
-export function Input({ type = 'text', value, onChange, className = '', ...rest }) {
-  return <input className={'input ' + className} type={type} value={value ?? ''} onChange={(e) => onChange?.(e.target.value)} {...rest} />;
+/**
+ * A controlled text/number box. Everything else (`placeholder`, `min`, `max`, `step`, `maxLength`,
+ * `inputMode`) goes straight to the element, so the browser's own limits apply while you type — the server
+ * checks again and remains the one that decides.
+ * `suffix` paints the unit inside the box (₹, %, hours) so a bare number is never a mystery.
+ */
+export function Input({ type = 'text', value, onChange, className = '', suffix, ...rest }) {
+  const box = <input className={'input ' + className} type={type} value={value ?? ''} onChange={(e) => onChange?.(e.target.value)} {...rest} />;
+  if (!suffix) return box;
+  return (
+    <span className="relative block">
+      {box}
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{suffix}</span>
+    </span>
+  );
 }
 
 export function Textarea({ value, onChange, rows = 3, ...rest }) {
@@ -35,10 +48,16 @@ export function Textarea({ value, onChange, rows = 3, ...rest }) {
  *
  * `options` accepts ['A','B'] or [{ value, label, hint }] — pages should not have to normalise.
  */
-export function Select({ value, onChange, options = [], placeholder, className = '', disabled }) {
+/**
+ * A picker that can say why it has nothing to offer. options/loading/emptyText/error are worth passing:
+ * a bare empty box reads as a broken control (it was, for the leave-type picker), while "No leave types
+ * are switched on yet" reads as a task.
+ */
+export function Select({ value, onChange, options = [], placeholder, className = '', disabled, loading, emptyText, error, ariaLabel }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const [box, setBox] = useState({});
+  const [hi, setHi] = useState(-1);
   const button = useRef(null);
 
   const items = useMemo(() => options.map((o) => (typeof o === 'object' ? o : { value: o, label: String(o) })), [options]);
@@ -48,12 +67,15 @@ export function Select({ value, onChange, options = [], placeholder, className =
     return t ? items.filter((o) => (o.label || '').toLowerCase().includes(t)) : items;
   }, [items, term]);
 
-  /** Height of the list itself: nine rows, or fewer when there are fewer options. */
-  const listHeight = Math.min(items.length + (placeholder ? 1 : 0), 9) * 34 + 8;
+  // Nine rows maximum, and at least two so an empty/error panel is not a 34px sliver.
+  const listHeight = Math.max(2, Math.min(items.length + (placeholder ? 1 : 0), 9)) * 34 + 8;
   function place() {
     const r = button.current.getBoundingClientRect();
     const below = window.innerHeight - r.bottom;
-    setBox({ left: r.left, width: Math.max(r.width, 240),
+    // keep the box inside the window: a picker near the right edge would otherwise hang off-screen
+    const width = Math.min(Math.max(r.width, 240), window.innerWidth - 16);
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
+    setBox({ left, width,
              ...(below < listHeight + 60 && r.top > below ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }) });
   }
   useEffect(() => {
@@ -61,26 +83,48 @@ export function Select({ value, onChange, options = [], placeholder, className =
     place();
     const close = (e) => { if (!e.target.closest('[data-pop]')) setOpen(false); };
     const key = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const shrink = () => setOpen(false);   // scrolling anything (the dialog body, the page) would leave it behind
+    // Keep the list attached while the dialog body scrolls. Closing on scroll used to make the picker
+    // vanish under a cursor that was only trying to reach the fifth option.
+    const move = () => place();
+    const nav = (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const n = shown.length;
+        if (!n) return;
+        setHi((i) => (e.key === 'ArrowDown' ? (i + 1 + n) % n : (i - 1 + n) % n));
+      } else if (e.key === 'Enter' && hi >= 0 && shown[hi]) {
+        e.preventDefault();
+        onChange?.(shown[hi].value); setOpen(false);
+      }
+    };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', key);
-    window.addEventListener('resize', shrink);
-    window.addEventListener('scroll', shrink, true);
+    document.addEventListener('keydown', nav);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', move, true);
     return () => {
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', key);
-      window.removeEventListener('resize', shrink);
-      window.removeEventListener('scroll', shrink, true);
+      document.removeEventListener('keydown', nav);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', move, true);
     };
-  }, [open, items.length]);
+  }, [open, items.length, hi, shown]);
 
   return (
     <>
-      <button type="button" data-pop ref={button} disabled={disabled}
-              className={'input flex items-center justify-between gap-2 text-left ' + className}
-              onClick={() => { setOpen((v) => !v); setTerm(''); }}>
-        <span className={chosen ? 'text-slate-100' : 'text-slate-500'}>{chosen ? chosen.label : (placeholder || 'Choose…')}</span>
-        <span className="text-xs text-slate-500">{open ? '▲' : '▼'}</span>
+      <button type="button" data-pop ref={button} disabled={disabled} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open}
+              title={error ? 'Could not load the choices: ' + error : undefined}
+              className={'input flex items-center justify-between gap-2 text-left ' + (error ? 'border-red-500/50 ' : '') + className}
+              onClick={() => { setOpen((v) => !v); setTerm(''); setHi(-1); }}>
+        <span className={chosen ? 'text-slate-100' : error ? 'text-red-300' : !items.length && !loading ? 'text-amber-300' : 'text-slate-500'}>
+          {error ? 'Choices failed to load'
+           : loading ? 'Loading choices…'
+           : chosen ? chosen.label
+           : items.length ? (placeholder || 'Choose…')
+           : (emptyText || 'Nothing to choose yet')}
+        </span>
+        <span className="text-xs text-slate-500">{loading ? '…' : open ? '▲' : '▼'}</span>
       </button>
       {open && createPortal(
         <div data-pop className="fixed z-[100] rounded-lg border border-line bg-ink-900 shadow-panel" style={box}>
@@ -93,16 +137,23 @@ export function Select({ value, onChange, options = [], placeholder, className =
               <button type="button" className="block w-full px-3 py-1.5 text-left text-sm text-slate-400 hover:bg-ink-800"
                       onClick={() => { onChange?.(''); setOpen(false); }}>{placeholder}</button>
             )}
-            {shown.map((o) => (
-              <button key={String(o.value)} type="button"
+            {shown.map((o, oi) => (
+              <button key={String(o.value)} type="button" role="option" aria-selected={String(o.value) === String(value ?? '')}
                       className={'block w-full px-3 py-1.5 text-left text-sm hover:bg-ink-800 '
+                                 + (oi === hi ? 'bg-ink-800 ' : '')
                                  + (String(o.value) === String(value ?? '') ? 'text-brand-300' : 'text-slate-200')}
                       onClick={() => { onChange?.(o.value); setOpen(false); }}>
                 {o.label}
                 {o.hint && <span className="ml-2 text-xs text-slate-500">{o.hint}</span>}
               </button>
             ))}
-            {!shown.length && <p className="px-3 py-2 text-sm text-slate-500">Nothing matches “{term}”.</p>}
+            {!shown.length && (
+              <p className="px-3 py-2 text-sm text-slate-500">
+                {items.length ? `Nothing matches “${term}”.`
+                 : error ? <span className="text-red-300">{String(error).slice(0, 160)}</span>
+                 : (emptyText || 'Nothing to choose yet.')}
+              </p>
+            )}
           </div>
         </div>, document.body)}
     </>

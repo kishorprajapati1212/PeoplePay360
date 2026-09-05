@@ -75,7 +75,7 @@ export function WorkingSchedulesPage() {
               <Field label="Timezone"><Input value={editing.timezone} onChange={(v) => setEditing({ ...editing, timezone: v })} placeholder="Asia/Kolkata" /></Field>
             </div>
             <table className="w-full text-sm">
-              <thead><tr><th className="th text-left">Worked</th><th className="th text-left">Day</th><th className="th text-left">Start</th><th className="th text-left">End</th><th className="th text-left">Break (min)</th></tr></thead>
+              <thead><tr><th className="th text-left">Worked</th><th className="th text-left">Day</th><th className="th text-left">Start</th><th className="th text-left">End</th><th className="th text-left" title="Minutes, 0 to 480">Break (min)</th></tr></thead>
               <tbody>
                 {DAYS.map((d) => {
                   const day = editing.days[d.key];
@@ -88,8 +88,12 @@ export function WorkingSchedulesPage() {
                             onChange={(e) => setEditing(setDay(editing, d.key, { start: e.target.value }))} /></td>
                       <td className="td"><input className="input w-28" type="time" value={day.end} disabled={day.rest}
                             onChange={(e) => setEditing(setDay(editing, d.key, { end: e.target.value }))} /></td>
-                      <td className="td"><input className="input w-24" type="number" min="0" max="480" value={day.break} disabled={day.rest}
-                            onChange={(e) => setEditing(setDay(editing, d.key, { break: Number(e.target.value) }))} /></td>
+                      <td className="td">
+                        {/* minutes, not hours: the same number the API stores (0 to 480, i.e. a full day) */}
+                        <input className="input w-28" type="number" inputMode="numeric" min="0" max="480" step="5" placeholder="60"
+                               title="Break in minutes, 0 to 480" aria-label={d.label + ' break in minutes'} disabled={day.rest}
+                               value={day.break} onChange={(e) => setEditing(setDay(editing, d.key, { break: Number(e.target.value) }))} />
+                      </td>
                     </tr>
                   );
                 })}

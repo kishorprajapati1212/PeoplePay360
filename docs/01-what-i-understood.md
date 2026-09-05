@@ -117,7 +117,8 @@ panel and dashboard alerts light up without you faking anything.
 - **Half-month / custom-period payslips** — not an add-on; it is the natural consequence of making
   the engine period-driven. HR picks 1–15 or 16–end (or any range), engine prorates by expected days
   in *that* range, statutory caps are applied once per real month, second half reconciles the first
-  half with a "Less: paid in first half" line. See `08-extra-features-design.md`.
+  half with a "Less: paid in first half" line. Built in `backend/src/lib/payroll/halfmonth.js`; the
+  arithmetic, with numbers, is `13-how-a-payslip-is-computed.md` §4.
 - **Employee self-serve payslip download** — turns the bulk-email feature from "nice" into
   "operationally safe": email is a notification, the portal is the source of truth. Needs ownership
   checks, status gating (never expose a DRAFT payslip), on-demand generation with the *same* queue,

@@ -64,3 +64,10 @@ export function initials(name) {
 }
 export const today = () => new Date().toISOString().slice(0, 10);
 export const firstOfMonth = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+/** Last day of the month an ISO date falls in — mirrors resolvePeriodEnd() in payrun.service.js. */
+export const endOfMonth = (iso) => {
+  const s = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  const [y, m] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+};

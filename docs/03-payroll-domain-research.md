@@ -316,8 +316,7 @@ NET                                      = 63,279.38
 ```
 
 Two teaching points from this:
-- `06-schema-review-and-gaps.md` and `07-api-review-and-gaps.md` §C.10 flag that your own `api.md`
-  shows the same payslip as
+- the brief's own `api.md` shows the same payslip as
   gross 70,843.75 / ded 8,700 / net 62,143.75 **and** as gross 70,000 / ded 6,200 / net 63,800, with
   an OT line of 843.75 that doesn't match its own formula (312.5 × 4.5 × 1.5 = 2,109.38). Fix the
   doc examples so the sample data is engine-generated, or a sharp judge will add up your demo payslip

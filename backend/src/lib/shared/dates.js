@@ -54,3 +54,17 @@ export const periodLabel = (start, end) => {
     : `${fmtDate(s)} → ${fmtDate(e)}`;
 };
 export const monthLabel = (d) => { const x = new Date(d); return `${['January','February','March','April','May','June','July','August','September','October','November','December'][x.getUTCMonth()]} ${x.getUTCFullYear()}`; };
+
+/**
+ * The wizard promises "Period ends — blank = end of the month", and it used to be a lie: a blank end
+ * date fell back to the START date, so the run covered a single day, nearly every employee looked like
+ * a joiner or a leaver, and the payslips computed to pocket change. Resolving the month end here keeps
+ * preview, create and every later recompute in agreement with the screen — and with each other.
+ */
+export function resolvePeriodEnd(period_start, period_end) {
+  if (period_end) return toIso(period_end);
+  const s = toIso(period_start);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const [y, m] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month = last day of this one
+}

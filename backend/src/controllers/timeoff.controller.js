@@ -19,6 +19,7 @@ export const cancel = async (req, res) => ok(res, await svc.cancel(req.params.id
 export const remove = async (req, res) => ok(res, await svc.remove(req.params.id, { auth: req.auth }));
 export const allocations = async (req, res) => list(res, await svc.listAllocations(filters(req.query, { employee_id: 'employeeId', type_id: 'typeId' })));
 export const createAllocation = async (req, res) => created(res, await svc.createAllocation(req.valid.body));
+export const allocateMany = async (req, res) => ok(res, await svc.allocateMany(req.valid.body));
 export const updateAllocation = async (req, res) => ok(res, await svc.updateAllocation(req.params.id, req.valid.body));
 export const balances = async (req, res) => ok(res, { rows: await svc.allocationsFor(req.params.employeeId) });
 export const overview = async (req, res) => ok(res, { rows: await svc.overview(filters(req.query, { department_id: 'departmentId' })) });

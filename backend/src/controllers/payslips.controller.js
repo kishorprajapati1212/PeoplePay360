@@ -10,5 +10,6 @@ export const pdf = async (req, res) => streamPdf(res, await svc.downloadPdf(req.
 export const preview = async (req, res) => streamPdf(res, await (async () => { const r = await svc.renderPdf(req.params.id, { auth: req.auth, persist: false }); return { ...r, fileName: r.fileName }; })());
 export const print = async (req, res) => streamPdf(res, await svc.renderPdf(req.params.id, { auth: req.auth, persist: true }));
 export const history = async (req, res) => ok(res, await svc.history(req.params.id));
+export const bulkSend = async (req, res) => ok(res, await svc.bulkEmail(req.valid.body, { auth: req.auth }));
 export const downloads = async (req, res) => ok(res, await svc.downloads(req.params.id));
 export const zip = async (req, res) => streamZip(res, await svc.zipPayslips(req.params.payrunId, { auth: req.auth }));

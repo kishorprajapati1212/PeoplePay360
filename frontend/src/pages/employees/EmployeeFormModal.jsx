@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { employees } from '../../api/endpoints.js';
 import { Modal } from '../../components/ui/Modal.jsx';
-import { SchemaForm, emptyValues } from '../../components/crud/schemaForm.jsx';
+import { SchemaForm, emptyValues, fieldProblems } from '../../components/crud/schemaForm.jsx';
 import { Tabs } from '../../components/ui/Tabs.jsx';
 import { Checkbox } from '../../components/ui/controls.jsx';
 import { today } from '../../utils/format.js';
@@ -11,36 +11,36 @@ import { today } from '../../utils/format.js';
  * POST, because the API accepts all three in a single body and refuses a half-made employee.
  */
 const PERSONAL = [
-  { key: 'name', label: 'Full name', required: true },
-  { key: 'work_email', label: 'Work email', required: true, placeholder: 'name@company.com' },
+  { key: 'name', label: 'Full name', required: true, placeholder: 'Aarav Mehta' },
+  { key: 'work_email', label: 'Work email', required: true, pattern: 'email', hint: 'Also the sign-in name for the portal.' },
   { key: 'phone', label: 'Phone', type: 'phone', hint: '10 digits — no +91, no spaces.' },
   { key: 'date_of_birth', label: 'Date of birth', type: 'date' },
-  { key: 'gender', label: 'Gender', type: 'select', options: ['MALE', 'FEMALE', 'OTHER'].map((v) => ({ value: v, label: v })) },
-  { key: 'address', label: 'Address', type: 'textarea', rows: 2 },
-  { key: 'city', label: 'City' },
-  { key: 'state', label: 'State' },
-  { key: 'pincode', label: 'Pincode' },
+  { key: 'gender', label: 'Gender', type: 'select', placeholder: 'Choose…', options: ['MALE', 'FEMALE', 'OTHER'].map((v) => ({ value: v, label: v })) },
+  { key: 'address', label: 'Address', type: 'textarea', rows: 2, placeholder: 'Flat, street, area' },
+  { key: 'city', label: 'City', placeholder: 'Ahmedabad' },
+  { key: 'state', label: 'State', placeholder: 'Gujarat' },
+  { key: 'pincode', label: 'Pincode', pattern: 'pincode' },
 ];
 const JOB = [
   { key: 'date_of_joining', label: 'Date of joining', type: 'date', required: true },
-  { key: 'job_position', label: 'Job position' },
+  { key: 'job_position', label: 'Job position', placeholder: 'Senior Backend Engineer' },
   { key: 'department_id', label: 'Department', type: 'select', options: [] },
   { key: 'employee_type', label: 'Employment type', type: 'select', options: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].map((v) => ({ value: v, label: v.replace('_', ' ') })) },
-  { key: 'work_location', label: 'Work location' },
+  { key: 'work_location', label: 'Work location', placeholder: 'Ahmedabad HQ' },
   { key: 'working_schedule_id', label: 'Working schedule', type: 'select', options: [] },
   { key: 'status', label: 'Status', type: 'select', options: ['ACTIVE', 'ON_LEAVE', 'SUSPENDED'].map((v) => ({ value: v, label: v.replace('_', ' ') })) },
 ];
 const SALARY = [
-  { key: 'basic_salary', label: 'Basic salary (monthly)', type: 'money', required: true, hint: 'Contract wage starts here; allowances come from the salary structure.' },
+  { key: 'basic_salary', label: 'Basic salary (monthly)', type: 'money', required: true, min: 0, max: 99999999, step: '0.01', unit: '₹', placeholder: '85000', hint: 'Contract wage starts here; allowances come from the salary structure.' },
   { key: 'contract.start_date', label: 'Contract starts', type: 'date' },
   { key: 'contract.end_date', label: 'Contract ends', type: 'date', hint: 'Leave blank for an open-ended contract.' },
   { key: 'salary_structure_id', label: 'Salary structure', type: 'select', options: [] },
-  { key: 'bank_account_number', label: 'Bank account' },
-  { key: 'bank_ifsc', label: 'IFSC' },
-  { key: 'bank_name', label: 'Bank name' },
-  { key: 'pan_number', label: 'PAN' },
-  { key: 'uan_number', label: 'UAN (PF)' },
-  { key: 'esi_number', label: 'ESIPF number' },
+  { key: 'bank_account_number', label: 'Bank account', pattern: 'bank_account', hint: 'Needed before a salary can be paid — the payslip shows it masked.' },
+  { key: 'bank_ifsc', label: 'IFSC', pattern: 'ifsc' },
+  { key: 'bank_name', label: 'Bank name', placeholder: 'HDFC Bank' },
+  { key: 'pan_number', label: 'PAN', pattern: 'pan' },
+  { key: 'uan_number', label: 'UAN (PF)', pattern: 'uan' },
+  { key: 'esi_number', label: 'ESIC IP number', pattern: 'esic' },
 ];
 
 export function EmployeeFormModal({ open, onClose, onSaved, departments = [], schedules = [], structures = [] }) {
@@ -64,6 +64,16 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
   const setValue = (key, value) => setValues({ ...current, [key]: value });
 
   async function save() {
+    const found = fieldProblems([...PERSONAL, ...JOB, ...SALARY], current);
+    if (withLogin && String(password).length < 10) found.__pw = 'Use at least 10 characters — that is the rule the API enforces.';
+    if (Object.keys(found).length) {
+      setFieldErrors(found);
+      const firstKey = Object.keys(found)[0];
+      if (PERSONAL.some((f) => f.key === firstKey)) setTab('personal');
+      else if (JOB.some((f) => f.key === firstKey)) setTab('job');
+      setError(found.__pw || 'Fix the highlighted fields — the same rules the API applies, checked here first.');
+      return;
+    }
     setSaving(true); setError(''); setFieldErrors({});
     const contract = { wage: Number(current.basic_salary || 0), start_date: current['contract.start_date'] || current.date_of_joining };
     if (current['contract.end_date']) contract.end_date = current['contract.end_date'];
@@ -109,7 +119,12 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
                     hint="The employee can sign in with this work email straight away." />
           {withLogin && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label><span className="label">Starting password</span><input className="input mt-1" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+              <label><span className="label">Starting password</span>
+                <input className="input mt-1" type="text" autoComplete="new-password" value={password} placeholder="10+ characters" onChange={(e) => setPassword(e.target.value)} />
+                <span className={'mt-1 block text-xs ' + (String(password).length < 10 ? 'text-amber-300' : 'text-slate-500')}>
+                  {String(password).length < 10 ? `${String(password).length}/10 characters — the API refuses anything shorter` : 'Give this to the employee out of band; they can change it after signing in.'}
+                </span>
+              </label>
               <label><span className="label">Role</span>
                 <select className="input mt-1" value={role} onChange={(e) => setRole(e.target.value)}>
                   {['EMPLOYEE', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER', 'ADMIN'].map((r) => <option key={r}>{r}</option>)}

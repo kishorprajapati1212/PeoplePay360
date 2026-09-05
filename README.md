@@ -94,20 +94,27 @@ Open these in a browser (Ctrl+Click works in a terminal, and every process print
 
 Every account uses the same password: **`Password@123`**
 
-| sign in as | email | what you can do |
-|---|---|---|
-| Admin | `admin@oxp.com` | everything, plus Settings (users, roles, company, queues, audit) |
-| HR Manager | `hr@oxp.com` | employees, org, attendance, time-off, and salary structures (not the rules, not the money) |
-| HR user | `hr2@oxp.com` | the same screens, minus what the role is denied (see below) |
-| Payroll Manager | `payroll-admin@oxp.com` | salary structures, rules, pay runs, payslips, exports |
-| Payroll user | `payroll@oxp.com` | runs and payslips, but cannot approve a run, mark it paid, or void it |
-| Employee | `aarav.mehta@oxp.com` (or any employee's work email) | only My pay: own profile, own attendance, own requests, own payslips |
+Every row is a login the seeder creates, the seeder prints, and the sign-in screen offers as a button — same
+address in all three places, because "the payroll admin cannot get in" turned out to be this table writing
+`payroll.admin@oxp.com` where the seeder writes `payroll-admin@oxp.com`.
+
+| sign in as | email | roles seeded | what you can do |
+|---|---|---|---|
+| Admin | `admin@oxp.com` | `ADMIN` + `HR_MANAGER` | everything: User Access, writing company settings, queues, audit log |
+| HR Manager | `hr@oxp.com` | `HR_MANAGER` | employees, contracts, org, attendance, time off (approve, assign balances), salary structures to read, company settings to read. No computation, no release. |
+| Payroll Officer | `hr2@oxp.com` | `HR_PAYROLL_USER` | the HR screens, plus create / compute / validate a run and mark it paid. No bulk payslip e-mail, no structure writes, no void or delete. |
+| Payroll Manager | `payroll@oxp.com` | `HR_PAYROLL_MANAGER` | a run end to end: compute, validate, mark paid, generate PDFs, **bulk e-mail the payslips**, edit slip lines and arreares, structures and rules, void/delete a run. Cannot create users and cannot write company settings. |
+| Payroll Admin | `payroll-admin@oxp.com` | `HR_PAYROLL_MANAGER` + `HR_MANAGER` | the same, and can also fix the employee or contract behind a wrong payslip in the same session. |
+| Employee | `aarav.mehta@oxp.com` (any seeded work email) | `EMPLOYEE` | only My pay: own profile, own attendance, own leave requests, own payslips (download goes through `/api/portal/payslips/:id/pdf`). |
 
 Log out with the avatar menu (top right) — it opens on click, so it works from the keyboard and from a phone. The access token (`localStorage`, key `pp360.token`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh
 token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloading never logs you out —
 `api/client.js` calls `/api/auth/refresh` on a 401 and retries the request once.
 
-`hr2@oxp.com` is the same HR screens as `hr@oxp.com` but with the restricted role (`HR_PAYROLL_USER` alone): leave approval caps at 3 days, salary-rule editing, pay-run approval, marking paid and void are refused by the API — and those buttons simply do not render.
+The table is a summary of `ROLE_PERMISSIONS` + `DENIES` in `backend/src/lib/shared/permissions.js`, and the
+screens are built from it: `/api/auth/me` returns the menu and the permission list, so a button a role may
+not use is not rendered at all rather than sitting there to fail with a 403. `Settings` → *Access matrix*
+prints the same grid from the server if you want the authoritative version.
 
 ---
 
@@ -119,15 +126,27 @@ token is an httpOnly cookie that lives `JWT_REFRESH_DAYS` = 30 days, so reloadin
   dialog, an employee sees only their own rows (the same screen asks the API which permission it got, so nothing is
   hard-coded twice). An employee's **Download PDF** button mints a short link to `/api/portal/payslips/:id/pdf`
   (the audited self-service route), while payroll gets `/api/payslips/:id/pdf`.
-* **Bulk work in the background** — payslip PDFs, payslip emails, employee imports and report exports are queued in Redis and drained by the worker; watch them under Settings → System.
+* **Bulk work in the background** — payslip PDFs and payslip e-mails are queued in Redis and drained by the worker (Settings → System shows the queue and the delivery log). E-mail is bulk in two senses: *all of a run* (`POST /payruns/:id/send`) and *a selection across runs* (`POST /payslips/send` — by ids, payrun, period or employee list, skipping rows with no PDF or no work email instead of failing the batch). Imports are synchronous and accept `dry_run: true` so you can see the row errors before anything is written.
+* **A payrun period you can trust** — a blank "Period ends" means the last day of the start month, resolved in one function (`resolvePeriodEnd`) that the candidate preview, the estimate and the created run all call, and the wizard prints the date it picked before you press Create.
+* **Assign balances to many** — Time-off types has an *Assign balance* button per row, and Allocations has a panel that grants one type to a ticked set of people in a single transaction (`POST /time-off/allocations/bulk`), with a skip/add/replace rule for people who already have a grant.
+* **Identity fields that check themselves** — bank account, IFSC, PAN, UAN, ESIC, Aadhaar, PIN code, phone, colour, code and money formats live in one `PATTERNS` table (`frontend/src/components/crud/schemaForm.jsx`) that supplies the placeholder, cleans the value as you type, and refuses a bad one on save — the same bounds the API enforces, so a red box and a 400 cannot disagree.
+* **Switch things off instead of deleting them** — `CrudPage` lists (leave types, departments, structures) carry a per-row *Deactivate / Activate*; salary rules are retired by their end date with a *Retire* button; users and working schedules have their own switches. Anything history still points at is refused on delete by the API, and now has a non-destructive alternative in the UI.
+* **You can change your own password** — the account menu offers *Change password* (`POST /auth/change-password`, ≥ 8 characters, checked in the dialog with the rules the API itself enforces, which then revokes the session — so the dialog signs you out and says so). An account still on the password an admin set gets a 10-minute session and an amber banner pointing at that dialog; both are the API's behaviour, not UI policy (`auth.service.js`).
+* **A session that survives the work** — `api/client.js` sends credentials, and on a 401 it rotates the refresh cookie once (single-flight, so a burst of six requests cannot revoke each other's cookie) and replays the failed call.
 * **Scope**: the API filters every list to the rows you are allowed to see (`own` for employees), so the front end does not need to guard data — only the buttons.
 
 ## 5b · Light and dark
 
 The toggle sits in the sidebar footer (and in the top bar on small screens). `html.dark` is the default because that
-is what the mockup shows; `html.light` is the same screens on paper — with its own hover, selected-row,
-input and border values, because a pale grey hover that is perfect on navy is invisible on white, and every
-button has a focus ring so the keyboard can see where it is. Both themes are one block of colour variables in
+is what the mockup shows; `html.light` is the same screens on **off-white paper** — `247 245 240` for the page,
+`253 252 250` for a panel, `250 248 244` for an input. Pure white was the problem: a panel could not look raised,
+a hover could not look like a hover, and grey text on a pale grey row was unreadable, so the light ramp is warm and
+three-shade instead. Its hover, selected-row, input, border and scroll-bar values are separate for the same reason,
+and every text/background pairing in both themes was measured: the weakest is **4.5:1** (AA for normal text) —
+`--slate-600` on a hovered row. Nothing scrolls sideways either: `html { overflow-x: clip }`, `.panel { min-width: 0 }`
+so a wide table shrinks inside its own box instead of widening the page, long `code` tokens wrap anywhere, and a
+dropdown closes itself if it would hang off the edge of the window. Every button has a focus ring so the keyboard can
+see where it is. Both themes are one block of colour variables in
 [`frontend/src/theme.css`](frontend/src/theme.css), and `tailwind.config.js` points every colour utility at them — so
 no page knows which theme is on, and a new screen is themed for free. Your choice is remembered (`pp360.theme`), and
 `index.html` applies it before the first paint.
@@ -142,6 +161,10 @@ no page knows which theme is on, and a new screen is themed for free. Your choic
 | Create a user | three answers: name, work email, role. No password to invent (the API hands out the demo password from `.env`) and the employee link is optional | `frontend/src/pages/settings/UsersPage.jsx` |
 | A duplicate record | 409 with a sentence, not SQL: "This employee already has a contract covering those dates…". It stays on screen inside the dialog and the offending field is underlined | `backend/src/lib/shared/errors.js` → `frontend/src/api/client.js` |
 | A dropdown with 200 entries | filter box + scrollable list that flips upward near the bottom of the screen, so nothing is cut off inside a dialog | `frontend/src/components/ui/controls.jsx` (`Select`) |
+| Any number in a form | the box says what it is measured in (₹, %, hours, days, order), shows an example in the placeholder, and compares what you typed with the same minimum and maximum the API uses — while you type, before a save is refused. A blank number means "leave the stored value alone", never "make it zero" | `frontend/src/components/crud/schemaForm.jsx` (`rangeProblem`), the field lists in each page |
+| Company settings | the ~30 payroll switches are one table in the page source — label, unit, min, max, step, example, and a sentence about what the value touches. `min`/`max` there are the same numbers as `companyBody` in the API, so the screen cannot accept what the server would reject | `frontend/src/pages/settings/CompanyPage.jsx` |
+| Editing a row | every list has an **Edit** button in the row, next to Delete. On a `CrudPage` screen (departments, holidays, leave types, rules, structures, allocations) it opens the same form pre-filled; on the three hand-written ones it opens that screen's own dialog — a punch day (`/attendance`), a user's name and sign-in email (`/users`), the employee record (`/employees`, whose Edit is a link to `/employees/:id?edit=1`, so the form exists exactly once). Rows that other screens depend on say `locked` instead of offering a delete the API would refuse, and a resource with no update endpoint gets no Edit button at all | `frontend/src/components/crud/CrudPage.jsx`, `frontend/src/pages/employees/EmployeeDetailPage.jsx` |
+| "Why does this line say that?" | each payslip line prints the sentence the engine wrote while computing it, the slip has a numbered **How this slip was computed** panel, and each rule on the Rules screen gets one plain-English line built from its own fields | `docs/13-how-a-payslip-is-computed.md` |
 | Anything else | only lengths and formats that a human can get wrong by accident (dates, money ≥ 0, one running contract per employee, no leave beyond the balance). No password-strength theatre, no regex for Indian pincode | `backend/src/validators/*.js` |
 
 ## 5d · Real payslip emails (Gmail in two minutes)
@@ -172,7 +195,8 @@ side is wrong; fix `.env`, then `docker compose restart api worker` (or `npm run
 ## 6 · Checks you can run
 
 ```bash
-cd backend && node scripts/test-unit.js        # 43 payroll-engine, leave and RBAC tests, no database needed
+cd backend && node scripts/test-unit.js        # 49 payroll-engine, period, leave, route-contract and RBAC tests, no database
+node scripts/ui-probe/run.mjs                 # renders 12 screens in jsdom and asserts the text on them (needs `npm i --no-save jsdom`)
 cd backend && node --test test/                # guards every perm: token against the catalogue, and the nav map
 cd backend && node scripts/smoke.js            # drives all 151 endpoints against the API
 cd frontend && npm run build                   # real production build (also proves every import)
@@ -183,7 +207,9 @@ bash scripts/check-syntax.sh                   # syntax of all .js/.jsx in ~1 s,
 so out loud when it is missing, rather than quietly checking only half the files.
 
 At the repo root, `npm run check` does all four in one go (JSX/JS syntax → every backend module loads →
-44 unit tests → the 151-route inventory), and `npm run build` runs the real production build of the front end.
+49 unit tests → the 153-route inventory), `npm run build` runs the real production build of the front end,
+`npm run test:ui` renders 12 of the screens in jsdom and asserts what they say, and `python3 scripts/check-contrast.py`
+measures every colour pair in both themes against WCAG.
 Other root shortcuts: `npm run setup`, `npm run dev`, `npm run smoke`, `npm run db:reset`, `npm run up` / `down` / `logs`.
 
 ## 7 · Change the rules, not the code

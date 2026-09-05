@@ -61,8 +61,18 @@ export const deletePayrun = (id, q = query) =>
   q(`delete from payruns where id = $1 and status in ('DRAFT','COMPUTED') returning name`, [id]).then((r) => r.rows[0] || null);
 export const voidPayrun = (id, q = query) =>
   q(`update payruns set status = 'VOID' where id = $1 and status <> 'PAID' returning *`, [id]).then((r) => r.rows[0] || null);
+/**
+ * The "1 warn" chip on the run list counts entries in payslips.computation_summary → warnings, so this
+ * has to read that same JSON. It used to read payslip_lines.computation_log for 'ERROR%' instead, which
+ * is how a run could advertise a warning and then answer "no warnings" the moment you opened it.
+ */
 export const payrunWarningRows = (id) =>
-  query(`select p.id as payslip_id, e.name as employee, e.employee_code, l.rule_code, l.computation_log
-         from payslips p join payslip_lines l on l.payslip_id = p.id
+  query(`select p.id as payslip_id, e.name as employee, e.employee_code,
+                coalesce(w ->> 'severity', 'WARN') as severity, w ->> 'code' as rule_code,
+                coalesce(w ->> 'message', w ->> 'code', 'Check flagged during compute') as message
+         from payslips p
          join employees e on e.id = p.employee_id
-         where p.payrun_id = $1 and l.computation_log ilike 'ERROR%' order by e.name`, [id]).then((r) => r.rows);
+         cross join lateral jsonb_array_elements(coalesce(p.computation_summary -> 'warnings', '[]'::jsonb)) w
+         where p.payrun_id = $1
+         order by case when coalesce(w ->> 'severity', 'WARN') = 'ERROR' then 0 else 1 end, e.name, w ->> 'code'`,
+    [id]).then((r) => r.rows);
