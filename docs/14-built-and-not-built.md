@@ -29,6 +29,25 @@ remembered.
 
 ---
 
+## 1b · Round 5 — the eight complaints, and what each one became
+
+| the complaint | what the build does now | where it is enforced |
+|---|---|---|
+| A state must be chosen, not typed | A state list wherever a state is captured: the employee's home state, the company's registered-office state, and a separate Professional Tax state. The eight PT states carry a note ("Professional Tax applies here"), the slabs screen only loads for the state that has them, and a stored value that is not on the list is kept and labelled rather than cleared. | backend/src/lib/shared/india.js → GET /api/meta → frontend/src/utils/picklists.js (EmployeeFormModal.jsx, CompanyPage.jsx) |
+| Dashboards per user type — "a new dashboard will give an error" | The screens come from a registry, not from conditions inside one component: payroll → the run view, HR → headcount, **employee → their own month** (hours, overtime, leave pending, balance per type, recent requests, last payslip). An unknown key renders a message that lists the registered kinds; it cannot crash and cannot silently render somebody else's screen. | frontend/src/pages/dashboards/registry.js, DashboardPage.jsx, OverviewDashboard.jsx, EmployeeDashboard.jsx |
+| The link mail must go out by itself, one account at a time — not be parked in Redis | Creating an account (or *Send link*, or *Send links (N waiting)* for all of them) issues the single-use invitation and **sends the message from that request**: one SMTP conversation per account, in order, with the answer — sent, refused, or written to backend/storage/mail — reported per account. A task_queue row is still written first so the outcome is on Settings → System, and `INVITE_VIA_QUEUE=true` is the opt-in for one BullMQ job per account with the worker's retries instead. The link is also shown in the dialog with a Copy button, because with no SMTP credentials the mail exists only as an .eml. /set-password?token= is the screen; it is reachable while signed out. | backend/src/services/user.service.js (createInvite), queue job account-invite in src/worker/jobs/email.job.js, frontend/src/pages/auth/SetPasswordPage.jsx |
+| One role per person; an admin must not change another admin | Exactly one of the five roles: POST /users/:id/role, and /roles accepted only as a one-item list (the validator refuses a longer one with the rule in the message). Changing a role revokes that person's sessions. An ADMIN cannot change a peer ADMIN's role, password or status; name and email stay editable, and the Users page shows "deactivate: self only" / "pw: self only" instead of a button that can only fail. | assertNotAnotherAdmin + setRole in backend/src/services/user.service.js, oneRole in src/validators/user.schema.js, frontend/src/pages/settings/UsersPage.jsx |
+| Every "cannot delete" must say why, and offer deactivate | Postgres's own detail is translated into a sentence naming the table that holds the row ("…still used by employee rows… Deactivate it instead") and the delete dialog stays open with that reason inside it plus a Deactivate-instead button. A leave type that is in use gets its own counts (requests, allocations, slips) and can_deactivate. | friendlyReference in backend/src/lib/shared/errors.js, timeoff.service.js for the counted case, frontend/src/components/crud/CrudPage.jsx |
+| The dropdown caret renders as an artefact | The picker's triangle is drawn inline at a fixed size and rotated on open, so it cannot inherit the text font's idea of ▼/▲ and cannot shift the label by a pixel between states. | frontend/src/components/ui/controls.jsx (Select) |
+| Leave types need categories and a payoff category | time_off_types.category ∈ CASUAL SICK EARNED PRIVILEGED COMPENSATORY MATERNITY PATERNITY UNPAID LOP OTHER (migration 012, CHECK + index), shown as a column, filterable with ?category= and ?pay=. Pay treatment PAID \| UNPAID is the one control that writes is_unpaid (+ the LOP component); the redundant checkbox is gone. | backend/db/migrations/012_leave_category.sql, LEAVE_CATEGORIES in src/validators/hr.schema.js, frontend/src/pages/timeoff/LeaveTypesPage.jsx |
+| Stale filters and blank states are bad UX | A list filtered to nothing says "Nothing matches these filters" and offers *Clear filters (n)* in the toolbar; a deep link whose row is gone (?assign=…) names the id and has a button that drops it; every Select that cannot load says "Choices failed to load" with the reason in its title, and one with nothing to pick says "Nothing to choose yet" instead of an empty box. | CrudPage.jsx (activeFilterCount, the empty state), AllocationsPage.jsx, controls.jsx |
+
+**What round 5 did not do**: no e-mail verification or bounce handling for invitations (a refused send is reported and
+the link stays usable; nothing retries it on its own unless the queue mode is switched on); no
+self-service sign-up — an outside person cannot request a link, an admin has to create the account first; the
+invitation is not revocable by hand (it expires, or is consumed by use); and the employee dashboard reads the portal summary
+endpoint, which is month-scoped — there is no year view yet.
+
 ## 2 · Built and wired (screen → endpoint → table)
 
 Every row here has a real button or form on the named screen; nothing in this list is a stub.
@@ -42,15 +61,17 @@ Every row here has a real button or form on the named screen; nothing in this li
 | Org | Departments (tree fields, activate/deactivate), working schedules (weekly grid, active switch), holidays (+ bulk generate) | `/org/departments*`, `/org/working-schedules*`, `/org/holidays*`, `/org/holiday-templates` |
 | Contracts | List, create/edit, terminate, renew, expiring strip | `/contracts*`, `/contracts/:id/terminate`, `/contracts/:id/renew` |
 | Attendance | Day grid, entry edit, clock in/out, overtime approval, exceptions, CSV export | `/attendance*`, `/attendance/clock`, `/attendance/:id/overtime`, `/attendance/exceptions`, `/attendance/export.csv`, `/payruns/:id/export.csv` |
-| Time off | Types (policy per type, deactivate, assign balance), requests (approve/refuse/cancel), allocations (+ bulk grant), overview, carry-forward, my requests | `/time-off/*` incl. the new `/time-off/allocations/bulk` and `/time-off/carry-forward` |
+| Time off | Types (category + pay treatment per type, policy fields, deactivate, assign balance), requests (approve/refuse/cancel, filterable by category and payoff), allocations (+ bulk grant), overview, carry-forward, my requests | `/time-off/*` incl. the new `/time-off/allocations/bulk` and `/time-off/carry-forward` |
 | Salary structures & rules | Structures CRUD (+ deactivate, impact), rules CRUD with formula validator, preview against a wage, retire-by-date | `/salary/structures*`, `/salary/rules*`, `/salary/rules/validate`, `/salary/preview`, `/salary/pt-slabs` |
 | Pay runs | Two-step wizard (structure, period, frequency, mode → candidates with estimated net), status board, compute/validate/PDFs/mark paid/email/void, salary-register CSV, PDF ZIP, per-person compute state, warnings, queue and delivery log | `/payruns*` (create, preview, employees, compute, validate, generate-pdfs, mark-paid, send, void, export.csv, zip) |
 | Payslips | Register with filters (status, payrun, missing bank), detail with lines/inputs/arrears/history/downloads/PDF, bulk email by selection or period | `/payslips*`, `/payslips/send`, `/payslips/:id/{compute,lines,inputs,arrear,pdf,preview-pdf,print,history,downloads}` |
 | Portal (employee) | My profile, my attendance, my time off + request form, my payslips + download through the ownership-checked route | `/portal/*`, `/auth/token-for-payslip/:id` |
-| Settings | Company (≈35 switches in one documented table, format-checked), PT slabs (read), Users (create with password, roles, activate/deactivate, reset password), access matrix, queues/audit with retry + reclaim | `/company`, `/salary/pt-slabs`, `/users*`, `/system/jobs`, `/system/tasks`, `/system/tasks/:id/retry`, `/system/reclaim`, `/system/audit` |
+| Settings | Company (≈35 switches in one documented table, format-checked), PT slabs (read), Users (create with a set-password link, one role, invite/resend, open-link history, activate/deactivate, reset password, peer-admin rules), access matrix, queues/audit with retry + reclaim | `/company`, `/salary/pt-slabs`, `/users*`, `/system/jobs`, `/system/tasks`, `/system/tasks/:id/retry`, `/system/reclaim`, `/system/audit` |
+| Dashboards | Payroll run view, HR headcount view and an employee's own month, chosen by a registry and by permissions; a refusal notice for an unregistered key |
+| Picklists | Indian states + PT states + leave categories from `GET /api/meta`, cached per session, with a stale stored value kept visible and labelled |
 | Cross-cutting | Toasts, error panels with retry, empty states that name the fix, 12 formatters, two themes with a checked contrast ramp, scroll-aware modals, ErrorBoundary, mobile nav | — |
 
-**Route count: 153 registered endpoints** (`node backend/scripts/routes-list.js`).
+**Route count: 160 registered endpoints** (`node backend/scripts/routes-list.js`).
 
 ---
 
@@ -88,7 +109,7 @@ honest state rather than an oversight to hide:
 | Attendance device pulls (ZKTeco/biometric files), geo-fenced clock-in | `POST /attendance/import` (CSV), `POST /attendance/clock`, a `source` column per row | a device-file parser into the same import path; geofencing needs the mobile client |
 | Inbound e-mail (bounce handling, payslip requests by mail) | `email_deliveries` records QUEUED/SENT/FAILED, and a failed row is reported in the run's delivery log | a webhook into `POST /system/…` that flips the ledger row |
 | Digital signatures / tamper-evident PDFs | every PDF is hashed (SHA-256 stored per document version, shown on the slip page and in the download audit) | sign with an org certificate at render time; the hash is already the input |
-| Self-service onboarding (invite link, first-login password set, document upload) | `FEATURE_INVITE=false`, `FEATURE_SSO=false` in the config; an admin creates the login and hands the password over | the invite token flow reuses `must_change_pw` (which is honoured: such a session is capped at 10 minutes) |
+| Self-service onboarding | **the invitation half is built**: `POST /users/:id/invite` queues a single-use link, `/set-password?token=` sets the first password, and the account cannot sign in until it is used. Not built: a document upload step, an offer-letter PDF, and a candidate-initiated "I need an account" request | `FEATURE_INVITE` switches the whole thing off and the Users page falls back to a typed temporary password; `must_change_pw` still caps such a session at 10 minutes |
 | SSO / OIDC | password login with a 5-attempt guard and a 15-minute lock-out window | `POST /auth/sso/callback` behind `FEATURE_SSO`; `user_role_grants` already supports external identities |
 | A payroll "wizard" that walks the whole month | each step is a button on the run page, and the numbers are visible at every step | nothing missing structurally; it is a UX preference |
 | Company GSTIN / CIN / PAN fields | `company_settings` has no such columns, so the Company screen cannot show them honestly | migration `0xx_company_tax_ids.sql` + 3 rows in the `SETTINGS` table + `gstin`/`cin`/`pan` patterns (already in `PATTERNS`) |
@@ -97,9 +118,9 @@ honest state rather than an oversight to hide:
 ## 5 · Verified how
 
 `bash scripts/check-syntax.sh`, `node backend/scripts/check-api-imports.js` (static import graph + real
-ESM load of every backend module), `node backend/scripts/routes-list.js` (153),
-`node backend/scripts/test-unit.js` (49 tests: the payroll engine, period math, the route contracts the new buttons need, and RBAC — no database),
-`node --test backend/test`, `npm run build` for the SPA, `python3 scripts/check-contrast.py` (898 class combinations resolved against both themes and measured with the WCAG formula — 0 under the floor, after three light-theme chips were darkened in `theme.css`), and `npm run test:ui` (`scripts/ui-probe/`) — 12 cases that render
+ESM load of every backend module), `node backend/scripts/routes-list.js` (160),
+`node backend/scripts/test-unit.js` (58 tests: the payroll engine, period math, the route contracts the new buttons need, the one-role and category validators, the refused-delete sentence, and RBAC — no database),
+`node --test backend/test`, `npm run build` for the SPA, `python3 scripts/check-contrast.py` (1058 class combinations resolved against both themes and measured with the WCAG formula — 0 under the floor; the shared `Notice` block was recoloured by its first run, since brand-100 on the light theme measured 1.00), and `npm run test:ui` (`scripts/ui-probe/`) — 19 cases that render
 the screens this round touched in jsdom against a stubbed API and assert the text on them. Two real bugs came
 out of writing it: a row action whose `show(row)` predicate ran with no row at all, and an early
 `return <NoAccess/>` sitting above two hooks in `CrudPage`, which made React render a different number of hooks

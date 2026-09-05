@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { employees } from '../../api/endpoints.js';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { SchemaForm, emptyValues, fieldProblems } from '../../components/crud/schemaForm.jsx';
+import { usePicklists, keepCurrentValue } from '../../utils/picklists.js';
 import { Tabs } from '../../components/ui/Tabs.jsx';
 import { Checkbox } from '../../components/ui/controls.jsx';
 import { today } from '../../utils/format.js';
@@ -18,7 +19,9 @@ const PERSONAL = [
   { key: 'gender', label: 'Gender', type: 'select', placeholder: 'Choose…', options: ['MALE', 'FEMALE', 'OTHER'].map((v) => ({ value: v, label: v })) },
   { key: 'address', label: 'Address', type: 'textarea', rows: 2, placeholder: 'Flat, street, area' },
   { key: 'city', label: 'City', placeholder: 'Ahmedabad' },
-  { key: 'state', label: 'State', placeholder: 'Gujarat' },
+  // A payroll app that lets you type "guj" and "Gujarat" gets two Professional Tax rules for one person,
+  // so the state is chosen from the list the API publishes rather than typed.
+  { key: 'state', label: 'State', type: 'select', placeholder: 'Choose a state' },
   { key: 'pincode', label: 'Pincode', pattern: 'pincode' },
 ];
 const JOB = [
@@ -52,13 +55,17 @@ export function EmployeeFormModal({ open, onClose, onSaved, departments = [], sc
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
+  const { states, loading: statesLoading, error: statesError } = usePicklists();
 
   const fields = useMemo(() => {
     const byTab = { personal: PERSONAL, job: JOB, salary: SALARY }[tab];
     return byTab.map((f) => (f.key === 'department_id' ? { ...f, options: departments }
       : f.key === 'working_schedule_id' ? { ...f, options: schedules }
-      : f.key === 'salary_structure_id' ? { ...f, options: structures } : f));
-  }, [tab, departments, schedules, structures]);
+      : f.key === 'salary_structure_id' ? { ...f, options: structures }
+      // The state list is the server's; a value recorded before the dropdown existed stays visible and
+      // is labelled as such instead of silently turning into "Choose a state".
+      : f.key === 'state' ? { ...f, options: keepCurrentValue(states, values?.state), loading: statesLoading, error: statesError } : f));
+  }, [tab, departments, schedules, structures, states, statesLoading, statesError, values]);
 
   const current = values || emptyValues([...PERSONAL, ...JOB, ...SALARY], { date_of_joining: today(), employee_type: 'FULL_TIME', status: 'ACTIVE', 'contract.start_date': today() });
   const setValue = (key, value) => setValues({ ...current, [key]: value });

@@ -98,13 +98,19 @@ Every row is a login the seeder creates, the seeder prints, and the sign-in scre
 address in all three places, because "the payroll admin cannot get in" turned out to be this table writing
 `payroll.admin@oxp.com` where the seeder writes `payroll-admin@oxp.com`.
 
+**One role per account.** The five roles are the specification's five, and an account carries exactly one of them:
+`POST /api/users/:id/role` sets it, and `POST /api/users/:id/roles` still works only as a one-item list. Two people
+doing two jobs get two accounts, not a union of powers — that is what makes the audit log mean something. The
+first rule in `user:write` is that **an administrator cannot change another administrator**: role, password and
+active status are self-service at that level, so `payroll-admin@oxp.com` is seeded as a second ADMIN to show it.
+
 | sign in as | email | roles seeded | what you can do |
 |---|---|---|---|
-| Admin | `admin@oxp.com` | `ADMIN` + `HR_MANAGER` | everything: User Access, writing company settings, queues, audit log |
+| Admin | `admin@oxp.com` | `ADMIN` | everything: User Access, writing company settings, queues, audit log. Cannot change a peer admin's role, password or status |
 | HR Manager | `hr@oxp.com` | `HR_MANAGER` | employees, contracts, org, attendance, time off (approve, assign balances), salary structures to read, company settings to read. No computation, no release. |
 | Payroll Officer | `hr2@oxp.com` | `HR_PAYROLL_USER` | the HR screens, plus create / compute / validate a run and mark it paid. No bulk payslip e-mail, no structure writes, no void or delete. |
 | Payroll Manager | `payroll@oxp.com` | `HR_PAYROLL_MANAGER` | a run end to end: compute, validate, mark paid, generate PDFs, **bulk e-mail the payslips**, edit slip lines and arreares, structures and rules, void/delete a run. Cannot create users and cannot write company settings. |
-| Payroll Admin | `payroll-admin@oxp.com` | `HR_PAYROLL_MANAGER` + `HR_MANAGER` | the same, and can also fix the employee or contract behind a wrong payslip in the same session. |
+| Admin (second) | `payroll-admin@oxp.com` | `ADMIN` | the same as the row above — the point of seeding two of them is to show the peer-admin rule refusing `POST /users/:id/role`, `/reset-password` and `/deactivate` between them |
 | Employee | `aarav.mehta@oxp.com` (any seeded work email) | `EMPLOYEE` | only My pay: own profile, own attendance, own leave requests, own payslips (download goes through `/api/portal/payslips/:id/pdf`). |
 
 Log out with the avatar menu (top right) — it opens on click, so it works from the keyboard and from a phone. The access token (`localStorage`, key `pp360.token`) lasts `JWT_ACCESS_TTL` = 15 min in the dev `.env`; the refresh
@@ -130,6 +136,39 @@ prints the same grid from the server if you want the authoritative version.
 * **A payrun period you can trust** — a blank "Period ends" means the last day of the start month, resolved in one function (`resolvePeriodEnd`) that the candidate preview, the estimate and the created run all call, and the wizard prints the date it picked before you press Create.
 * **Assign balances to many** — Time-off types has an *Assign balance* button per row, and Allocations has a panel that grants one type to a ticked set of people in a single transaction (`POST /time-off/allocations/bulk`), with a skip/add/replace rule for people who already have a grant.
 * **Identity fields that check themselves** — bank account, IFSC, PAN, UAN, ESIC, Aadhaar, PIN code, phone, colour, code and money formats live in one `PATTERNS` table (`frontend/src/components/crud/schemaForm.jsx`) that supplies the placeholder, cleans the value as you type, and refuses a bad one on save — the same bounds the API enforces, so a red box and a 400 cannot disagree.
+* **A state you pick, not type** — every screen that captures a state offers the Indian states as a list: the company
+  registered office and its Professional Tax state (Settings → Company), and each employee's home state. The 28 states
+  and 8 union territories come from `backend/src/lib/shared/india.js`, the eight PT states are marked where they apply,
+  and PT slabs only load for a state that has them. `GET /api/meta` serves the picklists (states, PT states, leave
+  categories) and `frontend/src/utils/picklists.js` caches them for the session; a value already stored that is not on
+  the list stays visible and labelled, so opening a form never silently rewrites a record.
+* **A dashboard per kind of user, from one registry** — `frontend/src/pages/dashboards/registry.js` holds the list:
+  payroll gets the run view (`/payroll`), an HR manager gets headcount and attendance, and an employee gets their own
+  month — hours, overtime, leave pending, balance per type, recent requests and the last payslip. Which one you see is
+  decided by the permissions the API sent, not by a role string in React, and a key nobody registered renders a message
+  naming the registered kinds instead of a blank screen. Adding a dashboard is one entry there plus a component file.
+* **New accounts set their own password** — creating a user (or *Send link* on any row) issues a single-use invitation:
+  192 random bits, stored only as a SHA-256 hash, valid `INVITE_TTL_HOURS` (72) hours, and the account stays unusable
+  until it is used. **The message is sent by the request that made it** — one SMTP conversation per account, in order,
+  no Redis in between — so "sent" means sent, and a bulk press of *Send links (N waiting)* takes as long as the mail
+  server needs while reporting every account individually. `INVITE_VIA_QUEUE=true` is the alternative for a
+  deployment that would rather have the worker dial SMTP with its retries; the answer and the UI then say "queued".
+  `GET /api/invite/:token` says whose it is, `/set-password?token=` (outside the login guard) is the screen that takes
+  it, `POST /api/auth/set-password` consumes it, and the same link is shown in the dialog with a Copy button — because
+  with no SMTP credentials the only copy is the `.eml` under `backend/storage/mail`.
+* **One role per account** — the specification's five, and exactly one of them: `POST /api/users/:id/role` (the older
+  `/roles` still works as a one-item list and says so when handed two). Changing it ends that person's sessions. And an
+  administrator cannot change a peer administrator — role, password and active status at that level are self-service;
+  the Users page shows "deactivate: self only" on those rows rather than a button that can only fail.
+* **Leave types have a category and a payoff answer** — Casual / Sick / Earned / Privilege / Compensatory / Maternity /
+  Paternity / Unpaid / Loss of pay / Other (`time_off_types.category`, migration `012_leave_category.sql`, filterable
+  with `?category=` and `?pay=`), plus Pay treatment: PAID or UNPAID, which is what writes `is_unpaid` and attaches the
+  LOP component. The form no longer asks for a checkbox called "unpaid" next to a select that says the same thing.
+* **A refusal that explains itself** — every "cannot delete" arrives as a sentence from the API naming the table that
+  holds the row (`Key (id)=(7) is still referenced from table "employees"` becomes "still used by employee rows…
+  Deactivate it instead"), the dialog stays open with that reason inside it, and *Deactivate instead* sits next to the
+  explanation. Same for the blank list after a delete: a table with filters on says so and offers *Clear filters (n)*,
+  and a deep link pointing at a record that has gone names the id and lets you drop it.
 * **Switch things off instead of deleting them** — `CrudPage` lists (leave types, departments, structures) carry a per-row *Deactivate / Activate*; salary rules are retired by their end date with a *Retire* button; users and working schedules have their own switches. Anything history still points at is refused on delete by the API, and now has a non-destructive alternative in the UI.
 * **You can change your own password** — the account menu offers *Change password* (`POST /auth/change-password`, ≥ 8 characters, checked in the dialog with the rules the API itself enforces, which then revokes the session — so the dialog signs you out and says so). An account still on the password an admin set gets a 10-minute session and an amber banner pointing at that dialog; both are the API's behaviour, not UI policy (`auth.service.js`).
 * **A session that survives the work** — `api/client.js` sends credentials, and on a 401 it rotates the refresh cookie once (single-flight, so a burst of six requests cannot revoke each other's cookie) and replays the failed call.
@@ -158,7 +197,7 @@ no page knows which theme is on, and a new screen is themed for free. Your choic
 | Mobile number | exactly 10 digits. Spaces, dashes and a leading `+91` are cleaned first, then the length is checked — on the screen *and* in the API, so a bad number never reaches the database | `backend/src/validators/common.js` (`mobile`) |
 | Employee code | you never type one. `EMP0001`, `EMP0002`… come from a Postgres sequence, and the form says so instead of asking | `backend/src/repositories/employee.repo.js` (`nextEmployeeCode`) |
 | Contract number | same idea: `CT0001` …, assigned when the contract row is created, shown read-only afterwards | `db/migrations/003_employees.sql` |
-| Create a user | three answers: name, work email, role. No password to invent (the API hands out the demo password from `.env`) and the employee link is optional | `frontend/src/pages/settings/UsersPage.jsx` |
+| Create a user | three answers: name, work email, one role. The employee link is optional, and no password is invented for anybody: the account gets a single-use set-password link (shown with a Copy button, queued to the worker for e-mail), and it cannot sign in until that link is used. Type a password in the box instead only if you prefer to hand one over out of band | `frontend/src/pages/settings/UsersPage.jsx` |
 | A duplicate record | 409 with a sentence, not SQL: "This employee already has a contract covering those dates…". It stays on screen inside the dialog and the offending field is underlined | `backend/src/lib/shared/errors.js` → `frontend/src/api/client.js` |
 | A dropdown with 200 entries | filter box + scrollable list that flips upward near the bottom of the screen, so nothing is cut off inside a dialog | `frontend/src/components/ui/controls.jsx` (`Select`) |
 | Any number in a form | the box says what it is measured in (₹, %, hours, days, order), shows an example in the placeholder, and compares what you typed with the same minimum and maximum the API uses — while you type, before a save is refused. A blank number means "leave the stored value alone", never "make it zero" | `frontend/src/components/crud/schemaForm.jsx` (`rangeProblem`), the field lists in each page |
@@ -175,8 +214,31 @@ no page knows which theme is on, and a new screen is themed for free. Your choic
 
 That is the whole config: the mailer sees credentials, picks the Gmail driver by itself and sends payslips with the PDF
 attached. With those two lines empty it stays on `preview` and writes each mail to `backend/storage/mail/*.eml`
-instead, so the demo works offline. `GET http://localhost:4100/health` prints which driver the worker is using, and a
-rejected send is stored on the payslip (`email_status = FAILED` + the provider's own message in the task row) so you can
+instead, so the demo works offline. `GET http://localhost:4100/health` prints which driver the worker is using.
+
+The invitation mail uses the same driver, with three more knobs:
+
+| variable | default | what it decides |
+|---|---|---|
+| `PUBLIC_APP_URL` | `WEB_ORIGIN` → `http://localhost:5173` | the origin of the link in the mail — set it to what the browser actually types, or every invitation is unreachable |
+| `INVITE_TTL_HOURS` | `72` | how long a set-password link stays valid |
+| `FEATURE_INVITE` | `true` | switched off, `POST /users/:id/invite` answers 409 and the Users page falls back to typing a temporary password |
+| `INVITE_VIA_QUEUE` | `false` | `true` hands each invitation to the worker as one job per account instead of the request mailing it |
+| `INVITE_BULK_LIMIT` | `50` | how many accounts one *Send links* press works through (the API caps it at 100) |
+
+`POST /users/:id/invite` mails the link from the request and answers with the outcome — `mail_sent`, the driver that
+carried it, and where the copy went (`backend/storage/mail/x.eml` on the preview driver). A `task_queue` row is still
+written first, so the send — or the provider's refusal — is visible under Settings → System either way. Set
+`INVITE_VIA_QUEUE=true` when a deployment prefers one job per account on the mail queue: the request returns
+`mail_queued: true` plus the `task_id` and the worker sends it with its own retries; if Redis is unreachable it falls
+back to sending the mail itself and says so (`queue_fallback_reason`), because a link nobody can open is worse than a
+slow save. Either way the token is never stored in Postgres — only its hash is.
+
+`POST /users/invites/send-pending` is the same rule for a list: it works through everyone still waiting for a first
+password, one account after another, and returns `{ attempted, sent, failed, took_ms, results[] }` with a per-account
+note. It stops at the first rate-limit answer from the provider rather than burning the rest of the day's quota.
+
+A rejected send is stored on the payslip (`email_status = FAILED` + the provider's own message in the task row) so you can
 see *why* in Settings → System. Note Google's own limit: ~500 recipients/day on a personal account, `550 5.4.5` above it.
 
 ## 5e · Queues: the worker, Redis and why PDFs stall
@@ -207,7 +269,7 @@ bash scripts/check-syntax.sh                   # syntax of all .js/.jsx in ~1 s,
 so out loud when it is missing, rather than quietly checking only half the files.
 
 At the repo root, `npm run check` does all four in one go (JSX/JS syntax → every backend module loads →
-49 unit tests → the 153-route inventory), `npm run build` runs the real production build of the front end,
+58 unit tests → the 160-route inventory), `npm run build` runs the real production build of the front end,
 `npm run test:ui` renders 12 of the screens in jsdom and asserts what they say, and `python3 scripts/check-contrast.py`
 measures every colour pair in both themes against WCAG.
 Other root shortcuts: `npm run setup`, `npm run dev`, `npm run smoke`, `npm run db:reset`, `npm run up` / `down` / `logs`.

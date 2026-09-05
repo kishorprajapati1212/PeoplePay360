@@ -21,13 +21,52 @@ export class AppError extends Error {
 export function mapDbError(err) {
   const m = String(err?.message || '');
   if (err?.code === '23505') return new AppError('DUPLICATE', friendlyUnique(err.constraint, m), { status: 409 });
-  if (err?.code === '23503') return new AppError('REFERENCE_MISSING', 'A linked record does not exist or is in use', { status: 409 });
+  if (err?.code === '23503') {
+    const why = friendlyReference(err);
+    return new AppError('REFERENCE_MISSING', why.message, { status: 409, details: { referenced_by: why.table, constraint: err.constraint || null, ...why.details } });
+  }
   if (err?.code === '23514') return new AppError('CHECK_VIOLATION', friendlyCheck(m), { status: 422 });
   if (m.includes('DUPLICATE_PERIOD')) return new AppError('DUPLICATE_PERIOD', m.replace(/^DUPLICATE_PERIOD:\s*/, ''), { status: 409 });
   if (m.includes('PAID')) return new AppError('LOCKED', m, { status: 409 });
   if (m.includes('Overlapping time off')) return new AppError('OVERLAPPING_REQUEST', m, { status: 400 });
   if (m.includes('Insufficient leave')) return new AppError('INSUFFICIENT_BALANCE', m, { status: 400 });
   return null;
+}
+/**
+ * Postgres tells us exactly which table is holding the row: its 23503 detail reads
+ *   Key (id)=(7) is still referenced from table "employees".
+ * That is the sentence the user deserves when a Delete button is refused, so it is translated rather than
+ * swallowed by a generic "a linked record is in use". `still referenced` is the delete case; the other
+ * shape is a write pointing at something that does not exist, and says so.
+ */
+function friendlyReference(err) {
+  const detail = String(err?.detail || '');
+  const from = /is still referenced from table "([\w]+)"/.exec(detail);
+  const key = /Key \(([^)]+)\)=\(([^)]*)\)/.exec(detail);
+  if (from) {
+    const who = humanTable(from[1]);
+    return {
+      table: from[1],
+      message: `This row is still used by ${who}, so deleting it would leave ${who} pointing at nothing. Deactivate it instead — it stops being offered everywhere and the history stays intact.`,
+      details: { holding_key: key ? key[1] : null, holding_value: key ? key[2] : null, can_deactivate: true },
+    };
+  }
+  const into = /on table "([\w]+)"/.exec(String(err?.message || ''));
+  return {
+    table: into?.[1] || null,
+    message: into
+      ? `A ${humanTable(into[1])} record you picked does not exist any more — someone else changed it first. Reload the list and choose again.`
+      : 'A linked record does not exist or is still in use',
+    details: {},
+  };
+}
+/** employees → "employee records", payruns → "pay run records": enough to read as a person wrote it. */
+function humanTable(t = '') {
+  const words = String(t).replace(/_logs?$/, ' log').split('_').filter(Boolean);
+  const last = words[words.length - 1] || '';
+  const singular = last.endsWith('ies') ? last.slice(0, -3) + 'y' : last.endsWith('ses') ? last.slice(0, -2) : last.endsWith('s') ? last.slice(0, -1) : last;
+  words[words.length - 1] = singular;
+  return words.join(' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ' rows';
 }
 function friendlyUnique(c = '', m = '') {
   if (c.includes('uq_contract_one_running')) return 'This employee already has a Running contract for the period';

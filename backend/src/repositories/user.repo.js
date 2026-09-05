@@ -63,6 +63,11 @@ export async function setRoles(userId, roles, grantedBy, q = query) {
   if (!roles?.length) return rolesOf(userId, q);
   await q(`insert into user_role_grants (user_id, role, granted_by) select $1, unnest($2::user_role[]), $3`, [userId, roles, grantedBy || null]);
   await q(`update users set role = $2 where id = $1`, [userId, roles.includes('ADMIN') ? 'ADMIN' : roles[0]]);
+  // A role change is the one edit whose consequences must not be able to outlive it: bump token_version (the
+  // JWT's `tv` is compared against this column on every request) and drop the outstanding refresh tokens, so
+  // the browser that was an HR manager a second ago has to sign in again before it is anything.
+  await q(`update users set token_version = token_version + 1 where id = $1`, [userId]);
+  await q(`update refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null`, [userId]);
   return rolesOf(userId, q);
 }
 export const patchUser = (id, p, q = query) => {
@@ -85,6 +90,32 @@ export const takeRefresh = (tokenHash) =>
          where t.token_hash = $1 and t.revoked_at is null and t.expires_at > now()`, [tokenHash]).then((r) => r.rows[0] || null);
 export const revokeRefreshFamily = (familyId, q = query) => q(`update refresh_tokens set revoked_at = now() where family_id = $1 and revoked_at is null`, [familyId]);
 export const revokeAllRefresh = (userId) => query(`update refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null`, [userId]);
+/* Invitations: a random token goes in the link, its SHA-256 goes in the row. A leaked table therefore
+   leaks nothing usable, and a link can only ever be spent once (accepted_at). */
+export const createInvitation = ({ email, userId, tokenHash, invitedBy, ttlHours = 72 }, q = query) =>
+  q(`insert into invitations (email, user_id, token_hash, invited_by, expires_at)
+     values ($1, $2, $3, $4, now() + ($5 || ' hours')::interval)
+     returning id, token_hash, expires_at`, [email, userId || null, tokenHash, invitedBy || null, String(ttlHours)]).then((r) => r.rows[0]);
+export const findInvitation = (tokenHash) =>
+  query(`select i.*, u.name, u.work_email, u.is_active, u.must_change_pw, count(*) over () as total
+         from invitations i join users u on u.id = i.user_id where i.token_hash = $1`, [tokenHash]).then((r) => r.rows[0] || null);
+export const acceptInvitation = (id) =>
+  query(`update invitations set accepted_at = now() where id = $1 and accepted_at is null returning id`, [id]).then((r) => r.rows[0] || null);
+/** Open invites for one user, newest first — the Users screen shows the link that is still usable. */
+/**
+ * Active accounts that cannot sign in yet — no password set by their owner (must_change_pw) and no open
+ * invitation already out for them. That last part is what keeps a pressed-twice button from mailing a
+ * person twice: an unexpired, unused link is enough to leave them alone.
+ */
+export const accountsAwaitingPassword = (limit = 50) =>
+  query(`select u.id, u.name, u.work_email from users u
+         where u.is_active and u.must_change_pw
+           and not exists (select 1 from invitations i
+                           where i.user_id = u.id and i.accepted_at is null and i.expires_at > now())
+         order by u.created_at limit $1`, [Number(limit) || 50]).then((r) => r.rows);
+export const openInvitations = (userId) =>
+  query(`select id, email, expires_at, created_at from invitations
+         where user_id = $1 and accepted_at is null and expires_at > now() order by created_at desc`, [userId]).then((r) => r.rows);
 export const linkEmployee = (userId, employeeId, q = query) =>
   q(`update employees set user_id = $2 where id = $1`, [employeeId || null, userId || null])
     .then(() => query(`update employees set user_id = null where user_id = $1 and ($2::uuid is null or id <> $2)`, [userId, employeeId || null]));

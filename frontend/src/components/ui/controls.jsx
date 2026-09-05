@@ -124,7 +124,17 @@ export function Select({ value, onChange, options = [], placeholder, className =
            : items.length ? (placeholder || 'Choose…')
            : (emptyText || 'Nothing to choose yet')}
         </span>
-        <span className="text-xs text-slate-500">{loading ? '…' : open ? '▲' : '▼'}</span>
+        {/* A triangle drawn here, not a  glyph from the font: text characters of that shape differ in
+           size and baseline between fonts, and swapping ▲ for ▼ moved the label by a pixel every time the
+           picker opened — the artifact. Same box, same height, currentColor either way. */}
+        <span className="grid h-3.5 w-3.5 shrink-0 place-items-center text-slate-500" aria-hidden="true">
+          {loading
+            ? <span className="text-[10px] leading-none">…</span>
+            : <svg viewBox="0 0 12 7" className="h-[7px] w-3" fill="none" stroke="currentColor" strokeWidth="1.6"
+                   strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }}>
+                <path d="M1 1.5L6 6L11 1.5" />
+              </svg>}
+        </span>
       </button>
       {open && createPortal(
         <div data-pop className="fixed z-[100] rounded-lg border border-line bg-ink-900 shadow-panel" style={box}>

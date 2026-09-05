@@ -13,6 +13,10 @@ export const auth = {
   accessMatrix: () => api.get('/auth/access-matrix'),
   /** Anyone may change their own password; the API then revokes the session cookie, so you sign in again. */
   changePassword: (body) => api.post('/auth/change-password', body),
+  /** Who an invitation link belongs to, and whether it still works — readable without being signed in. */
+  invitation: (token) => api.get(`/auth/invite/${encodeURIComponent(token)}`),
+  /** The one thing a person with a link but no password can do: set it. */
+  setPassword: (body) => api.post('/auth/set-password', body),
   /** 5-minute signed link so a plain <a> can stream the payslip PDF. */
   slipToken: (payslipId) => api.get(`/auth/token-for-payslip/${payslipId}`),
 };
@@ -155,7 +159,7 @@ export const payroll = {
 
 export const dashboard = { get: (query) => api.get('/dashboard', query) };
 export const portal = {
-  summary: () => api.get('/portal/summary'),
+  summary: (query) => api.get('/portal/summary', query),
   payslips: (query) => api.get('/portal/payslips', query),
   payslip: (id) => api.get(`/portal/payslips/${id}`),        // one own slip, lines included
   attendance: (query) => api.get('/portal/attendance', query),
@@ -171,7 +175,15 @@ export const users = {
   one: (id) => api.get(`/users/${id}`),
   create: (body) => api.post('/users', body),
   update: (id, body) => api.patch(`/users/${id}`, body),
-  setRoles: (id, body) => api.post(`/users/${id}/roles`, body),
+  /** One role per account — POST /users/:id/role, and the response says what changed about the account. */
+  setRole: (id, role) => api.post(`/users/${id}/role`, { role }),
+  setRoles: (id, body) => api.post(`/users/${id}/roles`, body),   // older shape, kept working: one role in a list
+  /** An invitation link: the person sets their own password, nobody relays one. */
+  invite: (id, body) => api.post(`/users/${id}/invite`, body || {}),
+  invites: (id) => api.get(`/users/${id}/invites`),
+  /** Accounts that exist but cannot sign in yet, and a one-by-one send for all of them. */
+  pendingInvites: () => api.get('/users/invites/pending'),
+  sendPendingInvites: (body) => api.post('/users/invites/send-pending', body || {}),
   activate: (id) => api.post(`/users/${id}/activate`, {}),
   deactivate: (id) => api.post(`/users/${id}/deactivate`, {}),
   resetPassword: (id, body) => api.post(`/users/${id}/reset-password`, body || {}),

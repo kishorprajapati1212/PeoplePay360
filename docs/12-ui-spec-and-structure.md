@@ -78,7 +78,7 @@ Practical consequences: adding a permission to a role in that one file changes t
 ## Endpoints consumed (generated from the live router)
 
 Every row below is what the router actually registers — `node backend/scripts/routes-list.js` prints the same list
-(153 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
+(160 of them), and `/api` is the mount prefix. The front end keeps its half of that contract in
 `frontend/src/api/endpoints.js`.
 
 | area | endpoints |
@@ -128,9 +128,31 @@ are hand-written JSX, but still only use `ui/` primitives and `api/` calls. Wher
 dialog, its row **Edit** button opens that one; the employee directory does it with a link to
 `/employees/:id?edit=1`, which the detail page reads once and then clears — the form is written in one place.
 
+## The three conventions that keep screens honest (round 5)
+
+**Dashboards are registered, not branched.** `frontend/src/pages/dashboards/registry.js` exports
+`DASHBOARD_KINDS`: `{ key, when(hasPermission), Component, title, subtitle, showPayrunCta }`, most specific first.
+`DashboardPage` resolves `kind` (from the route) or the caller's permissions through `dashboardKindFor(user)` and
+renders `entry.Component` with the rest of the entry as `entry` props. The shared chart blocks live in
+`dashboards/charts.jsx`; `OverviewDashboard.jsx` (HR + payroll) and `EmployeeDashboard.jsx` (self-service) are the
+two screens today. Nothing may write `if (mode === …)` inside a dashboard again — that is how a third kind used to
+arrive half-finished with the wrong title and no error.
+
+**Picklists come from the API.** `GET /api/meta` returns `states`, `pt_states` and `leave_categories`;
+`frontend/src/utils/picklists.js` fetches it once per session (`picklists()`, plus a `usePicklists()` hook that also
+reports `loading`/`error`) and `keepCurrentValue(options, storedValue)` keeps an out-of-date stored value visible and
+labelled instead of silently clearing it. A `Select` that has no choices says "Nothing to choose yet", one whose load
+failed says "Choices failed to load" and keeps its `title` — a spinner forever was the bug this replaced.
+
+**A refusal is a sentence plus a way out.** `CrudPage` keeps a rejected delete open in the dialog, writes the API's
+reason there, and offers *Deactivate instead* whenever the list has an active flag (or the API sent
+`details.can_deactivate`). Its toolbar shows *Clear filters (n)* whenever anything is filtered, and the empty state
+says "Nothing matches these filters" when the list is filtered to nothing, because "no rows" and "no rows that
+match" are different claims and the first one reads as data loss.
+
 ## Deliberate omissions
 
-* No automated browser test yet — behaviour is proven through the API (`node backend/scripts/smoke.js` drives all 153 endpoints), so the UI layer is thin by design.
+* No automated browser test yet — behaviour is proven through the API (`node backend/scripts/smoke.js` drives all 160 endpoints), so the UI layer is thin by design.
 * `CrudPage` does not offer a page-size selector for endpoints that return a plain array (departments, schedules, structures, time-off types have no server-side paging).
 * The chart on the dashboard is the only bespoke SVG; everything else is tables, chips and forms.
 * Dark mode, i18n, and the per-day attendance *edit* grid in the sketch's exact 2-column form were simplified into a dialog + table.

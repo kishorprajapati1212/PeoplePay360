@@ -5,13 +5,26 @@ import { params0 } from './_helpers.js';
 
 const TYPE_COLS = ['name', 'code', 'unit', 'requires_allocation', 'max_days_per_year', 'approval_route', 'work_entry_type',
                    'is_unpaid', 'payslip_code', 'is_encashable', 'carry_forward', 'sandwich_rule', 'min_notice_days',
-                   'display_color', 'is_active', 'description'];
-export const listTypes = ({ includeInactive = false } = {}) =>
-  query(`select t.*,
+                   'display_color', 'is_active', 'description', 'category'];
+export const listTypes = ({ includeInactive = false, category = null, pay = null } = {}) => {
+  const where = []; const params = [];
+  if (!includeInactive) where.push("t.is_active = 'ACTIVE'");
+  if (category) { params.push(category); where.push(`t.category = $${params.length}`); }
+  if (pay) where.push(pay === 'PAID' ? 'not t.is_unpaid' : 't.is_unpaid');
+  return query(`select t.*,
                 (select count(*) from time_off_requests r where r.time_off_type_id = t.id and r.status = 'APPROVED') as approved_requests,
                 (select coalesce(sum(r.approved_days),0) from time_off_requests r where r.time_off_type_id = t.id and r.status = 'APPROVED') as days_used,
                 (select count(distinct a.employee_id) from time_off_allocations a where a.time_off_type_id = t.id) as allocated_employees
-         from time_off_types t ${includeInactive ? '' : "where t.is_active = 'ACTIVE'"} order by t.name`).then((r) => r.rows.map((x) => mapKeys(x, ['days_used', 'approved_requests', 'allocated_employees'])));
+         from time_off_types t ${where.length ? `where ${where.join(' and ')}` : ''} order by t.name`, params)
+    .then((r) => r.rows.map((x) => mapKeys(x, ['days_used', 'approved_requests', 'allocated_employees'])));
+};
+/** Everything that points at a type, so "delete" can say what it would break instead of failing quietly. */
+export const typeReferences = (id) =>
+  query(`select (select count(*) from time_off_requests where time_off_type_id = $1) as requests,
+                 (select count(*) from time_off_requests where time_off_type_id = $1 and status = 'TO_APPROVE') as pending_requests,
+                 (select count(*) from time_off_allocations where time_off_type_id = $1) as allocations,
+                 (select count(distinct employee_id) from time_off_allocations where time_off_type_id = $1) as allocated_employees`)
+    .then((r) => Object.fromEntries(Object.entries(r.rows[0]).map(([k, v]) => [k, Number(v)])));
 export const getType = (id) => query(`select * from time_off_types where id = $1`, [id]).then((r) => r.rows[0] || null);
 const upsertCols = (d, cols) => ({ keys: cols.filter((c) => d[c] !== undefined), vals: cols.filter((c) => d[c] !== undefined).map((c) => d[c]) });
 export const createType = (d) => {
@@ -23,9 +36,16 @@ export const updateType = (id, d) => {
   if (!keys.length) return getType(id);
   return query(`update time_off_types set ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1 returning *`, [id, ...vals]).then((r) => r.rows[0]);
 };
+// A delete that quietly turned the row INACTIVE was the bug: the screen said "deleted", the row stayed, and
+// the only clue was a chip that no longer appeared in a picker. Now the row goes when nothing points at it,
+// and the service counts the references first so the refusal can name them.
 export const deleteType = (id) =>
-  query(`update time_off_types set is_active = 'INACTIVE' where id = $1
-         and not exists (select 1 from time_off_requests r where r.time_off_type_id = $1) returning id`, [id]).then((r) => r.rows[0] || null);
+  query(`delete from time_off_types t
+         where t.id = $1
+           and not exists (select 1 from time_off_requests r where r.time_off_type_id = t.id)
+           and not exists (select 1 from time_off_allocations a where a.time_off_type_id = t.id)
+         returning t.id`, [id]).then((r) => r.rows[0] || null);
+
 
 const REQ_SELECT = `
   select r.*, e.name as employee, e.employee_code, e.department_id, t.name as type, t.code as type_code, t.unit, t.is_unpaid,

@@ -30,6 +30,10 @@ const sentToday = { day: new Date().toISOString().slice(0, 10), n: 0 };
 export function createEmailWorker({ concurrency = config.worker.concurrency } = {}) {
   return new Worker(config.queues.email, async (job) => {
     const { taskId, payslipId, version } = job.data ?? {};
+    // One queue, two shapes of mail. Payslip mail reads its payload back from the durable row because the
+    // PDF has to be attached; an invitation carries its token in the job, which is why that token never
+    // reaches Postgres.
+    if (job.name === 'account-invite') return sendInvite(job);
     if (taskId) await markTask(taskId, 'PROCESSING', { jobId: String(job.id) });
     const task = taskId ? await one(`select payload from task_queue where id = $1::uuid`, [taskId]) : null;
     const payload = task?.payload ?? {};
@@ -81,11 +85,36 @@ export function createEmailWorker({ concurrency = config.worker.concurrency } = 
        stalledInterval: 30_000, maxStalledCount: 2 });
 }
 
+/** SEND_EMAIL / account-invite — the link a new account needs before it can have a password. */
+async function sendInvite(job) {
+  const { taskId, invitationId, token } = job.data ?? {};
+  if (taskId) await markTask(taskId, 'PROCESSING', { jobId: String(job.id) });
+  const row = await one(`select i.email, i.expires_at, i.accepted_at, u.name, u.work_email, u.must_change_pw
+                         from invitations i join users u on u.id = i.user_id where i.id = $1::uuid`, [invitationId]);
+  if (!row) throw new Error(`Invitation ${invitationId} no longer exists`);
+  if (row.accepted_at) return { skipped: 'already accepted' };
+  const link = `${config.appUrl.replace(/\/$/, '')}/set-password?token=${token}`;
+  const hours = Math.max(1, Math.round((new Date(row.expires_at) - Date.now()) / 3_600_000));
+  const vars = { first_name: String(row.name || '').split(' ')[0], link, hours, inviter: 'the payroll team', company: 'PeoplePay360' };
+  const text = render('Hi {{first_name}},\n\nAn account has been created for you on {{company}}. Pick a password and you are in — the link is valid for {{hours}} hours and works once.\n\n{{link}}\n\nIf you did not expect this, ignore the message: nothing happens to your account.', vars);
+  const html = render('<p>Hi <b>{{first_name}}</b>,</p><p>An account has been created for you on <b>{{company}}</b>. Choose a password to finish setting it up.</p>'
+    + '<p><a href="{{link}}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#2f5bd7;color:#fff;text-decoration:none">Choose your password</a></p>'
+    + '<p style="color:#666">The link is valid for about {{hours}} hours and can be used once. Or copy this address: <code>{{link}}</code></p>'
+    + '<p style="color:#666">Did not expect this? Ignore it — nothing changes on your account.</p>', vars);
+  const out = await mailer.send({ to: row.work_email, subject: 'Finish your PeoplePay360 account — choose a password', text, html, previewDir: config.mail.dir });
+  if (!out?.ok) throw new Error(out?.error || 'mail driver refused the message');
+  sentToday.n += 1;
+  if (taskId) await markTask(taskId, 'COMPLETED', { jobId: String(job.id) });
+  logger.info({ to: row.work_email, invitationId, driver: out.driver }, 'account invitation emailed');
+  return { invitationId, to: row.work_email, driver: out.driver, file: out.file || null };
+}
+
 export async function onEmailFailed(job, error) {
   const taskId = job?.data?.taskId;
   if (!taskId) return;
   const res = await failTask(taskId, error?.message ?? 'send failed', job ? String(job.id) : undefined);
   const payslipId = job?.data?.payslipId;
+  if (!payslipId) return;                       // an invitation has no delivery row to flip
   await query(`update email_deliveries set status = $3::delivery_status, error = $4, attempts = attempts + 1
                where payslip_id = $1::uuid and ($2::int is null or document_version = $2)`,
     [payslipId, job?.data?.version ?? null, res?.retryable ? 'QUEUED' : 'FAILED', String(error?.message ?? '').slice(0, 300)]);

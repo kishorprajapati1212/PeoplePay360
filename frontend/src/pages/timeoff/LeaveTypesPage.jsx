@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CrudPage } from '../../components/crud/CrudPage.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { num } from '../../utils/format.js';
+import { usePicklists } from '../../utils/picklists.js';
 
 /**
  * "Time Off Types" from the mockup — the configuration that drives everything else: whether a type
@@ -11,6 +12,11 @@ import { num } from '../../utils/format.js';
  */
 export function LeaveTypesPage() {
   const navigate = useNavigate();
+  const { leaveCategories, loading, error } = usePicklists();
+  // The mockup's "payoff category" question, in two halves: which family a type belongs to (Casual, Sick,
+  // Maternity…) and whether a day of it costs money. Both are also filters, because the question is nearly
+  // always asked of a list — "show me the paid casual types".
+  const categoryOptions = leaveCategories.map((c) => ({ value: c.value, label: c.label }));
   return (
     <CrudPage
       title="Time off types"
@@ -26,10 +32,15 @@ export function LeaveTypesPage() {
         show: (row) => !!row.requires_allocation,
         onClick: (row) => navigate('/time-off/allocations?assign=' + row.id),
       }]}
+      filters={[
+        { key: 'category', label: 'Any category', options: categoryOptions },
+        { key: 'pay', label: 'Paid or unpaid', options: [{ value: 'PAID', label: 'Paid leave' }, { value: 'UNPAID', label: 'Unpaid (loss of pay)' }] },
+      ]}
       columns={[
         { key: 'name', label: 'Type', render: (r) => (<span className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: r.display_color || '#6366f1' }} />
             <span className="text-slate-100">{r.name}</span></span>) },
+        { key: 'category', label: 'Category', render: (r) => (r.category ? humanCat(r.category) : <span className="text-xs text-slate-500">not set</span>) },
         { key: 'code', label: 'Code' },
         { key: 'unit', label: 'Unit' },
         { key: 'max_days_per_year', label: 'Cap / yr', align: 'right', render: (r) => (r.max_days_per_year ? num(r.max_days_per_year) : '—') },
@@ -42,6 +53,14 @@ export function LeaveTypesPage() {
       ]}
       fields={[
         { key: 'name', label: 'Name', required: true, placeholder: 'Sick Leave' },
+        // GET /api/meta publishes this list, and it is the same array timeOffTypeBody validates against, so
+        // a category offered here can never be one the API would refuse.
+        { key: 'category', label: 'Leave category', type: 'select', options: categoryOptions, loading, error,
+          placeholder: 'Choose a category', hint: 'Groups the type in reports and in the picker employees use.' },
+        { key: 'pay_treatment', label: 'Payoff category', type: 'select', default: 'PAID',
+          read: (row) => (row.is_unpaid ? 'UNPAID' : 'PAID'),
+          options: [{ value: 'PAID', label: 'Paid — no payslip line' }, { value: 'UNPAID', label: 'Unpaid — loss of pay on the slip' }],
+          placeholder: 'Paid', hint: 'Unpaid writes is_unpaid and defaults the deduction code to LOP. Those two columns are what the engine reads.' },
         { key: 'code', label: 'Code', required: true, pattern: 'code', hint: 'UPPERCASE, 2-21 characters — used by imports and payslip codes.' },
         // The API accepts DAYS or HOURS only (timeOffTypeBody in backend/src/validators/hr.schema.js).
         // A "HALF DAYS" option used to sit here and fail with a validation error on save; half days are
@@ -57,7 +76,6 @@ export function LeaveTypesPage() {
         { key: 'display_color', label: 'Colour', type: 'text', pattern: 'hex_color' },
         { key: 'description', label: 'Description', type: 'textarea', rows: 2 },
         { key: 'requires_allocation', label: 'Requires a leave allocation', type: 'checkbox', checkboxLabel: 'Employees can only take it if they have a balance' },
-        { key: 'is_unpaid', label: 'Unpaid', type: 'checkbox', checkboxLabel: 'Deducted from pay' },
         { key: 'is_encashable', label: 'Encashable', type: 'checkbox' },
         { key: 'carry_forward', label: 'Carry forward', type: 'checkbox', checkboxLabel: 'Unused days roll into next year' },
         { key: 'sandwich_rule', label: 'Sandwich rule', type: 'checkbox', checkboxLabel: 'Leave bridged by a holiday counts as full leave' },
@@ -65,3 +83,5 @@ export function LeaveTypesPage() {
     />
   );
 }
+
+const humanCat = (c) => String(c).toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase());

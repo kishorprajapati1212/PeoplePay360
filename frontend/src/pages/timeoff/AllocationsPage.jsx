@@ -7,6 +7,7 @@ import { CrudPage } from '../../components/crud/CrudPage.jsx';
 import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
 import { Field, Input, Select } from '../../components/ui/controls.jsx';
+import { Notice } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
 import { num } from '../../utils/format.js';
@@ -131,6 +132,9 @@ export function AllocationsPage() {
   const types = useApi(useCallback(() => timeOff.types.list({}), []), []);
   const employeeOptions = useMemo(() => toRows(people.data).map((e) => ({ value: e.id, label: e.name + ' · ' + e.employee_code })), [people.data]);
   const typeOptions = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation).map((t) => ({ value: t.id, label: t.name })), [types.data]);
+  // ?assign=<id> arrives from another screen. If that type has been deleted since, the box would simply be
+  // empty and the page would look broken — so it is named, with a button that takes the link off the URL.
+  const assignUnknown = !!assignFor && !types.loading && !typeOptions.some((o) => String(o.value) === String(assignFor));
   // Only types that both grant days per year and allow carrying can be pushed forward — offering the rest
   // would just produce "Annual Leave does not carry forward".
   const carryOptions = useMemo(() => toRows(types.data).filter((t) => t.requires_allocation && t.carry_forward)
@@ -161,6 +165,12 @@ export function AllocationsPage() {
 
   return (
     <>
+      {assignUnknown && (
+        <Notice tone="warn" title="That link named a leave type that is not in the list">
+          <p>Type <code className="text-slate-300">{assignFor}</code> does not grant days per year, so there is nothing to assign — it was probably deleted or switched off after the link was made. Pick one below instead.</p>
+          <button className="btn-ghost btn-sm mt-2" onClick={() => setAssignFor('')}>Ignore that link</button>
+        </Notice>
+      )}
       {mayWrite && (
         <AssignBalancePanel typeId={assignFor} onTypeId={setAssignFor} types={typeOptions} people={toRows(people.data)}
                            onDone={() => setTick((n) => n + 1)} />

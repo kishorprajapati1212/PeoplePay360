@@ -5,6 +5,7 @@ import { useApi, useAction } from '../../hooks/useApi.js';
 import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
 import { Field, Input, Select, Textarea, Checkbox } from '../../components/ui/controls.jsx';
+import { usePicklists, keepCurrentValue } from '../../utils/picklists.js';
 import { ErrorPanel } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
@@ -22,7 +23,7 @@ const SETTINGS = {
     { key: 'company_name', label: 'Company name', max: 120, placeholder: 'OXP Technologies' },
     { key: 'legal_name', label: 'Legal name', max: 120, placeholder: 'OXP Technologies Pvt Ltd' },
     { key: 'city', label: 'City', max: 80, placeholder: 'Ahmedabad' },
-    { key: 'state', label: 'State', max: 80, placeholder: 'Gujarat' },
+    { key: 'state', label: 'State', max: 80, type: 'select', placeholder: 'Choose a state' },
     { key: 'postal_code', label: 'PIN code', max: 20, pattern: 'pincode' },
     { key: 'country', label: 'Country', max: 60, placeholder: 'India' },
     { key: 'currency', label: 'Currency code', max: 10, placeholder: 'INR', hint: 'Written on the payslip header.' },
@@ -47,7 +48,8 @@ const SETTINGS = {
     { key: 'sandwich_rule', label: 'Apply the sandwich rule to leave', type: 'checkbox', hint: 'Leave bridged by a holiday counts as full leave.' },
     { key: 'allow_negative_net', label: 'Allow a negative net (recovery exceeds pay)', type: 'checkbox', hint: 'Off is safer: the slip clamps at zero and the balance carries.' },
     { key: 'pt_enabled', label: 'Professional tax enabled', type: 'checkbox' },
-    { key: 'pt_state', label: 'PT slab state', max: 60, placeholder: 'Gujarat', hint: 'Which slab table to read; blank uses the company state.' },
+    { key: 'pt_state', label: 'PT slab state', max: 60, type: 'select', placeholder: 'Same as the company state',
+      hint: 'Which slab table to read; blank uses the company state. Only the states with a Professional Tax of their own are listed.' },
     { key: 'pt_charge_slice', label: 'Charge PT on', type: 'select', placeholder: 'The month (default)', options: [
       { value: 'MONTH', label: 'Once, on the monthly run' }, { value: 'HALF_FIRST', label: 'The 1st-half run only' }, { value: 'HALF_SECOND', label: 'The 2nd-half run only' }],
       hint: 'Half-month payroll otherwise charges the flat monthly PT twice.' },
@@ -71,6 +73,8 @@ const SETTINGS = {
 const NUMERIC = new Set(Object.values(SETTINGS).flat().filter((f) => f.type === 'number').map((f) => f.key));
 
 export function CompanyPage() {
+  // States and the PT ones come from the API, so this dropdown and the validator cannot drift apart.
+  const { states, ptStates, loading: statesLoading, error: statesError } = usePicklists();
   const toast = useToast();
   const mayWrite = useCan('settings:write');
   const { data, loading, error, reload } = useApi(useCallback(() => company.get(), []), []);
@@ -131,7 +135,9 @@ export function CompanyPage() {
               ) : (
                 <Field key={f.key} label={f.label} hint={f.hint} error={problems[f.key]} className={f.full ? 'sm:col-span-2' : ''}>
                   {f.type === 'select'
-                    ? <Select value={form[f.key] ?? ''} onChange={(v) => set(f.key, f.integer || f.key === 'fiscal_year_start_month' ? Number(v) : v)} options={f.options} placeholder="Not set" />
+                    ? <Select value={form[f.key] ?? ''} onChange={(v) => set(f.key, f.integer || f.key === 'fiscal_year_start_month' ? Number(v) : v)}
+                              options={f.key === 'state' ? keepCurrentValue(states, form.state) : f.key === 'pt_state' ? ptStates : f.options}
+                              loading={statesLoading} error={statesError} placeholder={f.placeholder || 'Not set'} />
                     : f.type === 'textarea'
                       ? <Textarea rows={2} value={form[f.key]} maxLength={f.max} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
                       : (

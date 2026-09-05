@@ -175,9 +175,13 @@ await step('leave types', 'GET', '/api/time-off/types', { tok: 'hr' }, (d, c) =>
 await step('leave type detail', 'GET', '/api/time-off/types/:id', { params: { id: () => ctx.leaveType?.id }, tok: 'hr' });
 const stamp = Date.now().toString(36).toUpperCase();
 const farDay = (n) => addDays(TODAY, 100 + ((Date.now() >> 10) % 260) + n * 9);   // moves with each run so reruns never collide
-await step('new leave type', 'POST', '/api/time-off/types', { body: { name: `Smoke Day ${stamp}`, code: `SMOKE_${stamp.slice(-5)}`, unit: 'DAYS', requires_allocation: false, approval_route: 'HR', is_unpaid: false, carry_forward: true }, tok: 'hr' }, (d, c) => { c.newType = d.id ? d : { ...d, id: d.type?.id }; });
+await step('new leave type', 'POST', '/api/time-off/types', { body: { name: `Smoke Day ${stamp}`, code: `SMOKE_${stamp.slice(-5)}`, unit: 'DAYS', requires_allocation: false, approval_route: 'HR',
+    category: 'CASUAL', pay_treatment: 'PAID', is_unpaid: false, carry_forward: true }, tok: 'hr' }, (d, c) => { c.newType = d.id ? d : { ...d, id: d.type?.id }; });
 await step('rename it', 'PATCH', '/api/time-off/types/:id', { params: { id: () => ctx.newType?.id }, body: { description: 'Adjusted by the smoke run' }, tok: 'hr' });
 await step('allocations', 'GET', '/api/time-off/allocations', { query: '?year=2026', tok: 'hr' }, (d, c) => { c.allocation = (d.rows ?? d)[0]; });
+await step('the type answers to its category and payoff', 'GET', '/api/time-off/types', { query: '?category=CASUAL&pay=PAID', tok: 'hr' }, (d, c) => { c.smokeTypeSeen = (d.rows ?? d).some((t) => t.id === c.newType?.id); });
+if (ctx.newType?.id && ctx.smokeTypeSeen === false) { console.log('  ✗ ?category=CASUAL&pay=PAID did not return the type just created that way'); failed += 1; }
+await step('an invented category is refused, not ignored', 'GET', '/api/time-off/types', { query: '?category=WEEKEND', tok: 'hr', exp: [400] });
 await step('grant an allocation', 'POST', '/api/time-off/allocations', { body: { employee_id: ctx.anyEmployee?.id, time_off_type_id: ctx.newType?.id, allocated_days: 3, valid_from: '2026-01-01', valid_until: '2026-12-31', status: 'APPROVED' }, tok: 'hr' }, (d, c) => { c.newAllocation = d; });
 await step('adjust it', 'PATCH', '/api/time-off/allocations/:id', { params: { id: () => ctx.newAllocation?.id }, body: { allocated_days: 4 }, tok: 'hr' });
 await step('negative balance is refused', 'PATCH', '/api/time-off/allocations/:id', { params: { id: () => ctx.newAllocation?.id }, body: { taken_days: 99 }, tok: 'hr', exp: [200, 422] });
@@ -197,7 +201,32 @@ await step('cancel it', 'POST', '/api/time-off/requests/:id/cancel', { params: {
 await step('employee applies', 'POST', '/api/portal/time-off', { tok: 'employee', body: { time_off_type_id: ctx.newType?.id, start_date: farDay(60), end_date: farDay(60), reason: 'Personal work' }, exp: [200, 201, 409] }, (d, c) => { c.portalRequest = d; });
 await step('employee cancels it', 'POST', '/api/portal/time-off/:id/cancel', { tok: 'employee', params: { id: () => ctx.portalRequest?.id }, exp: [200, 409] });
 await step('delete the draft request', 'DELETE', '/api/time-off/requests/:id', { params: { id: () => ctx.cancelled?.id }, tok: 'hr', exp: [200, 204, 409, 404] });
-await step('retire the smoke type', 'DELETE', '/api/time-off/types/:id', { params: { id: () => ctx.newType?.id }, tok: 'hr', exp: [200, 204, 409, 404] });
+// The smoke type now has an allocation and requests against it, so this delete is expected to be refused —
+// and a refusal without a sentence is what the review was about. The assertion reads the body, not the code.
+{
+  const path = `/api/time-off/types/${ctx.newType?.id}`;
+  const res = await call('DELETE', path, { token: tokens.hr });
+  if (res.status === 409) {
+    const m = String(res.error?.message || '');
+    const offered = res.error?.details?.can_deactivate === true || /deactivate/i.test(m);
+    if (!offered || m.length < 20) { console.log('  ✗ a refused delete came back without a reason and an alternative: ' + m); failed += 1; }
+    else console.log('  ✓ refused delete explains itself: ' + m.slice(0, 100));
+    record('delete a leave type in use', 'DELETE', '/api/time-off/types/:id', res, [409]);
+  } else if (res.status === 200 || res.status === 204 || res.status === 404) {
+    record('delete a leave type in use', 'DELETE', '/api/time-off/types/:id', res, [200, 204, 409, 404]);
+  } else {
+    record('delete a leave type in use', 'DELETE', '/api/time-off/types/:id', res, [200, 204, 409, 404]);
+  }
+}
+{  // A seeded department has employees in it: the sentence must name the table that holds it.
+  const res = await call('DELETE', `/api/org/departments/${ctx.department?.id}`, { token: tokens.admin });
+  if (res.status === 409) {
+    const m = String(res.error?.message || '');
+    if (!/employee|referenced|still used/i.test(m)) { console.log('  ✗ deleting a busy department did not say who holds it: ' + m); failed += 1; }
+    else console.log('  ✓ busy department names the rows holding it: ' + m.slice(0, 100));
+  }
+  record('delete a department in use', 'DELETE', '/api/org/departments/:id', res, [409, 200, 204, 404]);
+}
 
 // ── 5. contracts ──────────────────────────────────────────────────────────────
 console.log('\n▸ contracts');
@@ -355,7 +384,27 @@ if (ctx.newUser?.id) {
   await step('user detail', 'GET', '/api/users/:id', { params: { id: () => ctx.newUser.id } });
   await step('rename user', 'PATCH', '/api/users/:id', { params: { id: () => ctx.newUser.id }, body: { name: 'Smoke User Renamed' } });
   await step('change roles', 'POST', '/api/users/:id/roles', { params: { id: () => ctx.newUser.id }, body: { roles: ['HR_PAYROLL_USER'] } });
-  await step('deactivate', 'POST', '/api/users/:id/deactivate', { params: { id: () => ctx.newUser.id }, body: {} });
+  await step('picklists for the forms', 'GET', '/api/meta', { tok: 'hr' }, (d, c) => { c.meta = d; });
+{
+  const states = ctx.meta?.states || [], cats = ctx.meta?.leave_categories || [];
+  if (states.length < 28) { console.log('  ✗ /api/meta returned ' + states.length + ' Indian states (the forms need all of them)'); failed += 1; }
+  if (!cats.some((x) => (x.value || x) === 'CASUAL')) { console.log('  ✗ /api/meta has no CASUAL leave category'); failed += 1; }
+  if (!(ctx.meta?.pt_states || []).length) { console.log('  ✗ /api/meta returned no professional-tax states'); failed += 1; }
+  if (failed === 0) console.log('  ✓ /api/meta: ' + states.length + ' states, ' + cats.length + ' leave categories');
+}
+await step('two roles in one account are refused', 'POST', '/api/users/:id/roles', { params: { id: () => ctx.newUser.id }, body: { roles: ['ADMIN', 'HR_MANAGER'] }, tok: 'admin', exp: [400, 409] });
+await step('one role, set on its own', 'POST', '/api/users/:id/role', { params: { id: () => ctx.newUser.id }, body: { role: 'HR_PAYROLL_USER' }, tok: 'admin' });
+await step('issue a set-password link', 'POST', '/api/users/:id/invite', { params: { id: () => ctx.newUser.id }, body: { send_email: false }, tok: 'admin', idem: true }, (d, c) => { c.invite = d; });
+const inviteToken = ctx.invite?.token;
+if (!inviteToken) console.log('  ✗ no invitation came back — the account cannot be completed by its owner');
+await step('the link says whose it is, to someone with no session', 'GET', '/api/auth/invite/:token', { params: { token: () => inviteToken }, tok: 'none' });
+await step('open links for that account', 'GET', '/api/users/:id/invites', { params: { id: () => ctx.newUser.id }, tok: 'admin' });
+await step('a password too short is refused by the link', 'POST', '/api/auth/set-password', { body: { token: inviteToken, password: 'short' }, tok: 'none', exp: [400] });
+await step('set the first password through the link', 'POST', '/api/auth/set-password', { body: { token: inviteToken, password: 'SmokeChosen@2026' }, tok: 'none' });
+await step('the same link cannot be used again', 'POST', '/api/auth/set-password', { body: { token: inviteToken, password: 'SmokeSecond@2026' }, tok: 'none', exp: [400, 409] });
+await step('sign in with the password just chosen', 'POST', '/api/auth/login', { body: { email: userEmail, password: 'SmokeChosen@2026' }, tok: 'none' }, (d, c) => { c.inviteLogin = d?.token || d?.access_token ? d : null; });
+if (ctx.newUser && !ctx.inviteLogin) { console.log('  ✗ the invitation set a password but that password cannot sign in'); failed += 1; }
+await step('deactivate', 'POST', '/api/users/:id/deactivate', { params: { id: () => ctx.newUser.id }, body: {} });
   await step('a deactivated account cannot sign in', 'POST', '/api/auth/login', { body: { email: ctx.newUser.work_email, password: 'SmokePass@2026' }, exp: [401, 403] });
   await step('activate', 'POST', '/api/users/:id/activate', { params: { id: () => ctx.newUser.id }, body: {} });
   await step('reset the password', 'POST', '/api/users/:id/reset-password', { params: { id: () => ctx.newUser.id }, body: { password: 'SmokePass@9999', must_change_pw: false } });

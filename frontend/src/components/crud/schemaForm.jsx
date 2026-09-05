@@ -152,7 +152,9 @@ export function emptyValues(fields, extra = {}) {
 export function valuesFromRow(fields, row, extra = {}) {
   const out = { ...extra };
   for (const f of fields) {
-    const raw = row?.[f.key];
+    // f.read lets one field be computed from a row that has no single column for it — a leave type's payoff
+    // category, say, which is really is_unpaid plus payslip_code seen as one choice.
+    const raw = row && f.read ? f.read(row) : row?.[f.key];
     out[f.key] = raw === null || raw === undefined ? (f.default ?? (f.type === 'checkbox' ? false : ''))
       : f.type === 'date' ? String(raw).slice(0, 10)
       : f.type === 'checkbox' ? !!raw

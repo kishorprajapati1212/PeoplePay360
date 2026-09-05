@@ -259,7 +259,7 @@ async function seedTimeOff({ empMap, auth }) {
     const cols = { name: t.name, code: t.code, unit: t.unit, requires_allocation: t.requires_allocation, max_days_per_year: t.max_days_per_year,
       approval_route: t.approval_route, work_entry_type: t.work_entry_type, is_unpaid: t.is_unpaid, payslip_code: t.payslip_code,
       is_encashable: false, carry_forward: t.carry_forward, sandwich_rule: t.sandwich_rule, min_notice_days: t.min_notice_days,
-      display_color: t.display_color, is_active: 'ACTIVE', description: t.description };
+      display_color: t.display_color, is_active: 'ACTIVE', description: t.description, category: t.category || 'OTHER' };
     const row = await query(`insert into time_off_types (${Object.keys(cols).join(', ')}) values (${Object.keys(cols).map((_, i) => `$${i + 1}`).join(', ')})
                             on conflict (code) do update set description = excluded.description, is_active = 'ACTIVE' returning id`, Object.values(cols)).then((r) => r.rows[0]);
     typeIds[t.code] = row.id;
@@ -406,7 +406,7 @@ function printLogins() {
   // Every address the README lists has to be printed here with the roles it carries — otherwise a
   // login that was never seeded reads as a broken account.
   console.log('   ' + USERS.map((u) => u.work_email).join(' · ') + '   password: ' + config.demo.password);
-  console.log('   roles: ' + USERS.map((u) => u.work_email.split('@')[0] + '=' + u.roles.join('+')).join('  '));
+  console.log('   one role each: ' + USERS.map((u) => u.work_email.split('@')[0] + '=' + u.role).join('  '));
   console.log('   every employee address above works too (e.g. aarav.mehta@oxp.com) as a plain employee login\n');
 }
 async function main() {

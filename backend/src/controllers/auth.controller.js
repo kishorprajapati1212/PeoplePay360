@@ -21,6 +21,13 @@ export async function logout(req, res) {
 }
 export const me = async (req, res) => ok(res, await svc.me(req.auth.userId));
 export const accessMatrix = async (req, res) => ok(res, await userSvc.accessMatrix());
+/** The two public halves of an invitation: what does this link point at, and finishing it. */
+export async function inviteInfo(req, res) {
+  ok(res, await userSvc.readInvite(req.params.token));
+}
+export async function setPassword(req, res) {
+  ok(res, await userSvc.completeInvite(req.valid.body.token, req.valid.body.password));
+}
 export async function changePassword(req, res) {
   const out = await svc.changePassword({ userId: req.auth.userId, ...req.valid.body });
   res.clearCookie(REFRESH, { ...cookieOpts(), maxAge: undefined });

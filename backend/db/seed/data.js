@@ -134,7 +134,9 @@ export const PT_SLABS = [
 ];
 
 export const USERS = [
-  { key: 'admin', name: 'Anita Rao', work_email: 'admin@oxp.com', role: 'ADMIN', roles: ['ADMIN', 'HR_MANAGER'] },
+  // One role per login — the specification's five roles, five staff accounts. Two admins on purpose:
+  // an administrator cannot touch a peer's account, and the demo shows what that refusal looks like.
+  { key: 'admin', name: 'Anita Rao', work_email: 'admin@oxp.com', role: 'ADMIN', roles: ['ADMIN'] },
   { key: 'hr', name: 'Kunal Shah', work_email: 'hr@oxp.com', role: 'HR_MANAGER', roles: ['HR_MANAGER'] },
   { key: 'hr_user', name: 'Sneha Kulkarni', work_email: 'hr2@oxp.com', role: 'HR_PAYROLL_USER', roles: ['HR_PAYROLL_USER'] },
   // The two payroll addresses are deliberately different: "payroll" owns a run end to end (compute →
@@ -142,7 +144,7 @@ export const USERS = [
   // grant, so it can also fix the employee record sitting behind a wrong payslip. Both are printed by
   // the seeder and both are in the README table — the roles here are what that documentation describes.
   { key: 'payroll', name: 'Meera Iyer', work_email: 'payroll@oxp.com', role: 'HR_PAYROLL_MANAGER', roles: ['HR_PAYROLL_MANAGER'] },
-  { key: 'payroll_admin', name: 'Rahul Verma', work_email: 'payroll-admin@oxp.com', role: 'HR_PAYROLL_MANAGER', roles: ['HR_PAYROLL_MANAGER', 'HR_MANAGER'] },
+  { key: 'payroll_admin', name: 'Rahul Verma', work_email: 'payroll-admin@oxp.com', role: 'ADMIN', roles: ['ADMIN'] },
 ];
 
 /**
@@ -166,25 +168,25 @@ export const EMPLOYEES = [
 ];
 
 export const LEAVE_TYPES = [
-  { name: 'Casual Leave', code: 'CL', unit: 'DAYS', requires_allocation: true, max_days_per_year: 12, approval_route: 'MANAGER',
+  { name: 'Casual Leave', code: 'CL', category: 'CASUAL', unit: 'DAYS', requires_allocation: true, max_days_per_year: 12, approval_route: 'MANAGER',
     is_unpaid: false, payslip_code: 'CL', carry_forward: false, sandwich_rule: false, min_notice_days: 0, display_color: 'Blue',
     work_entry_type: 'Leave Work Entry', description: 'Short-notice personal leave. 12 days a year, does not carry forward.' },
-  { name: 'Privilege Leave', code: 'PL', unit: 'DAYS', requires_allocation: true, max_days_per_year: 15, approval_route: 'HR',
+  { name: 'Privilege Leave', code: 'PL', category: 'PRIVILEGED', unit: 'DAYS', requires_allocation: true, max_days_per_year: 15, approval_route: 'HR',
     is_unpaid: false, payslip_code: 'PL', carry_forward: true, sandwich_rule: false, min_notice_days: 3, display_color: 'Green',
     work_entry_type: 'Leave Work Entry', description: 'Planned time off. 15 days a year, up to 5 carry forward.' },
-  { name: 'Sick Leave', code: 'SL', unit: 'DAYS', requires_allocation: true, max_days_per_year: 7, approval_route: 'MANAGER',
+  { name: 'Sick Leave', code: 'SL', category: 'SICK', unit: 'DAYS', requires_allocation: true, max_days_per_year: 7, approval_route: 'MANAGER',
     is_unpaid: false, payslip_code: 'SL', carry_forward: false, sandwich_rule: true, min_notice_days: 0, display_color: 'Orange',
     work_entry_type: 'Leave Work Entry', description: 'Paid sick leave; the sandwich rule applies (weekends in between count).' },
-  { name: 'Half Day', code: 'HD', unit: 'HOURS', requires_allocation: false, max_days_per_year: null, approval_route: 'MANAGER',
+  { name: 'Half Day', code: 'HD', category: 'OTHER', unit: 'HOURS', requires_allocation: false, max_days_per_year: null, approval_route: 'MANAGER',
     is_unpaid: false, payslip_code: 'HD', carry_forward: false, sandwich_rule: false, min_notice_days: 0, display_color: 'Purple',
     work_entry_type: 'Leave Work Entry', description: 'Four paid hours, morning or afternoon.' },
-  { name: 'Leave Without Pay', code: 'LWP', unit: 'DAYS', requires_allocation: false, max_days_per_year: null, approval_route: 'PAYROLL_OFFICER',
+  { name: 'Leave Without Pay', code: 'LWP', category: 'UNPAID', unit: 'DAYS', requires_allocation: false, max_days_per_year: null, approval_route: 'PAYROLL_OFFICER',
     is_unpaid: true, payslip_code: 'LOP', carry_forward: false, sandwich_rule: true, min_notice_days: 0, display_color: 'Red',
     work_entry_type: 'Loss of Pay Work Entry', description: 'Unpaid — hits the payslip as Loss of Pay at the configured day divisor.' },
-  { name: 'Compensatory Off', code: 'COMP_OFF', unit: 'DAYS', requires_allocation: false, max_days_per_year: 6, approval_route: 'MANAGER',
+  { name: 'Compensatory Off', code: 'COMP_OFF', category: 'COMPENSATORY', unit: 'DAYS', requires_allocation: false, max_days_per_year: 6, approval_route: 'MANAGER',
     is_unpaid: false, payslip_code: 'COMP_OFF', carry_forward: false, sandwich_rule: false, min_notice_days: 0, display_color: 'Teal',
     work_entry_type: 'Leave Work Entry', description: 'Granted for weekend working; expires with the quarter.' },
-  { name: 'Maternity Leave', code: 'MAT', unit: 'DAYS', requires_allocation: false, max_days_per_year: 182, approval_route: 'HR',
+  { name: 'Maternity Leave', code: 'MAT', category: 'MATERNITY', unit: 'DAYS', requires_allocation: false, max_days_per_year: 182, approval_route: 'HR',
     is_unpaid: false, payslip_code: 'MAT', carry_forward: false, sandwich_rule: false, min_notice_days: 0, display_color: 'Pink',
     work_entry_type: 'Paid Work Entry', description: '26 weeks, paid, no balance needed.' },
 ];

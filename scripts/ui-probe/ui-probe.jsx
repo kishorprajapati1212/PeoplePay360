@@ -17,6 +17,9 @@ import { PayrunDetailPage } from '../../frontend/src/pages/payroll/PayrunDetailP
 import { PayslipsPage } from '../../frontend/src/pages/payroll/PayslipsPage.jsx';
 import { EmployeeFormModal } from '../../frontend/src/pages/employees/EmployeeFormModal.jsx';
 import { LoginPage } from '../../frontend/src/pages/LoginPage.jsx';
+import { SetPasswordPage } from '../../frontend/src/pages/auth/SetPasswordPage.jsx';
+import { DashboardPage } from '../../frontend/src/pages/DashboardPage.jsx';
+import { UsersPage } from '../../frontend/src/pages/settings/UsersPage.jsx';
 import { Topbar } from '../../frontend/src/layout/Topbar.jsx';
 import { api, setUnauthorizedHandler } from '../../frontend/src/api/client.js';
 
@@ -92,6 +95,123 @@ const CASES = {
     const btn = byText('Request leave'); click(btn); await settle(4);
     expect(has('No leave types are available to you'), 'the dialog should say the list is empty, not show a blank box');
     expect(has('switched on a leave type'), 'and name what to do about it');
+  },
+
+  /* Dashboards: the registry decides, so a new kind cannot be half-wired, and an unknown one is a sentence. */
+  'dashboard · an employee gets their own month, not a smaller HR screen': async () => {
+    who.me = await meFor(['EMPLOYEE']);
+    table = { ...baseTable(),
+      'GET /api/portal/summary': { period: { label: 'September 2026' }, attendance: { worked_hours: 168, overtime_hours: 4.5, present: 21, absent: 0, half_day: 1 }, pending_approvals: 1, balances: [], requests: [], payslips: [] } };
+    render({ at: ['/dashboard'], el: <DashboardPage /> });
+    await settle();
+    expect(has('My month'), 'the employee kind renders its own title');
+    expect(has('Hours worked'), 'with the hours the worker computed');
+    expect(has('Leave balance') && has('My payslips'), 'and the two things an employee actually comes for');
+    expect(!has('Payroll dashboard'), 'and not a shred of the HR screen');
+  },
+
+  'dashboard · payroll keeps its run view, and an unknown kind says so instead of crashing': async () => {
+    who.me = await meFor(['HR_PAYROLL_MANAGER']);
+    table = { ...baseTable(),
+      'GET /api/dashboard/overview': { period: { label: 'September 2026' }, headcount: 9, present: 8, on_leave: 1, open_requests: 2, cost: 620000, trend: [], status_breakdown: [], attendance: [] } };
+    render({ at: ['/payroll'], el: <DashboardPage kind="payroll" /> });
+    await settle();
+    expect(has('Payroll dashboard'), 'the payroll kind keeps its own title');
+    render({ at: ['/dashboard'], el: <DashboardPage kind="timesheet" /> });
+    await settle(4);
+    expect(has('not registered'), 'a key nobody registered is a message, not a white screen');
+    expect(has('payroll') && has('me'), 'and it lists what does exist, so the fix is obvious');
+  },
+
+  /* The other half of an invitation: the person who has a link and no password. */
+  'set-password · a live link shows whose account it is before anything is typed': async () => {
+    table = { 'GET /api/auth/invite/t-ok': { valid: true, name: 'Probe Person', work_email: 'probe@oxp.com', expires_at: '2026-09-12T09:00:00Z' } };
+    render({ at: ['/set-password?token=t-ok'], el: <SetPasswordPage /> });
+    await settle();
+    expect(has('Set your password'), 'the screen names itself');
+    expect(has('probe@oxp.com') && has('Probe Person'), 'and shows which account the link belongs to');
+    expect(has('Repeat it'), 'and the two boxes are the whole ask');
+    const submit = byText('Set password and continue');
+    expect(submit.disabled, 'nothing can be posted before the rules are met');
+    const box = inputLike((i) => i.type === 'password');
+    type(box, 'abc'); await settle(3);
+    expect(byText('Set password and continue').disabled, 'a 3-character password stays refused');
+    expect(has('at least 10 characters'), 'with the reason in words');
+  },
+
+  'set-password · a spent link explains itself and offers the way out': async () => {
+    table = { 'GET /api/auth/invite/t-old': { valid: false, reason: 'This link has already been used. Ask your admin to send a new one.' } };
+    render({ at: ['/set-password?token=t-old'], el: <SetPasswordPage /> });
+    await settle();
+    expect(has('already been used'), 'the API sentence is what the person reads');
+    expect(has('Back to sign in'), 'with a way back to the login card');
+    render({ at: ['/set-password'], el: <SetPasswordPage /> });
+    await settle(4);
+    expect(has('no invitation in it'), 'and an address with no token at all says so, rather than spinning');
+  },
+
+  /* Users page: one role, a link instead of a relayed password, the peer-admin rules made visible. */
+  'users · one role per account, a link to set the password, no edits across admins': async () => {
+    who.me = await meFor(['ADMIN']);
+    table = { ...baseTable(),
+      'GET /api/users': { rows: [
+        { id: 'u1', name: 'Fresh Joiner', work_email: 'joiner@oxp.com', role: 'EMPLOYEE', roles: ['EMPLOYEE'], is_active: true, must_change_pw: true },
+        { id: 'u2', name: 'Other Admin', work_email: 'admin2@oxp.com', role: 'ADMIN', roles: ['ADMIN'], is_active: true },
+      ], total: 2 },
+      'GET /api/employees': { rows: [], total: 0 } };
+    render({ at: ['/settings/users'], el: <UsersPage /> });
+    await settle();
+    expect(has('must set a password'), 'the account that cannot sign in yet says why');
+    expect(has('Send link'), 'and has a button that fixes it');
+    expect(has('deactivate: self only'), 'a peer administrator is not deactivated from here');
+    expect(has('pw: self only'), 'nor is their password reset from here');
+    expect(has('link: self only'), 'and neither is a reset link mailed to them — a link is a password');
+    click(byText('Send link')); await settle(4);
+    expect(calls.some((c) => c.key === 'POST /api/users/u1/invite'), 'the button asks the API for an invitation');
+  },
+
+  /* The mail itself: sent by the request, one account at a time, and said that way. */
+  'users · the link is mailed by the request and the page says so': async () => {
+    who.me = await meFor(['ADMIN']);
+    table = { ...baseTable(),
+      'GET /api/users/invites/pending': { rows: [{ id: 'u1', name: 'Fresh Joiner', work_email: 'joiner@oxp.com' }, { id: 'u3', name: 'Another One', work_email: 'another@oxp.com' }], count: 2 },
+      'GET /api/users': { rows: [{ id: 'u1', name: 'Fresh Joiner', work_email: 'joiner@oxp.com', role: 'EMPLOYEE', roles: ['EMPLOYEE'], is_active: true, must_change_pw: true }], total: 1 },
+      'GET /api/employees': { rows: [], total: 0 },
+      'POST /api/users/u1/invite': { link: 'http://localhost:5173/set-password?token=abc', token: 'abc', mail_sent: true, mail_queued: false, delivery_mode: 'sent-by-request', mail_driver: 'gmail', task_id: 12, how_it_is_delivered: 'Sent to joiner@oxp.com by this request via gmail — one message per account, no queue in between.', email: { ok: true, driver: 'gmail' } },
+      'POST /api/users/invites/send-pending': { attempted: 2, sent: 1, failed: 1, took_ms: 4200, waiting_before: 2, results: [{ name: 'Fresh Joiner', work_email: 'joiner@oxp.com', ok: true, note: 'Sent via gmail' }, { name: 'Another One', work_email: 'another@oxp.com', ok: false, note: 'The mail server said: 550 too many recipients today', link: 'http://localhost:5173/set-password?token=def' }] } };
+    render({ at: ['/settings/users'], el: <UsersPage /> });
+    await settle();
+    expect(has('Send links (2 waiting)'), 'the page counts who is waiting and offers to fix all of them');
+    // The header button's label contains "Send link" too, so the row's own button is picked by exact text.
+    const rowSend = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === 'Send link');
+    click(rowSend); await settle(4);
+    expect(has('Sent to joiner@oxp.com by this request'), 'the panel repeats the server sentence about how it went');
+    expect(has('no queue in between'), 'and says so in words, not by omission');
+    expect(has('Logged as task'), 'the queue-table row is still mentioned, because the log lives there');
+    click(byText('Send links (2 waiting)')); await settle(6);
+    expect(calls.some((c) => c.key === 'POST /api/users/invites/send-pending'), 'the bulk press calls the one-by-one endpoint');
+    expect(has('Set-password links, sent one by one'), 'and the report comes back per account');
+    expect(has('sent') && has('not sent') && has('another@oxp.com'), 'with the failed row named, link included');
+  },
+
+  /* A refused delete that stays silent is the complaint; the reason belongs in the box, with the way out. */
+  'crud · a refused delete keeps the dialog open, says who holds the row, offers deactivate': async () => {
+    who.me = await meFor(['HR_MANAGER']);
+    table = { ...baseTable(),
+      'GET /api/meta': { leave_categories: [{ value: 'CASUAL', label: 'Casual' }, { value: 'PRIVILEGED', label: 'Privilege' }] },
+      'GET /api/time-off/types': { rows: [{ id: 't1', name: 'Annual Leave', code: 'AL', category: 'PRIVILEGED', is_unpaid: false, is_active: 'ACTIVE', unit: 'DAYS', requires_allocation: true }] },
+      'DELETE /api/time-off/types/t1': { __status: 409, __body: { error: { code: 'TYPE_IN_USE', message: 'Annual Leave is used by 3 requests and 1 allocation', details: { can_deactivate: true, refs: { requests: 3, allocations: 1 } } } } } };
+    render({ at: ['/time-off/types'], el: <LeaveTypesPage /> });
+    await settle();
+    expect(has('Privilege'), 'the category is a column, not a memory test');
+    // Two Delete buttons once the box is open — the row's and the footer's; the footer is the last one.
+    const dels = [...document.querySelectorAll('button')].filter((b) => (b.textContent || '').trim() === 'Delete');
+    click(dels[0]); await settle(3);
+    const inBox = [...document.querySelectorAll('button')].filter((b) => (b.textContent || '').trim() === 'Delete').pop();
+    click(inBox); await settle(4);
+    expect(has('This record cannot be deleted'), 'the box changes into the explanation');
+    expect(has('used by 3 requests'), 'with the API sentence about what holds it');
+    expect(has('Deactivate instead'), 'and the way round');
   },
 
   'my time off · a failed picker is reported, not swallowed': async () => {
@@ -214,7 +334,7 @@ const CASES = {
     table = { ...baseTable() };
     render({ at: ['/login'], el: <LoginPage /> });
     await settle(6);
-    click(byText('Payroll Admin')); await settle(3);
+    click(byText('Admin (second)')); await settle(3);
     const email = inputLike((i) => i.type === 'email' || (i.attributes.get('autocomplete') === 'username'));
     expect(!!email, 'the login card has an email box');
     expect(email.value === 'payroll-admin@oxp.com', `the button must fill payroll-admin@oxp.com (got ${email.value})`);

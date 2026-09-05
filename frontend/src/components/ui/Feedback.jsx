@@ -35,6 +35,21 @@ export function NoAccess({ permission, path }) {
   );
 }
 
+/** A quiet block of explanation, in three tones. Nothing here shouts; contrast is checked like the rest. */
+export function Notice({ tone = 'info', title, children }) {
+  /* The tone is the border and the wash, never coloured text: a light-on-light sentence inside a tinted box
+     is exactly what scripts/check-contrast.py exists to catch (brand-100 measured 1.00 in the light theme). */
+  const skin = tone === 'warn' ? 'border-warn/40 bg-amber-950/30'
+    : tone === 'bad' ? 'border-bad/40 bg-red-950/40'
+      : 'border-brand-500/30 bg-brand-500/10';
+  return (
+    <div className={'rounded-lg border px-3 py-2 text-xs leading-relaxed ' + skin}>
+      {title && <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-300">{title}</p>}
+      <div className="text-slate-200">{children}</div>
+    </div>
+  );
+}
+
 export function KeyValue({ rows, columns = 2 }) {
   const pairs = rows.filter((r) => r && r.value !== undefined && r.value !== null && r.value !== '');
   return (

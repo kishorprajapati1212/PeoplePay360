@@ -18,7 +18,7 @@ table, so any row can be checked in one minute; `../README.md` §5 is the runnin
 | A3 | Weekly hours auto-calculated, not typed | DB trigger (or service-layer calc — recommended, see `06` §3) | Change a break to 0 → weekly hours change | M |
 | A3 | Schedules assigned to employee **or** contract | both FKs exist; contract overrides employee | Night-shift employee gets OT differently than fixed | M |
 | A4 | Time Off reachable from main nav: Requests, Allocations, Types | `web: /timeoff/{requests,allocations,types}` | — | M |
-| A4 | Types define unit (days/hours), allocation requirement, approval, payroll link | `time_off_types` (+ need `is_unpaid`/`payroll_code`, see `06` §7) | Sick = paid, LOP = unpaid → affects payslip | M |
+| A4 | Types define unit (days/hours), allocation requirement, approval, payroll link | `time_off_types` with `category` (Casual / Sick / Earned / Privilege / Compensatory / Maternity / Paternity / Unpaid / LOP / Other — migration `012_leave_category.sql`) and the pay treatment that writes `is_unpaid` + `payslip_code = 'LOP'` | Sick = paid, LOP = unpaid → affects payslip; `?category=CASUAL&pay=UNPAID` filters the same way | M |
 | A4 | Allocations track taken/remaining/validity, approval needed before available | `time_off_allocations` | Balance shown before request | M |
 | A4 | **Approved request auto-deducts allocation; transparently linked** | service-layer in one transaction | Approve → remaining drops → linked from allocation view | **M★** |
 | A5 | Structures = containers of rules; list shows rule count, employee count, active | `GET /salary-structures` (add `employee_count`) | — | M |

@@ -59,7 +59,14 @@ export const config = {
   // The SPA dev server + whatever CORS_ORIGINS lists; '*' when the web origin is wildcarded on purpose.
   webDist: env('WEB_DIST', join(ROOT, '..', 'frontend', 'dist')),
   serveStatic: bool('SERVE_WEB', true),
-  features: { invite: bool('FEATURE_INVITE', false), sso: bool('FEATURE_SSO', false), kiosk: bool('FEATURE_KIOSK', true) },
+  // The address a link in an e-mail should use. WEB_ORIGIN is right on a laptop; on a shared box set
+  // PUBLIC_APP_URL to what the browser actually types, or every invite lands with an unreachable link.
+  appUrl: env('PUBLIC_APP_URL', env('WEB_ORIGIN', 'http://localhost:5173')),
+  // An invitation is sent by the request that made it, one message per account — nobody has to wait for a
+  // worker, and nothing is lost when Redis is not running. INVITE_VIA_QUEUE=true is the opposite choice:
+  // hand each account its own job and let the worker dial SMTP (its retries, its rate limits).
+  invite: { ttlHours: num('INVITE_TTL_HOURS', 72), viaQueue: bool('INVITE_VIA_QUEUE', false), bulkLimit: num('INVITE_BULK_LIMIT', 50) },
+  features: { invite: bool('FEATURE_INVITE', true), sso: bool('FEATURE_SSO', false), kiosk: bool('FEATURE_KIOSK', true) },
 };
 Object.defineProperty(config.cors, 'origin', {
   get() {

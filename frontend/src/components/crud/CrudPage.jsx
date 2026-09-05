@@ -58,6 +58,7 @@ export function CrudPage({
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmActive, setConfirmActive] = useState(null);   // row waiting for a deactivate answer
   const [showInactive, setShowInactive] = useState(false);
+  const [deleteProblem, setDeleteProblem] = useState(null);   // why the API refused, kept under the button that asked
 
   const table = useTable({ search, filters });
 
@@ -69,7 +70,7 @@ export function CrudPage({
 
   function startCreate() { setErrors({}); setServerError(''); setValues(emptyValues(fields, makeExtra())); setEditing('new'); }
   function startEdit(row) { setErrors({}); setServerError(''); setValues(valuesFromRow(fields, row, makeExtra(row))); setEditing(row); }
-  function close() { setEditing(null); setConfirmDelete(null); }
+  function close() { setEditing(null); setConfirmDelete(null); setDeleteProblem(null); }
   const setValue = (key, value) => setValues((v) => ({ ...v, [key]: value }));
 
   /** Same rules the API enforces, checked before the request, so a bad IFSC is red here rather than in a toast. */
@@ -95,9 +96,16 @@ export function CrudPage({
     } finally { setSaving(false); }
   }
 
+  /* A refused delete stays open and says why, with the alternative next to it: "cannot delete" without a
+     reason and without a way forward is the dead end this review was about. The sentence comes from the
+     API (backend/src/lib/shared/errors.js translates Postgres's own detail), and the button only appears for
+     a list that actually has an active flag to fall back on. */
   async function remove(row) {
-    try { await api.remove(row.id); toast.success('Removed'); setConfirmDelete(null); reload(); }
-    catch (e) { toast.error(e.message); }
+    try { await api.remove(row.id); toast.success('Removed'); setConfirmDelete(null); setDeleteProblem(null); reload(); }
+    catch (e) {
+      setDeleteProblem({ message: e.message, canDeactivate: !!e.details?.can_deactivate || !!activeCfg, referencedBy: e.details?.referenced_by || null });
+      toast.error(e.message);
+    }
   }
 
   const activeOn = (row) => {
@@ -116,6 +124,9 @@ export function CrudPage({
     } catch (e) { toast.error(e.message); setConfirmActive(null); }
   }
 
+  const activeFilterCount = Object.entries(table.query || {}).filter(([k, v]) => v !== '' && v != null && !(k === 'q' && !v)).length
+    + (showInactive ? 1 : 0);
+
   const toolbar = (
     <>
       {search && <SearchInput className="w-64" value={table.term} onChange={table.onSearch} placeholder={searchPlaceholder} />}
@@ -128,6 +139,15 @@ export function CrudPage({
           <input type="checkbox" className="h-3.5 w-3.5 accent-brand-600" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
           Show inactive
         </label>
+      )}
+      {/* A filter left over from a row you have since deleted is the blank list people read as "my data is gone".
+          So the active ones are named here, and one click puts the list back. */}
+      {activeFilterCount > 0 && (
+        <button className="chip border-amber-500/30 bg-amber-500/10 text-amber-200"
+                title="Return to the unfiltered list"
+                onClick={() => { table.reset(); setShowInactive(false); }}>
+          Clear {activeFilterCount === 1 ? 'filter' : 'filters'} ({activeFilterCount})
+        </button>
       )}
       <div className="ml-auto flex items-center gap-2">
         {actions}
@@ -173,8 +193,12 @@ export function CrudPage({
       <Panel pad={false}>
         <DataTable columns={withActions} rows={rows} loading={loading} error={error} onRetry={reload} toolbar={toolbar}
                    onSort={(c) => table.toggleSort(c.sort)}
-                   empty={<EmptyState title={'No ' + title.toLowerCase() + ' yet'} hint={emptyHint}
-                                       action={mayWrite ? <button className="btn-primary btn-sm" onClick={startCreate}>Create the first one</button> : null} />}
+                   empty={rows.length === 0 && activeFilterCount > 0
+                     ? <EmptyState title={'Nothing matches these filters'}
+                                   hint={'The list is filtered' + (table.term ? ' and searched' : '') + ', so rows may exist that you are not seeing. Clearing it shows everything.'}
+                                   action={<button className="btn-ghost btn-sm" onClick={() => { table.reset(); setShowInactive(false); }}>Clear filters</button>} />
+                     : <EmptyState title={'No ' + title.toLowerCase() + ' yet'} hint={emptyHint}
+                                   action={mayWrite ? <button className="btn-primary btn-sm" onClick={startCreate}>Create the first one</button> : null} />}
                    pagination={{ page: table.page, size: table.size, total: totalOf(data, rows.length), onPage: table.setPage, onSize: table.setSize }} />
       </Panel>
 
@@ -203,15 +227,30 @@ export function CrudPage({
         </p>
       </Modal>
 
-      <Modal open={!!confirmDelete} onClose={close} title="Delete this record?" width="max-w-md"
+      <Modal open={!!confirmDelete} onClose={close}
+             title={deleteProblem ? 'This record cannot be deleted' : 'Delete this record?'} width="max-w-md"
              footer={<>
-               <button className="btn-ghost" onClick={close}>Keep it</button>
-               <button className="btn-danger" onClick={() => remove(confirmDelete)}>Delete</button>
+               <button className="btn-ghost" onClick={close}>{deleteProblem ? 'Close' : 'Keep it'}</button>
+               {deleteProblem?.canDeactivate && canToggleActive && (
+                 <button className="btn-primary" onClick={() => setConfirmActive(confirmDelete)}>Deactivate instead</button>
+               )}
+               {!deleteProblem && <button className="btn-danger" onClick={() => remove(confirmDelete)}>Delete</button>}
              </>}>
-        <p className="text-sm text-slate-300">
-          {confirmDelete?.name || confirmDelete?.code || 'This row'} will be removed. Records that other screens
-          depend on are refused by the API instead of being deleted — that is the backend protecting history.
-        </p>
+        {deleteProblem ? (
+          <div className="grid gap-2">
+            <p className="text-sm text-slate-200">{confirmDelete?.name || confirmDelete?.code || 'This row'}: {deleteProblem.message}</p>
+            <p className="text-xs text-slate-500">
+              Nothing was changed. Deactivating keeps the row for the records that already refer to it and takes it out
+              of every picker, which is what a delete was being asked for.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-300">
+            {confirmDelete?.name || confirmDelete?.code || 'This row'} will be removed. Records that other screens
+            depend on are refused by the API instead of being deleted — that is the backend protecting history, and it
+            will tell you which screen holds the reference.
+          </p>
+        )}
       </Modal>
     </>
   );

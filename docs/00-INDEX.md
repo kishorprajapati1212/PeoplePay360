@@ -11,7 +11,7 @@ six decisions below, plus the built / not-built inventory.
 | 01 | `01-what-i-understood.md` | Plain-language reading of the problem statement, what is actually being judged, the 6 traps |
 | 02 | `02-problem-statement-traceability.md` | Every requirement in the PDF → the API and table that answer it → the acceptance test |
 | 03 | `03-payroll-domain-research.md` | How payroll really works: Odoo object/workflow mapping, salary-rule engine semantics, money math, proration, India statutory rules, payslip anatomy |
-| 12 | `12-ui-spec-and-structure.md` | The mockup read screen-by-screen, folder-wise structure, how RBAC reaches the client, login flow, the 153-endpoint contract |
+| 12 | `12-ui-spec-and-structure.md` | The mockup read screen-by-screen, folder-wise structure, how RBAC reaches the client, login flow, the 160-endpoint contract |
 | 13 | `13-how-a-payslip-is-computed.md` | How one rule becomes one number on a slip: the four steps, a worked month, half-month factor, per-day money, caps, statutory lines, the formula variables |
 | 14 | `14-built-and-not-built.md` | The inventory: which screens are wired end to end, which API routes have no UI, what is deliberately not built and what stands in its place, and how each claim was checked |
 
@@ -23,7 +23,7 @@ this number", go straight to [`13-how-a-payslip-is-computed.md`](13-how-a-paysli
 
 - [x] Problem statement read and decomposed
 - [x] Payroll domain research done and encoded in `salary_rules` + the engine
-- [x] Application code written: schema + seeder, 153 endpoints, worker queues, React screens
+- [x] Application code written: schema + seeder, 160 endpoints, worker queues, React screens
 - [x] [`14-built-and-not-built.md`](14-built-and-not-built.md): the honest inventory of both halves of that line
 - [x] Half-month payslips, employee self-serve PDF download, arrear/advance true-up
 - [x] Access control in one file (`backend/src/lib/shared/permissions.js`) — nav, buttons and 403s read it

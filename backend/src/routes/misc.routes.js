@@ -13,7 +13,9 @@ import { z } from 'zod';
  * the logged-in user, which is what makes "an employee can read someone else's payslip" impossible here.
  */
 export const portalRoutes = bind([
-  get('/summary', { h: c.portalSummary, audit: false }),
+  // ?month=YYYY-MM, checked here because the service feeds it straight into a ::date cast — a stray
+  // ?month=last-month used to surface as a 500 rather than as "that is not a month".
+  get('/summary', { h: c.portalSummary, audit: false, query: z.object({ month: z.string().regex(/^\d{4}-\d{2}$/, 'month must look like 2026-02').optional() }) }),
   get('/payslips', { h: c.portalPayslips, audit: false }),
   get('/payslips/:id', { perm: 'payslip:read_own', params: idParam(), h: c.portalPayslip, read: true, audit: false }),
   get('/payslips/:id/pdf', { perm: 'payslip:download_own', params: idParam(), h: ps.pdf, download: true, audit: false }),

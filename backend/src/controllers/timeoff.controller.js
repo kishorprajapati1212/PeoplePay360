@@ -1,6 +1,7 @@
 import * as svc from '../services/timeoff.service.js';
 import { ok, created, list, filters } from './_http.js';
-export const types = async (_req, res) => ok(res, { rows: await svc.listTypes({ includeInactive: _req.valid.query.include_inactive === true }) });
+export const types = async (_req, res) => ok(res, { rows: await svc.listTypes({ includeInactive: _req.valid.query.include_inactive === true,
+  category: _req.valid.query.category || null, pay: _req.valid.query.pay || null }) });
 export const type = async (req, res) => ok(res, await svc.getType(req.params.id));
 export const createType = async (req, res) => created(res, await svc.createType(req.valid.body));
 export const updateType = async (req, res) => ok(res, await svc.updateType(req.params.id, req.valid.body));

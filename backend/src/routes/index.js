@@ -19,6 +19,7 @@ import { makeZip } from '../lib/pdf/index.js';
  * Route map — the URL surface of the product. Permissions live in each table entry and are defined once
  * in src/lib/shared/src/permissions.js; nav/visibility on the front end comes from the same file.
  */
+const humanise = (v) => String(v).toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 export function apiRouter() {
   const r = express.Router();
   r.use('/auth', publicRoutes);
@@ -37,7 +38,16 @@ export function apiRouter() {
   r.use('/company', companyRoutes);
   r.use('/system', systemRoutes);
   r.use('/reports', reportsRouter());
-  r.get('/meta', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+  // Picklists the forms need, straight from the same tables the validators use: the client never keeps a
+  // second copy of "which states exist" or "which leave categories are allowed", so an option that the
+  // API would refuse cannot appear in a dropdown.
+  r.get('/meta', async (_req, res) => {
+    const { INDIAN_STATES, PT_STATES } = await import('../lib/shared/index.js');
+    const { LEAVE_CATEGORIES } = await import('../validators/hr.schema.js');
+    res.json({ ok: true, ts: new Date().toISOString(),
+             states: INDIAN_STATES, pt_states: PT_STATES,
+             leave_categories: LEAVE_CATEGORIES.map((value) => ({ value, label: humanise(value) })) });
+  });
   r.use(notFound);
   r.use(errorHandler);
   return r;

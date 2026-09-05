@@ -6,6 +6,9 @@ import { publicConfig } from '../config.js';
 export const publicRoutes = bind([
   post('/login', { public: true, rate: { perMinute: 30 }, body: v.loginBody, h: c.login, audit: false }),
   post('/refresh', { public: true, rate: { perMinute: 60 }, h: c.refresh, audit: false }),
+  // The invitation link's two halves, both public: what does this token point at, and setting the password.
+  get('/invite/:token', { public: true, params: v.inviteTokenParam, h: c.inviteInfo, audit: false, rate: { perMinute: 30 } }),
+  post('/set-password', { public: true, rate: { perMinute: 10 }, body: v.setPasswordBody, h: c.setPassword, audit: false }),
 ]);
 export const authRoutes = bind([
   post('/logout', { h: c.logout, audit: false, read: true }),

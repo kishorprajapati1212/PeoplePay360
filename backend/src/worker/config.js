@@ -66,6 +66,9 @@ export const config = {
     webPort: num('WEB_PORT', 5173),
     apiPort: num('PORT', 4000),
   },
+  // The address an invitation link is built from — the same variable the API reads, so a link queued by
+  // one process opens in the other's browser.
+  appUrl: env('PUBLIC_APP_URL', env('WEB_ORIGIN', 'http://localhost:5173')),
   pdf: { renderer: env('PDF_RENDERER', 'pdfkit'), dir: env('PDF_DIR', join(ROOT, 'storage/pdfs')) },
   mail: {
     // Empty driver = the mailer decides: EMAIL_NAME + EMAIL_PASSWORD present → real sending, absent → .eml files.

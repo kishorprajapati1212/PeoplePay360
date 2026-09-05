@@ -19,13 +19,21 @@ export const attendanceBody = z.object({ employee_id: uuid, day: dateStr, check_
   overtime_approved: z.boolean().optional() });
 export const clockBody = z.object({ employee_id: uuid.optional(), at: dtStr.optional() });
 export const overtimeBody = z.object({ approved: z.boolean().default(true) });
-export const typeListQuery = z.object({ include_inactive: boolish.optional() });
+export const LEAVE_CATEGORIES = ['CASUAL', 'SICK', 'EARNED', 'PRIVILEGED', 'COMPENSATORY', 'MATERNITY', 'PATERNITY', 'UNPAID', 'LOP', 'OTHER'];
+export const typeListQuery = z.object({ include_inactive: boolish.optional(), category: z.enum(LEAVE_CATEGORIES).optional(),
+  // pay=PAID|UNPAID is the filter the Time Off screen calls "Payoff category": it reads is_unpaid, which
+  // is the only field that decides whether an approved day costs money.
+  pay: z.enum(['PAID', 'UNPAID']).optional() });
 export const timeOffTypeBody = z.object({ name: trimmed(80), code: z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9_]{1,20}$/, 'Code: letters/numbers, 2–21 chars'),
   unit: z.enum(['DAYS', 'HOURS']).default('DAYS'), requires_allocation: z.boolean().default(true), max_days_per_year: intIn(0, 400).optional(),
   approval_route: z.enum(['NONE', 'MANAGER', 'HR', 'PAYROLL_OFFICER']).default('MANAGER'), work_entry_type: optText(60),
   is_unpaid: z.boolean().default(false), payslip_code: optText(30), is_encashable: z.boolean().default(false), carry_forward: z.boolean().default(false),
   sandwich_rule: z.boolean().default(false), min_notice_days: intIn(0, 120).optional(), display_color: optText(20),
-  is_active: z.enum(['ACTIVE', 'INACTIVE']).optional(), description: optText(500) });
+  is_active: z.enum(['ACTIVE', 'INACTIVE']).optional(), description: optText(500),
+  category: z.enum(LEAVE_CATEGORIES).nullable().optional(),
+  // pay_treatment is the UI's single answer for "is this paid?" — it writes is_unpaid, and for unpaid
+  // types it also puts a deduction code in front of you so the slip cannot come out with a silent hole.
+  pay_treatment: z.enum(['PAID', 'UNPAID']).optional() });
 export const timeOffRequestBody = z.object({ employee_id: uuid.optional(), time_off_type_id: uuid, start_date: dateStr, end_date: optDate,
   duration: z.coerce.number().min(0.5).max(400).optional(), half_day_period: z.enum(['MORNING', 'AFTERNOON']).optional().nullable(),
   reason: optText(500), status: z.enum(['DRAFT', 'TO_APPROVE']).optional() });

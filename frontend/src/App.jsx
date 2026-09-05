@@ -5,6 +5,7 @@ import { Spinner } from './components/ui/Spinner.jsx';
 
 // One route table, one screen per file. Anything a role cannot see is not in its nav (see src/rbac).
 import { LoginPage } from './pages/LoginPage.jsx';
+import { SetPasswordPage } from './pages/auth/SetPasswordPage.jsx';
 import { DashboardPage } from './pages/DashboardPage.jsx';
 import { EmployeesPage } from './pages/employees/EmployeesPage.jsx';
 import { EmployeeDetailPage } from './pages/employees/EmployeeDetailPage.jsx';
@@ -36,15 +37,24 @@ export default function App() {
   const { user, ready } = useAuth();
 
   if (!ready) return <Spinner fullscreen label="Loading your workspace" />;
-  if (!user) return <Routes><Route path="*" element={<LoginPage />} /></Routes>;
+  // An invitation arrives while the person is, by definition, not signed in yet — so this one path is
+  // answered outside the guard. It only reads and writes a password for the token in its own query string.
+  if (!user) return (
+    <Routes>
+      <Route path="/set-password" element={<SetPasswordPage />} />
+      <Route path="*" element={<LoginPage />} />
+    </Routes>
+  );
 
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
+      {/* Also valid while signed in: an admin clicking their own test link should not be bounced to a login box. */}
+      <Route path="/set-password" element={<SetPasswordPage />} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to={landingFor(user)} replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/payroll" element={<DashboardPage mode="payroll" />} />
+        <Route path="/payroll" element={<DashboardPage kind="payroll" />} />
         <Route path="/employees" element={<EmployeesPage />} />
         <Route path="/employees/:id" element={<EmployeeDetailPage />} />
         <Route path="/departments" element={<DepartmentsPage />} />

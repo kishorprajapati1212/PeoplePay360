@@ -13,13 +13,17 @@ import { Field, Input } from '../components/ui/controls.jsx';
  * the seeder creates as "payroll-admin@oxp.com", and clicking it produced a sign-in failure that looked
  * like a broken account rather than a typo.
  * The notes are what the roles actually hold (see backend/src/lib/shared/permissions.js).
+ *
+ * One role per account, which is what the API enforces — so this list has no "manager + HR" combination any
+ * more, and the second ADMIN address exists to demonstrate the rule at the top of that list: an administrator
+ * cannot change a peer administrator's role, password or status.
  */
 const DEMO = [
   { role: 'Admin', email: 'admin@oxp.com', note: 'everything, incl. users & settings' },
   { role: 'HR Manager', email: 'hr@oxp.com', note: 'people, contracts, attendance, time off' },
   { role: 'Payroll Officer', email: 'hr2@oxp.com', note: 'runs: compute, validate, mark paid — no bulk mail' },
   { role: 'Payroll Manager', email: 'payroll@oxp.com', note: '+ bulk e-mail, PDFs, structures, delete a run' },
-  { role: 'Payroll Admin', email: 'payroll-admin@oxp.com', note: 'the above + edit employees & contracts' },
+  { role: 'Admin (second)', email: 'payroll-admin@oxp.com', note: 'same powers — use it to see that one admin cannot change another' },
   { role: 'Employee', email: 'aarav.mehta@oxp.com', note: 'own payslips, leave, attendance' },
 ];
 /** The seeder's default (config.demo.password). A deployment that set DEMO_PASSWORD must change this. */

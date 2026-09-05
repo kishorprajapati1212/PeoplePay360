@@ -460,5 +460,102 @@ t('a retired salary rule is written as a date, not a flag', () => {
   assert.ok(/active_to/.test(body), 'active_to is the switch that exists');
 });
 
+/* ── round 5: one role, invitation links, categories, and a refused delete that explains itself ── */
+import * as userSchema from '../src/validators/user.schema.js';
+import * as hrSchema from '../src/validators/hr.schema.js';
+import { mapDbError, AppError } from '../src/lib/shared/errors.js';
+t('an account is given exactly one role, and the older list shape says so', () => {
+  const one = userSchema.createBody.parse({ name: 'A', work_email: 'a@x.com', role: 'HR_MANAGER' });
+  assert.equal(one.role, 'HR_MANAGER');
+  const legacy = userSchema.createBody.parse({ name: 'A', work_email: 'a@x.com', roles: ['ADMIN'] });
+  assert.equal(legacy.role, 'ADMIN', 'a one-item list arrives as that role');
+  const two = userSchema.createBody.safeParse({ name: 'A', work_email: 'a@x.com', roles: ['ADMIN', 'HR_MANAGER'] });
+  assert.equal(two.success, false, 'two roles in the list must not be accepted here');
+  assert.match(JSON.stringify(two.error?.issues || []), /one role/i, 'and the message has to name the rule');
+  // Both keys have to arrive at the same answer, or the boundary is where the two shapes drift apart.
+  const alsoTwo = userSchema.createBody.safeParse({ name: 'A', work_email: 'a@x.com', role: 'ADMIN', roles: ['HR_MANAGER', 'EMPLOYEE'] });
+  assert.equal(alsoTwo.success, false, 'a two-item list is refused next to a role as well as instead of one');
+  const none = userSchema.createBody.parse({ name: 'A', work_email: 'a@x.com' });
+  assert.equal(none.role, 'EMPLOYEE', 'and no answer at all is the lowest role, as documented');
+  const upd = userSchema.updateBody.parse({ roles: ['HR_MANAGER'] });
+  assert.deepEqual(upd.roles, ['HR_MANAGER'], 'PATCH keeps the list shape for older clients');
+});
+t('the invite body takes the send-by-mail switch, and nothing else', () => {
+  assert.equal(userSchema.inviteBody.parse({}).send_email, true, 'the link goes out by e-mail unless told otherwise');
+  assert.equal(userSchema.inviteBody.parse({ send_email: false }).send_email, false);
+  // The schema strips what it does not know rather than erroring, which is the property that matters:
+  // an invitation body has no way to hand over a password, so the service never sees one.
+  const junk = userSchema.inviteBody.parse({ password: 'hunterhunterhunter', send_email: true });
+  assert.equal(junk.password, undefined, 'a password in an invite body is dropped, not stored');
+  assert.equal(Object.keys(junk).join(','), 'send_email', 'and nothing else survives that body');
+});
+t('leave types are categorised, and the payoff is one of two answers', () => {
+  for (const c of ['CASUAL', 'SICK', 'EARNED', 'PRIVILEGED', 'MATERNITY']) {
+    assert.ok(hrSchema.LEAVE_CATEGORIES.includes(c), c + ' is a category the problem statement names');
+  }
+  const body = hrSchema.timeOffTypeBody;
+  const okCase = body.safeParse({ name: 'Casual', code: 'CL', category: 'CASUAL', pay_treatment: 'PAID' });
+  assert.equal(okCase.success, true, 'a plain casual type parses: ' + JSON.stringify(okCase.error?.issues || []));
+  const bad = body.safeParse({ name: 'Weekend', code: 'WE', category: 'WEEKEND' });
+  assert.equal(bad.success, false, 'and an invented category is refused, not stored');
+});
+t('a refused delete names the table holding the row', () => {
+  const err = mapDbError({ code: '23503', constraint: 'employees_department_id_fkey',
+    message: 'update or delete on table "departments" violates foreign key constraint "employees_department_id_fkey" on table "employees"',
+    detail: 'Key (id)=(7) is still referenced from table "employees".' });
+  assert.ok(err instanceof AppError, 'the driver error becomes an AppError');
+  assert.equal(err.status, 409);
+  assert.match(err.message, /employee rows/i, 'the sentence says who holds it: ' + err.message);
+  assert.match(err.message, /Deactivate it instead/i, 'and offers the way round');
+  assert.equal(err.details.can_deactivate, true, 'so the UI can show the button');
+  assert.equal(err.details.referenced_by, 'employees');
+});
+t('a role change signs the account out, because the repo says so', () => {
+  const repo = readFileSync(new URL('../src/repositories/user.repo.js', import.meta.url), 'utf8');
+  const body = repo.slice(repo.indexOf('export async function setRoles'), repo.indexOf('export const patchUser'));
+  assert.ok(/token_version = token_version \+ 1/.test(body), 'setRoles bumps token_version: ' + body.slice(0, 60));
+  assert.ok(/refresh_tokens set revoked_at/.test(body), 'and drops the refresh tokens with it');
+  const svc = readFileSync(new URL('../src/services/user.service.js', import.meta.url), 'utf8');
+  assert.ok(/must_sign_in: true/.test(svc), 'so the answer can promise it to the UI');
+});
+t('a password link cannot be mailed to a peer administrator either', () => {
+  const svc = readFileSync(new URL('../src/services/user.service.js', import.meta.url), 'utf8');
+  const invite = svc.slice(svc.indexOf('export async function createInvite'), svc.indexOf('async function mailInvite'));
+  assert.ok(/assertNotAnotherAdmin\(auth, target, 'send a password link to'\)/.test(invite),
+    'createInvite has to carry the same rule the role and password routes carry');
+});
+t('the invitation routes are public where they must be and guarded where they must not be', () => {
+  const auth = readFileSync(new URL('../src/routes/auth.routes.js', import.meta.url), 'utf8');
+  const users = readFileSync(new URL('../src/routes/user.routes.js', import.meta.url), 'utf8');
+  const read = auth.split('\n').find((l) => l.includes("get('/invite/:token'"));
+  const set = auth.split('\n').find((l) => l.includes("post('/set-password'"));
+  assert.ok(read && /public: true/.test(read), 'a person with a link has no session: ' + read);
+  assert.ok(set && /public: true/.test(set), 'and the password post is the same: ' + set);
+  const inv = users.split('\n').find((l) => l.includes("post('/:id/invite'"));
+  assert.ok(inv && /'user:write'/.test(inv), 'issuing a link is a user-administration power: ' + inv);
+  assert.ok(users.includes("post('/:id/role'"), 'the single-role route is registered');
+});
+
+t('an invitation is mailed by the request, not parked in a queue', () => {
+  const cfg = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
+  const line = cfg.split('\n').find((l) => l.includes('viaQueue'));
+  assert.ok(line && /INVITE_VIA_QUEUE', false/.test(line), 'the default is the direct send: ' + line);
+  const svc = readFileSync(new URL('../src/services/user.service.js', import.meta.url), 'utf8');
+  const direct = svc.indexOf('config.invite.viaQueue');
+  assert.ok(direct > 0, 'the service must branch on that switch');
+  assert.ok(svc.slice(direct, direct + 2400).includes('mailInvite('), 'both branches end up able to send');
+  assert.ok(/mail_sent: mail.ok === true/.test(svc), 'and the answer says whether it was actually sent');
+  const bulk = /export async function sendPendingInvites/.test(svc);
+  assert.ok(bulk, 'the one-by-one bulk sender exists');
+  assert.ok(/for \(const u of waiting\)/.test(svc), 'and walks accounts in order rather than in parallel');
+});
+t('the bulk send is bounded where it is declared, not by a queue', () => {
+  const okCall = userSchema.sendPendingBody.parse({});
+  assert.equal(okCall.limit, 50, 'a default that fits a morning of hiring');
+  assert.equal(userSchema.sendPendingBody.parse({ limit: '7' }).limit, 7, 'a query string is coerced');
+  assert.equal(userSchema.sendPendingBody.safeParse({ limit: 5000 }).success, false, 'and 5000 SMTP conversations in one request are refused');
+  assert.equal(userSchema.sendPendingBody.safeParse({ token: 'x' }).token, undefined, 'nothing else survives that body');
+});
+
 console.log(`\n${fails.length ? `FAILED ${fails.length}/${passed + fails.length}` : `all ${passed} unit tests passed`}`);
 if (fails.length) { for (const [n, e] of fails) console.log(`\n--- ${n}\n${e.stack}`); process.exit(1); }

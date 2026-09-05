@@ -6,10 +6,29 @@ import { transaction } from '../db/tx.js';
 import { shiftHours } from '../lib/payroll/index.js';
 
 export const listTypes = (f) => repo.listTypes(f);
+/**
+ * The UI offers one dropdown for "is this leave paid". Two columns answer it — `is_unpaid` and
+ * `payslip_code` — so the choice is expanded here rather than kept in sync in three screens.
+ */
+function withPayTreatment(d = {}) {
+  const out = { ...d };
+  if (out.pay_treatment) { out.is_unpaid = out.pay_treatment === 'UNPAID'; if (out.is_unpaid && !out.payslip_code) out.payslip_code = 'LOP'; delete out.pay_treatment; }
+  return out;
+}
 export const getType = (id) => repo.getType(id).then((t) => { if (!t) throw AppError.notFound('Time off type not found'); return t; });
-export const createType = (d) => repo.createType(d);
-export const updateType = async (id, d) => { const t = await repo.updateType(id, d); if (!t) throw AppError.notFound('Time off type not found'); return t; };
-export const deleteType = async (id) => { const t = await repo.deleteType(id); if (!t) throw new AppError('TYPE_IN_USE', 'This type already has requests against it; deactivate it instead', { status: 409 }); return { ok: true, id }; };
+export const createType = (d) => repo.createType(withPayTreatment(d));
+export const updateType = async (id, d) => { const t = await repo.updateType(id, withPayTreatment(d)); if (!t) throw AppError.notFound('Time off type not found'); return t; };
+export const deleteType = async (id) => {
+  const t = await repo.deleteType(id);
+  if (t) return { ok: true, id, deleted: true };
+  // The refusal is the interesting part: it has to say what is connected, and offer the way out.
+  const refs = await repo.typeReferences(id);
+  const bits = [];
+  if (refs.requests) bits.push(`${refs.requests} request${refs.requests === 1 ? '' : 's'}${refs.pending_requests ? ` (${refs.pending_requests} still awaiting a decision)` : ''}`);
+  if (refs.allocated_employees) bits.push(`a balance on ${refs.allocated_employees} employee${refs.allocated_employees === 1 ? '' : 's'}`);
+  throw new AppError('TYPE_IN_USE', `This leave type cannot be deleted — it is on ${bits.join(' and ') || 'records you cannot see'}. Deactivate it instead: it stops appearing in pickers and every history row stays intact.`,
+    { status: 409, details: { refs, can_deactivate: true, type_id: id } });
+};
 export const listAllocations = (f) => repo.listAllocations(f);
 export const overview = (f) => repo.timeOffOverview(f);
 export const repoGetRequest = (id) => repo.getRequest(id);
