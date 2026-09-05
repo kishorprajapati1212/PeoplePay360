@@ -1,0 +1,131 @@
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#  PeoplePay360 — one command, nothing to edit:
+#
+#      docker compose up -d --build
+#
+#  then open the URLs below (Ctrl+Click works in a terminal; the API and worker also print them).
+#  Postgres/Redis use their built-in default credentials (postgres/postgres, no Redis password)
+#  and the database is created and seeded automatically by the `migrate` service.
+#
+#  Sources are bind-mounted, so an edit reloads the container — no rebuild while you work.
+#  Stop with: docker compose down      (add -v only if you want to wipe the demo data)
+# ══════════════════════════════════════════════════════════════════════════════════════════
+name: peoplepay360
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pp360-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: peoplepay360
+      TZ: Asia/Kolkata
+    ports: ['5432:5432']
+    volumes:
+      - pp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d peoplepay360']
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  redis:
+    image: redis:7-alpine
+    container_name: pp360-redis
+    command: ['redis-server', '--appendonly', 'yes']
+    ports: ['6379:6379']
+    volumes:
+      - pp_redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # Schema + demo data, run once. `--if-empty` keeps your data on later `up`s.
+  migrate:
+    build: ./backend
+    container_name: pp360-migrate
+    command: ['sh', '-c', 'node db/migrate.js && node db/seed/seed.js --if-empty']
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/peoplepay360
+      REDIS_HOST: redis
+      NODE_ENV: development
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/db:/app/db
+      - pp_storage:/app/storage
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: 'no'
+
+  api:
+    build: ./backend
+    container_name: pp360-api
+    command: ['npm', 'run', 'dev']
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/peoplepay360
+      REDIS_HOST: redis
+      PORT: 4000
+      HOST: 0.0.0.0
+      WEB_ORIGIN: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173
+      JWT_SECRET: peoplepay360-dev-secret-change-me-0123456789abcdef
+      MAIL_DRIVER: preview
+      NODE_ENV: development
+    ports:
+      - '4000:4000'
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/db:/app/db
+      - ./backend/scripts:/app/scripts
+      - pp_storage:/app/storage
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build: ./backend
+    container_name: pp360-worker
+    command: ['node', 'src/worker/index.js']
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/peoplepay360
+      REDIS_HOST: redis
+      WORKER_PORT: 4100
+      WEB_ORIGIN: http://localhost:5173
+      MAIL_DRIVER: preview
+      NODE_ENV: development
+    ports:
+      - '4100:4100'
+    volumes:
+      - ./backend/src:/app/src
+      - pp_storage:/app/storage
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build: ./frontend
+    container_name: pp360-web
+    command: ['npm', 'run', 'dev', '--', '--host', '0.0.0.0']
+    environment:
+      WEB_PORT: 5173
+      VITE_PROXY_TARGET: http://api:4000
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
+    depends_on:
+      - api
+
+volumes:
+  pp_pgdata:
+  pp_redis:
+  # shared by api + worker: the worker writes a PDF here, the API streams it from here
+  pp_storage:

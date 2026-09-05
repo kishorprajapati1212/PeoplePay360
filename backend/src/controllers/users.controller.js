@@ -1,0 +1,10 @@
+import * as svc from '../services/user.service.js';
+import { ok, created, list, filters } from './_http.js';
+export const index = async (req, res) => list(res, await svc.list(filters(req.query, { q: 'search' })));
+export const show = async (req, res) => ok(res, await svc.read(req.params.id));
+export const create = async (req, res) => created(res, await svc.create(req.valid.body, { auth: req.auth }));
+export const update = async (req, res) => ok(res, await svc.update(req.params.id, req.valid.body, { auth: req.auth }));
+export const roles = async (req, res) => ok(res, { id: req.params.id, roles: await svc.setRoles(req.params.id, req.valid.body.roles, { auth: req.auth }) });
+export const activate = async (req, res) => ok(res, await svc.setActive(req.params.id, true, { auth: req.auth }));
+export const deactivate = async (req, res) => ok(res, await svc.setActive(req.params.id, false, { auth: req.auth }));
+export const resetPassword = async (req, res) => ok(res, await svc.resetPassword(req.params.id, req.valid.body.password, { mustChange: req.valid.body.must_change_pw !== false }));

@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.npm/
+.pnpm-store/
+
+# build output
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# runtime artefacts
+storage/
+log/
+run/
+tmp/
+backups/
+.pgdata/
+*.log
+*.pid
+pids/
+
+# local env overrides (dev defaults are committed on purpose, see README)
+.env.local
+.env.*.local
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,10 @@
+import * as svc from '../services/contract.service.js';
+import { ok, created, list, filters } from './_http.js';
+export const index = async (req, res) => list(res, await svc.list(filters(req.query, { q: 'search', employee_id: 'employeeId', department_id: 'departmentId', expiring_days: 'expiringDays' })));
+export const show = async (req, res) => ok(res, await svc.read(req.params.id));
+export const create = async (req, res) => created(res, await svc.create(req.valid.body, { auth: req.auth }));
+export const update = async (req, res) => ok(res, await svc.update(req.params.id, req.valid.body, { auth: req.auth }));
+export const terminate = async (req, res) => ok(res, await svc.terminate(req.params.id, req.valid.body, { auth: req.auth }));
+export const renew = async (req, res) => created(res, await svc.renew(req.params.id, req.valid.body, { auth: req.auth }));
+export const forEmployee = async (req, res) => ok(res, { rows: await svc.forEmployee(req.params.employeeId) });
+export const expiring = async (req, res) => ok(res, { rows: await svc.expiring(req.query.days) });

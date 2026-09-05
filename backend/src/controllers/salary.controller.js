@@ -1,0 +1,20 @@
+import * as svc from '../services/salary.service.js';
+import { AppError } from '../lib/shared/index.js';
+import { ok, created, list, filters } from './_http.js';
+export const structures = async (req, res) => ok(res, { rows: await svc.listStructures(filters(req.query, { q: 'search' })) });
+export const structure = async (req, res) => ok(res, await svc.getStructure(req.params.id));
+export const createStructure = async (req, res) => created(res, await svc.createStructure(req.valid.body));
+export const updateStructure = async (req, res) => ok(res, await svc.updateStructure(req.params.id, req.valid.body));
+export const deleteStructure = async (req, res) => ok(res, await svc.deleteStructure(req.params.id));
+export const impact = async (req, res) => ok(res, await svc.impact(req.params.id));
+export const rules = async (req, res) => list(res, await svc.listRules(filters(req.query, { structure_id: 'structureId' })));
+export const rule = async (req, res) => { const r = await svc.getRule(req.params.id); if (!r) throw AppError.notFound('Salary rule not found'); return ok(res, r); };
+export const createRule = async (req, res) => created(res, await svc.saveRule(req.valid.body.salary_structure_id || req.params.structureId, req.valid.body));
+export const updateRule = async (req, res) => ok(res, await svc.updateRule(req.params.id, req.valid.body));
+export const deleteRule = async (req, res) => ok(res, await svc.deleteRule(req.params.id));
+export const validate = async (req, res) => ok(res, svc.validateFormula(req.valid.body, { wage: req.valid.body.wage, days: req.valid.body.days }));
+export const preview = async (req, res) => ok(res, await svc.previewStructure({ structureId: req.valid.body.structure_id, wage: req.valid.body.wage,
+  days: req.valid.body.days, employeeId: req.valid.body.employee_id, periodStart: req.valid.body.period_start, periodEnd: req.valid.body.period_end }));
+export const ptSlabs = async (req, res) => ok(res, { rows: await svc.listPtSlabs(req.query.state) });
+export const createPtSlab = async (req, res) => created(res, await svc.createPtSlab(req.valid.body));
+export const deletePtSlab = async (req, res) => ok(res, await svc.deletePtSlab(req.params.id));

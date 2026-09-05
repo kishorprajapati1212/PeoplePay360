@@ -1,0 +1,18 @@
+import * as svc from '../services/payrun.service.js';
+import { ok, created, list, filters, streamCsv } from './_http.js';
+export const index = async (req, res) => list(res, await svc.list(filters(req.query, { structure_id: 'structureId' })));
+export const show = async (req, res) => ok(res, await svc.read(req.params.id));
+export const candidates = async (req, res) => ok(res, await svc.preview(req.valid.query));
+export const step1 = async (req, res) => ok(res, await svc.preview(req.valid.body));
+export const create = async (req, res) => created(res, await svc.create(req.valid.body, { auth: req.auth }));
+export const compute = async (req, res) => ok(res, await svc.compute(req.params.id, { auth: req.auth, only: req.valid.body?.employee_ids }));
+export const validate = async (req, res) => ok(res, await svc.validate(req.params.id, { auth: req.auth }));
+export const markPaid = async (req, res) => ok(res, await svc.markPaid(req.params.id, { auth: req.auth }));
+export const send = async (req, res) => ok(res, await svc.sendPayslips(req.params.id, { auth: req.auth, force: req.valid.body.force, ccHr: req.valid.body.cc_hr }));
+export const pdfs = async (req, res) => ok(res, await svc.queuePdfs(req.params.id, { auth: req.auth }));
+export const emails = async (req, res) => ok(res, await svc.emailLedger(req.params.id));
+export const tasks = async (req, res) => ok(res, await svc.tasks(req.params.id));
+export const warnings = async (req, res) => ok(res, await svc.warnings(req.params.id));
+export const remove = async (req, res) => ok(res, await svc.remove(req.params.id));
+export const voidRun = async (req, res) => ok(res, await svc.voidPayrun(req.params.id, { auth: req.auth }));
+export const exportCsv = async (req, res) => streamCsv(res, await svc.exportCsv(req.params.id));

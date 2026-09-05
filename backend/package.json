@@ -1,0 +1,37 @@
+{
+  "name": "peoplepay360-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PeoplePay360 backend — Express API + BullMQ worker on PostgreSQL and Redis (PERN)",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "worker": "node src/worker/index.js",
+    "worker:dev": "node --watch src/worker/index.js",
+    "db:migrate": "node db/migrate.js",
+    "db:seed": "node db/seed/seed.js",
+    "db:reset": "node db/migrate.js --reset && node db/seed/seed.js",
+    "smoke": "node scripts/smoke.js",
+    "routes": "node scripts/routes-list.js",
+    "test": "node scripts/test-unit.js && node --test test",
+    "check": "node scripts/check-api-imports.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.0",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.15",
+    "pdfkit": "^0.15.0",
+    "pg": "^8.13.0",
+    "pino": "^9.4.0",
+    "zod": "^3.23.8"
+  }
+}

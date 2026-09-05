@@ -1,0 +1,17 @@
+import * as svc from '../services/org.service.js';
+import { ok, created, list, filters } from './_http.js';
+export const departments = async (_req, res) => ok(res, { rows: await svc.listDepartments({ includeInactive: _req.valid.query.include_inactive === true }) });
+export const createDepartment = async (req, res) => created(res, await svc.createDepartment(req.valid.body));
+export const updateDepartment = async (req, res) => ok(res, await svc.updateDepartment(req.params.id, req.valid.body));
+export const deleteDepartment = async (req, res) => ok(res, await svc.deleteDepartment(req.params.id));
+export const schedules = async (req, res) => ok(res, { rows: await svc.listSchedules(filters(req.query)) });
+export const schedule = async (req, res) => ok(res, await svc.getSchedule(req.params.id));
+export const createSchedule = async (req, res) => created(res, await svc.saveSchedule(null, req.valid.body));
+export const updateSchedule = async (req, res) => ok(res, await svc.saveSchedule(req.params.id, req.valid.body));
+export const deleteSchedule = async (req, res) => ok(res, await svc.deleteSchedule(req.params.id));
+export const holidays = async (req, res) => ok(res, { rows: await svc.listHolidays({ year: req.query.year ? Number(req.query.year) : undefined, from: req.query.from, to: req.query.to, type: req.query.type }) });
+export const createHoliday = async (req, res) => created(res, await svc.createHoliday(req.valid.body));
+export const updateHoliday = async (req, res) => ok(res, await svc.updateHoliday(req.params.id, req.valid.body));
+export const deleteHoliday = async (req, res) => ok(res, await svc.deleteHoliday(req.params.id));
+export const templates = async (_req, res) => ok(res, { rows: await svc.listTemplates() });
+export const generate = async (req, res) => ok(res, await svc.generateHolidays(req.valid.body));

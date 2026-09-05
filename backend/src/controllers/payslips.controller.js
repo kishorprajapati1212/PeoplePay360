@@ -1,0 +1,14 @@
+import * as svc from '../services/payslip.service.js';
+import { ok, created, list, filters, streamPdf, streamZip } from './_http.js';
+export const index = async (req, res) => list(res, await svc.list(filters(req.query, { employee_id: 'employeeId', payrun_id: 'payrunId', period_key: 'periodKey' }), { auth: req.auth }));
+export const show = async (req, res) => ok(res, await svc.read(req.params.id, { auth: req.auth }));
+export const recompute = async (req, res) => ok(res, await svc.recompute(req.params.id, { auth: req.auth }));
+export const lines = async (req, res) => ok(res, await svc.editLines(req.params.id, req.valid.body, { auth: req.auth }));
+export const inputs = async (req, res) => ok(res, await svc.setInputs(req.params.id, req.valid.body, { auth: req.auth }));
+export const arrear = async (req, res) => created(res, await svc.raiseArrear(req.params.id, req.valid.body, { auth: req.auth }));
+export const pdf = async (req, res) => streamPdf(res, await svc.downloadPdf(req.params.id, { auth: req.auth, via: req.query.via || 'PORTAL', version: req.query.version, req }));
+export const preview = async (req, res) => streamPdf(res, await (async () => { const r = await svc.renderPdf(req.params.id, { auth: req.auth, persist: false }); return { ...r, fileName: r.fileName }; })());
+export const print = async (req, res) => streamPdf(res, await svc.renderPdf(req.params.id, { auth: req.auth, persist: true }));
+export const history = async (req, res) => ok(res, await svc.history(req.params.id));
+export const downloads = async (req, res) => ok(res, await svc.downloads(req.params.id));
+export const zip = async (req, res) => streamZip(res, await svc.zipPayslips(req.params.payrunId, { auth: req.auth }));

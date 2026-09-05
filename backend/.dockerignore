@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+storage/pdfs/*
+storage/mail/*
+storage/uploads/*
+!storage/*/.gitkeep
+*.log
+.env.local

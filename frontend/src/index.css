@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The mockup is a dense dark admin: a handful of component classes keeps the pages readable. */
+@layer components {
+  .panel { @apply rounded-xl border border-line bg-ink-900/80 shadow-panel; }
+  .panel-pad { @apply p-4 sm:p-5; }
+  .label { @apply block text-[11px] font-medium uppercase tracking-wider text-slate-400; }
+  .input { @apply w-full rounded-lg border border-line bg-ink-850 px-3 py-2 text-sm text-slate-100
+            placeholder:text-slate-500 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium
+          transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-500; }
+  .btn-ghost { @apply btn border border-line bg-transparent text-slate-300 hover:bg-ink-800; }
+  .btn-danger { @apply btn border border-bad/40 bg-bad/10 text-red-300 hover:bg-bad/20; }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs; }
+  .chip { @apply inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium; }
+  .th { @apply px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
+  .td { @apply px-3 py-2 text-sm text-slate-200; }
+  .row { @apply border-t border-line/70 hover:bg-ink-800/60; }
+  .link { @apply text-brand-300 hover:text-brand-200 hover:underline; }
+}
+
+html, body, #root { height: 100%; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #22314d; border-radius: 999px; }
