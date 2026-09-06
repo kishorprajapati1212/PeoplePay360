@@ -79,7 +79,22 @@ export async function remove(id) {
   if (!done) throw AppError.notFound('Attendance row not found');
   return { ok: true, id };
 }
-/** Kiosk/self clock: one row per employee-day, punch state machine (in → out). */
+/** Kiosk/self clock: one row per employee-day, a session list underneath (in → out → in → out …). */
+const sessionsOf = (row) => {
+  const list = Array.isArray(row?.punches) ? row.punches : [];
+  return list.filter((s) => s && s.in).map((s) => ({ in: s.in, out: s.out || null }));
+};
+/** Worked time is the sum of the closed sessions plus the open one so far — never the span, so a
+ *  lunch break between two punches is not paid as work. */
+const sessionMinutes = (punches, now = new Date()) => {
+  let mins = 0;
+  for (const s of sessionsOf({ punches })) {
+    const from = new Date(s.in).getTime();
+    const to = s.out ? new Date(s.out).getTime() : now.getTime();
+    if (Number.isFinite(from) && Number.isFinite(to) && to > from) mins += (to - from) / 60000;
+  }
+  return mins;
+};
 export async function clock(input = {}, { auth }) {
   const id = input.employeeId ?? input.employee_id ?? auth?.employeeId;
   const at = input.at;
@@ -87,17 +102,41 @@ export async function clock(input = {}, { auth }) {
   const now = at ? new Date(at) : new Date();
   const day = toIso(now);
   const existing = await repo.byEmployeeDay(id, day);
+  const sessions = sessionsOf(existing);
+  const openIndex = sessions.findIndex((s) => !s.out);
+  // A row that predates the session list still counts as one session, so legacy days punch forward fine.
+  if (existing && !sessions.length && existing.check_in) sessions.push({ in: existing.check_in, out: existing.check_out || null });
+
   if (!existing) {
-    const created = await repo.createAttendance(await derive({ employeeId: id, day, check_in: now.toISOString(), status: 'PRESENT' }, (auth.roles || [])[0]));
+    const punches = [{ in: now.toISOString(), out: null }];
+    const derived = await derive({ employeeId: id, day, check_in: now.toISOString(), status: 'PRESENT', punches }, (auth.roles || [])[0]);
+    const created = await repo.createAttendance({ ...derived, punches });
     return { action: 'IN', at: created.check_in, record: await repo.getAttendance(created.id) };
   }
-  if (existing.check_in && !existing.check_out) {
-    const derived = await derive({ ...existing, check_out: now.toISOString() }, (auth.roles || [])[0]);
-    const saved = await repo.updateAttendance(existing.id, { ...derived, _editor: auth.userId, status: existing.status || derived.status });
-    return { action: 'OUT', at: saved.check_out, record: await repo.getAttendance(saved.id) };
+  if (openIndex >= 0) {
+    // Punch OUT: close the open session, then recompute the day from the session list.
+    sessions[openIndex].out = now.toISOString();
+    const worked = Math.round((sessionMinutes(sessions) / 60) * 100) / 100;
+    const brk = existing.break_minutes != null ? Number(existing.break_minutes) : (worked > 6 ? 60 : 0);
+    const net = Math.max(0, Math.round((worked - brk / 60) * 100) / 100);
+    const expected = Number(existing.expected_hours || 0);
+    const overtime = expected > 0 ? Math.round(Math.max(0, net - expected) * 100) / 100 : 0;
+    const status = overtime > 0 ? 'OVERTIME' : (expected > 0 && net >= expected * 0.45 && net < expected * 0.6 ? 'HALF_DAY' : 'PRESENT');
+    const saved = await repo.updateAttendance(existing.id, {
+      punches: sessions, check_in: sessions[0].in, check_out: sessions[sessions.length - 1].out,
+      worked_hours: worked, net_worked_hours: net, overtime_hours: overtime, status: existing.status === 'HOLIDAY' ? 'HOLIDAY' : status,
+      _editor: auth.userId,
+    });
+    return { action: 'OUT', at: saved.check_out, record: await repo.getAttendance(existing.id) };
   }
-  const hm = (v) => (v instanceof Date ? v.toTimeString().slice(0, 5) : String(v).slice(11, 16));
-  throw new AppError('ALREADY_CLOCKED_OUT', `You already clocked out at ${hm(existing.check_out)} for ${fmtDate(day)}`, { status: 409 });
+  // Punch IN again after a finished stretch (lunch, a second shift): append a new open session.
+  sessions.push({ in: now.toISOString(), out: null });
+  const worked = Math.round((sessionMinutes(sessions) / 60) * 100) / 100;
+  const saved = await repo.updateAttendance(existing.id, {
+    punches: sessions, check_in: sessions[0].in, check_out: null,
+    worked_hours: worked, status: 'PRESENT', _editor: auth.userId,
+  });
+  return { action: 'IN', at: sessions[sessions.length - 1].in, record: await repo.getAttendance(existing.id) };
 }
 export const approveOvertime = async (id, { auth, approved = true }) => {
   const row = await repo.getAttendance(id);

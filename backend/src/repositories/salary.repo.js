@@ -3,9 +3,13 @@ import { mapKeys, like } from './sql.js';
 import { params0 } from './_helpers.js';
 
 // ── structures ────────────────────────────────────────────────────────────────
-export const listStructures = async ({ search } = {}) => {
+export const listStructures = async ({ search, includeInactive } = {}) => {
   const { params, P } = params0();
   const clauses = ['true'];
+  // Same rule as every other list in the app: inactive rows are hidden until the screen explicitly
+  // asks for them (include_inactive). This one repo forgot, so a deactivated structure stayed in the
+  // list right after the "deactivated" toast — looking exactly like the button did nothing.
+  if (!includeInactive) clauses.push(`s.is_active = 'ACTIVE'`);
   if (search) clauses.push(`(s.name ilike ${P(`%${search}%`)} or s.code ilike $${params.length})`);
   const { rows } = await query(`
     select s.id, s.name, s.code, s.description, s.is_active, s.created_at,
@@ -31,9 +35,17 @@ export const updateStructure = (id, p) => {
   return query(`update salary_structures set ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1 returning *`, [id, ...keys.map((k) => p[k])]).then((r) => r.rows[0]);
 };
 export const deleteStructure = (id) =>
-  query(`update salary_structures set is_active = 'INACTIVE' where id = $1
-         and not exists (select 1 from contracts c where c.salary_structure_id = $1)
-         and not exists (select 1 from payruns r where r.salary_structure_id = $1) returning id`, [id]).then((r) => r.rows[0] || null);
+  // A real delete, not a quiet deactivation: the row disappears from the list, which is what the person
+  // pressing Delete expects. Only reached when nothing references the structure (the service checked
+  // contracts and payruns first); its rules go with it, because a rule cannot exist without a structure
+  // and no payslip line can point at them — the same guard that protects a rule's own delete.
+  query(`delete from salary_structures s
+         where s.id = $1
+           and not exists (select 1 from contracts c where c.salary_structure_id = $1)
+           and not exists (select 1 from payruns r where r.salary_structure_id = $1)
+           and not exists (select 1 from salary_rules r join payslip_lines l on l.salary_rule_id = r.id
+                           where r.salary_structure_id = $1)
+         returning s.id`, [id]).then((r) => r.rows[0] || null);
 
 // ── rules ─────────────────────────────────────────────────────────────────────
 const RULE_COLS = ['salary_structure_id', 'name', 'code', 'category', 'line_kind', 'sequence', 'computation_type', 'amount',

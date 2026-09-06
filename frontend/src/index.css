@@ -5,39 +5,79 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The mockup is a dense dark admin: a handful of component classes keeps the pages readable. */
+/* ────────────────────────────────────────────────────────────────────────────
+   Design language, 2026 refresh ("Iris"): soft-edged panels floating on a deep
+   blue-slate canvas, one violet accent, and motion that stays out of the way.
+   A handful of component classes keep the pages readable — same class names as
+   before, so every screen picks the new look up without being rewritten.
+   ──────────────────────────────────────────────────────────────────────────── */
 @layer components {
   /* min-width: 0 so a panel that holds a wide table shrinks instead of widening the page. */
-  .panel { min-width: 0; @apply rounded-xl border border-line bg-ink-900 shadow-panel; }
+  .panel {
+    min-width: 0;
+    @apply rounded-2xl border border-line bg-ink-900 shadow-panel;
+  }
   .panel-pad { @apply p-4 sm:p-5; }
-  .label { @apply block text-[11px] font-medium uppercase tracking-wider text-slate-400; }
-  .input { @apply w-full rounded-lg border border-line bg-ink-850 px-3 py-2 text-sm text-slate-100
-            placeholder:text-slate-500 outline-none transition-colors
-            focus:border-brand-500 focus:bg-ink-900 focus:ring-2 focus:ring-brand-500/25; }
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium
-          transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50
-          disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-500; }
-  .btn-ghost { @apply btn border border-line bg-transparent text-slate-300 hover:bg-ink-800; }
+  .label { @apply block text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400; }
+  .input {
+    @apply w-full rounded-xl border border-line bg-ink-850 px-3 py-2 text-sm text-slate-100
+           placeholder:text-slate-500 outline-none transition-all duration-150
+           focus:border-brand-500/70 focus:bg-ink-900 focus:ring-4 focus:ring-brand-500/15;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium
+           transition-all duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/30
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  /* One accent fill in the whole app: a quiet violet gradient with a soft glow. */
+  .btn-primary {
+    @apply btn text-white;
+    background-image: linear-gradient(135deg, rgb(var(--brand-500)), rgb(var(--brand-600)));
+    box-shadow: 0 1px 0 0 rgb(255 255 255 / 0.12) inset, 0 8px 20px -10px rgb(var(--brand-500) / 0.55);
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-primary:active { transform: translateY(1px); box-shadow: 0 1px 0 0 rgb(255 255 255 / 0.1) inset, 0 4px 12px -8px rgb(var(--brand-500) / 0.5); }
+  .btn-ghost { @apply btn border border-line bg-ink-850/40 text-slate-300 hover:bg-ink-800 hover:text-slate-100; }
   .btn-danger { @apply btn border border-bad/40 bg-bad/10 text-red-300 hover:bg-bad/20; }
-  .btn-sm { @apply px-2.5 py-1.5 text-xs; }
-  .chip { @apply inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium; }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs rounded-lg; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium; }
   /* px-4 everywhere: the toolbar above a table uses it too, so filters line up with the first column. */
-  .th { @apply px-4 py-2 text-left align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
-  .td { @apply px-4 py-2 align-middle text-sm text-slate-200; }
-  .row { @apply border-t border-line/70 transition-colors hover:bg-ink-800; }
+  .th { @apply px-4 py-2.5 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.07em] text-slate-400; }
+  .td { @apply px-4 py-2.5 align-middle text-sm text-slate-200; }
+  .row { @apply border-t border-line/60 transition-colors hover:bg-ink-800/70; }
   .link { @apply text-brand-300 hover:text-brand-200 hover:underline; }
+  /* The live "clocked in" dot on the punch card. */
+  .pulse-dot { position: relative; }
+  .pulse-dot::after {
+    content: ''; position: absolute; inset: -4px; border-radius: 9999px;
+    background: rgb(var(--good) / 0.35); animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  70%, 100% { transform: scale(1.6); opacity: 0; }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* The light theme is a real theme, not a dark one with the colours forgotten: these three rules are what
    makes a control look pressable on paper instead of washed out. */
-html.light .panel { border-color: rgba(60, 50, 35, 0.14); }
-html.light aside { border-color: rgba(60, 50, 35, 0.16); }
-html.light .fixed.inset-0 { background: rgba(60, 50, 35, 0.32); }   /* a white app does not need a black scrim */
+html.light .panel { border-color: rgba(55, 45, 80, 0.14); }
+html.light aside { border-color: rgba(55, 45, 80, 0.16); }
+html.light .fixed.inset-0 { background: rgba(40, 32, 60, 0.32); }   /* a white app does not need a black scrim */
 /* which nav item is current: the tint alone is too pale on paper, so the active one gets a brand bar */
-nav a[aria-current='page'] { box-shadow: inset 2px 0 0 rgb(var(--brand-500)); }
-html.light .input { box-shadow: inset 0 1px 1px rgba(60, 50, 35, 0.05); }
+nav a[aria-current='page'] { box-shadow: inset 2.5px 0 0 rgb(var(--brand-500)); }
+html.light .input { box-shadow: inset 0 1px 1px rgba(40, 32, 60, 0.06); }
 html.light .row { @apply border-line; }
+html.light .btn-ghost { @apply bg-white/60; }
 
 html, body, #root { height: 100%; }
 /* Nothing may push the page sideways. Wide things are supposed to scroll inside their own box (a table's
@@ -50,4 +90,10 @@ code { overflow-wrap: anywhere; }
 :focus-visible { outline: 2px solid rgb(var(--brand-500)); outline-offset: 1px; }
 ::selection { background: rgb(var(--brand-500) / 0.3); }
 body { background: rgb(var(--ink-950)); color: rgb(var(--slate-200)); }
+
+/* Scrollbars that read as part of the surface, not a browser add-on. */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgb(var(--scroll-thumb)); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--scroll-thumb) / 0.9); border: 2px solid transparent; background-clip: content-box; }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--scroll-thumb)) transparent; }

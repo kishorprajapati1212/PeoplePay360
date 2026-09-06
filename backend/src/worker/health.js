@@ -5,13 +5,22 @@ import { pingDb, counts } from './db.js';
 import { pingRedis } from './redis.js';
 import { queueDepth } from './reclaim.js';
 import { mailCapabilities } from './jobs/email.job.js';
-import { resolveDriver } from '../lib/mailer/index.js';
 
 const started = Date.now();
 let drained = 0;
 let failed = 0;
 export const recordDrain = (n = 1, bad = 0) => { drained += n; failed += bad; };
 export const drainStats = () => ({ processed: drained, failed });
+
+/** The merged mailer (Settings row over env) is what actually sends; /health must report THAT driver —
+ *  reporting the env-only driver is how "health says preview while payslips go out via smtp" starts. */
+let lastCaps = { driver: null, at: 0 };
+const liveDriver = async () => {
+  if (!lastCaps.driver || Date.now() - lastCaps.at > 15_000) {
+    lastCaps = { ...(await mailCapabilities().catch(() => ({ driver: config.mail.MAIL_DRIVER || 'preview' }))), at: Date.now() };
+  }
+  return lastCaps;
+};
 
 /**
  * A tiny HTTP surface so `docker compose ps`, a k8s probe and a curious human all get the same answer.
@@ -20,12 +29,15 @@ export const drainStats = () => ({ processed: drained, failed });
 export function healthApp({ workers = [] } = {}) {
   const app = express();
   app.disable('x-powered-by');
-  app.get('/health', (_req, res) => res.json({ ok: true, service: 'worker', uptime: Math.round((Date.now() - started) / 1000),
-    jobs: { processed: drained, failed }, pdf_dir: config.pdf.dir, mail_driver: resolveDriver(config.mail).driver, pdf_renderer: config.pdf.renderer,
+  app.get('/health', async (_req, res) => {
+    const caps = await liveDriver();
+    res.json({ ok: true, service: 'worker', uptime: Math.round((Date.now() - started) / 1000),
+    jobs: { processed: drained, failed }, pdf_dir: config.pdf.dir, mail_driver: caps.driver, mail_ok: caps.ok, mail_login: caps.login || null, pdf_renderer: config.pdf.renderer,
     queues: Object.values(config.queues), concurrency: config.worker.concurrency,
     // the resolved queue target, because "the worker can't reach Redis" is always a host/port mismatch
     redis: { host: config.redis.host, port: config.redis.port, db: config.redis.db, tls: config.redis.tls,
-             auth: Boolean(config.redis.password || config.redis.username) } }));
+             auth: Boolean(config.redis.password || config.redis.username) } });
+  });
   app.get('/health/ready', async (_req, res) => {
     const [db, redis, depth] = await Promise.all([pingDb(), pingRedis(), queueDepth().catch(() => ({}))]);
     const ok = db && redis;

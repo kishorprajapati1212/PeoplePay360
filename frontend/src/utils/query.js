@@ -9,6 +9,8 @@ export function toRows(x) {
   if (Array.isArray(x?.rows)) return x.rows;
   if (Array.isArray(x?.items)) return x.items;
   if (Array.isArray(x?.data)) return x.data;
+  // last resort: a few endpoints name their list after the domain (payrun preview → employees)
+  if (Array.isArray(x?.employees)) return x.employees;
   return [];
 }
 /** The matching total, for the few screens that show "N rows" without paging. */

@@ -12,7 +12,7 @@ import { ErrorPanel } from '../../components/ui/Feedback.jsx';
 import { Select } from '../../components/ui/controls.jsx';
 import { inr, inrCompact, num, periodLabel } from '../../utils/format.js';
 import { toRows } from '../../utils/query.js';
-import { ChartRow, TrendRow, StatusBreakdown, AttendanceBox } from './charts.jsx';
+import { ChartRow, TrendRow, StatusBreakdown, AttendanceBox, HeadcountChart, LeaveChart } from './charts.jsx';
 
 /**
  * The staff dashboard — one component, two entries in the registry (HR and payroll). Everything that
@@ -85,6 +85,18 @@ export function OverviewDashboard({ entry }) {
             </Panel>
             <Panel title="Monthly net pay trend" subtitle="last 12 months with money" className="xl:col-span-2">
               <TrendRow data={toRows(panels.net_trend)} />
+            </Panel>
+          </>
+        )}
+        {/* The HR view never had a picture: every chart sat behind the payroll permission, so an HR
+            manager landed on tables only. These two use panels the API already sends for HR. */}
+        {!seesPayroll && (
+          <>
+            <Panel title="Headcount by department" subtitle="people on the roster today" className="xl:col-span-2">
+              <HeadcountChart data={toRows(panels.departments)} />
+            </Panel>
+            <Panel title="Leave days by type" subtitle="approved vs pending, this period">
+              <LeaveChart data={toRows(panels.time_off)} />
             </Panel>
           </>
         )}

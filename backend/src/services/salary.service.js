@@ -15,10 +15,28 @@ export const createStructure = (d) => repo.createStructure(d);
 export const updateStructure = async (id, p) => { const s = await repo.updateStructure(id, p); if (!s) throw AppError.notFound('Salary structure not found'); return s; };
 export async function deleteStructure(id) {
   const impact = await repo.structureImpact(id);
-  if (Number(impact.employees) > 0) throw new AppError('STRUCTURE_IN_USE', `${impact.employees} active contract(s) still use this structure`, { status: 409, details: impact });
-  const done = await repo.deleteStructure(id);
+  // In use → refuse with a way out. The "employees" count is contracts pointing here today; "payruns"
+  // is history computed from it. Both mean the row is referenced, and referenced rows are deactivated,
+  // not deleted — payslip history has to keep resolving its structure.
+  if (Number(impact.employees) > 0 || Number(impact.payruns) > 0) {
+    const bits = [];
+    if (Number(impact.employees) > 0) bits.push(`${impact.employees} active contract(s) still use this structure`);
+    if (Number(impact.payruns) > 0) bits.push(`${impact.payruns} payrun(s) were computed from it`);
+    throw new AppError('STRUCTURE_IN_USE', `${bits.join(' and ')} — deactivate it instead: it stops appearing in new picks and every payslip stays intact.`,
+      { status: 409, details: { ...impact, can_deactivate: true } });
+  }
+  const done = await transaction(async (client) => {
+    const q = (sql, p) => client.query(sql, p).then((r) => ({ rows: r.rows, rowCount: r.rowCount }));
+    // A real delete, not a quiet deactivation: the row disappears from the list, which is what the
+    // person pressing Delete expects. Only reached when nothing references the structure (contracts,
+    // payruns and payslip lines were checked above), so its rules are safe to take with it — a rule
+    // cannot exist without its structure, and no payslip line points at them.
+    await q(`delete from salary_rules where salary_structure_id = $1
+             and not exists (select 1 from payslip_lines l where l.salary_rule_id = salary_rules.id)`, [id]);
+    return q(`delete from salary_structures where id = $1 returning id`, [id]).then((r) => r.rows[0] || null);
+  });
   if (!done) throw AppError.notFound('Salary structure not found');
-  return { ok: true, id };
+  return { ok: true, id, deleted: true };
 }
 export const listRules = (f) => repo.listRules(f);
 export const getRule = async (id) => { const r = await repo.getRule(id); if (!r) throw AppError.notFound('Salary rule not found'); return r; };
@@ -123,7 +141,8 @@ export async function updateRule(id, data) {
 }
 export async function deleteRule(id) {
   const used = await repo.ruleUsage(id);
-  if (used > 0) throw new AppError('RULE_IN_USE', `${used} payslip line(s) reference this rule`, { status: 409, details: { used } });
+  if (used > 0) throw new AppError('RULE_IN_USE', `${used} payslip line(s) reference this rule — retire it instead (the Retire button on its row): history keeps its numbers, and it stops running on new payslips.`,
+    { status: 409, details: { used, can_deactivate: true } });
   const done = await repo.deleteRule(id);
   if (!done) throw AppError.notFound('Salary rule not found');
   return { ok: true, id };

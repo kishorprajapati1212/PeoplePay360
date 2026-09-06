@@ -44,12 +44,21 @@ export async function computeOne({ payslip, payrun, company, structure, rules, p
     start_time: d.start_time, end_time: d.end_time, break_minutes: d.break_minutes, is_rest_day: d.is_rest_day,
   }]));
   const holidayList = (holidays || []).map((h) => toIso(h.day));
+  /* A period that has not ENDED yet pays only what has been earned so far. The whole engine measures a
+     slice of days; clamping the slice to today reuses every existing rule (mid-month joiners already go
+     through this exact path), so a run computed on the 6th pays the elapsed working days — not a full
+     month for an employee who has attended four of them. The warning below says it in words, and the
+     numbers are final only after a recompute at period end. */
+  const todayIso = toIso(new Date());
+  const periodOver = toIso(to) < todayIso;
+  const earnedTo = periodOver ? toIso(to) : (toIso(from) > todayIso ? toIso(from) : todayIso);
+  const inProgress = !periodOver && toIso(from) <= todayIso;
   const monthExpected = expectedDays({ scheduleDays: scheduleDaysByDow, holidays: holidayList, from: monthFrom, to: monthTo, joining: employee.date_of_joining, exit: employee.date_of_exit });
-  const sliceExpected = expectedDays({ scheduleDays: scheduleDaysByDow, holidays: holidayList, from, to, joining: employee.date_of_joining, exit: employee.date_of_exit });
+  const sliceExpected = expectedDays({ scheduleDays: scheduleDaysByDow, holidays: holidayList, from, to: earnedTo, joining: employee.date_of_joining, exit: employee.date_of_exit });
   const isWholeMonth = toIso(from) === monthFrom && toIso(to) === monthTo;
-  const stats = attendanceStats({ rows: attRows || [], from, to, expectedHours: monthExpected.hours });
+  const stats = attendanceStats({ rows: attRows || [], from, to: earnedTo, expectedHours: monthExpected.hours });
   const typesById = new Map((types?.rows || types || []).map((t) => [t.id, t]));
-  const leaves = leaveStats({ requests: (requests?.rows || requests || []), from, to, expectedDays: sliceExpected.days, typesById,
+  const leaves = leaveStats({ requests: (requests?.rows || requests || []), from, to: earnedTo, expectedDays: sliceExpected.days, typesById,
     scheduleDays: scheduleDaysByDow, holidays: holidayList, hoursPerDay: Number(settingsRow?.default_hours_per_day) || 8 });
   // A mid-month joiner/leaver is prorated even on monthly payroll — that is what expected_days clamping is
   // for. The denominator has to be the WHOLE month: monthExpected is already clamped to the employee's
@@ -81,6 +90,12 @@ export async function computeOne({ payslip, payrun, company, structure, rules, p
   const prior = await payslipRepo.priorTotals(employee.id, { monthAnchor, fyFrom: fyStart(monthAnchor, settings.fyStartMonth), fyTo: `${settings.fyStartMonth === 1 ? +monthAnchor.slice(0, 4) : +monthAnchor.slice(0, 4) + 1}-12-31`, excludePayslipId: payslip.id, monthKey }, q);
   const baseArgs = { employee, contract, structure, rules, ptSlabs, settings, inputs: inputsMap, arrears, leaves, attendance: stats, prior, period };
   const warnings = [];
+  if (!periodOver) {
+    warnings.push({ severity: 'WARN', code: 'PERIOD_IN_PROGRESS',
+      message: toIso(from) > todayIso
+        ? 'This period has not started yet — nothing has been earned, so every pro-rata line is zero. Recompute after the period begins.'
+        : `This period is still running: computed up to ${todayIso} (${sliceExpected.days} of ${expectedDays({ scheduleDays: scheduleDaysByDow, holidays: holidayList, from, to: monthTo, joining: employee.date_of_joining, exit: employee.date_of_exit }).days} expected working days so far in the month). The number is an advance, not the month's final pay — recompute at period end.` });
+  }
   let result;
   try {
     if (half) {
@@ -122,7 +137,7 @@ export async function computeOne({ payslip, payrun, company, structure, rules, p
     if (e.message === 'NO_CONTRACT') throw AppError.unprocessable('No contract covers this period', { code: 'NO_CONTRACT' });
     throw e;
   }
-  result.warnings = [...(result.warnings || []), ...payslipWarnings({ employee, contract, period, attendance: stats, leaves, totals: result.totals, rules, inputs: inputsMap, structure })];
+  result.warnings = [...(result.warnings || []), ...warnings, ...payslipWarnings({ employee, contract, period, attendance: stats, leaves, totals: result.totals, rules, inputs: inputsMap, structure })];
   const ytd = { ytd_gross: Number(fromPaise(prior.ytd_gross + result.totals.gross)), ytd_deductions: Number(fromPaise(prior.ytd_deductions + result.totals.deductions)), ytd_net: Number(fromPaise(prior.ytd_net + result.totals.net)) };
   const meta = { ...result.meta, status: 'COMPUTED',
     computation_summary: { ...(result.meta.computation_summary || {}),

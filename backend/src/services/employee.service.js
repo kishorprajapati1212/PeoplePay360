@@ -1,10 +1,12 @@
 import { AppError, toIso, csvToObjects } from '../lib/shared/index.js';
 import { transaction } from '../db/tx.js';
+import { randomBytes } from 'node:crypto';
 import { hashPassword } from '../middleware/auth.js';
 import * as repo from '../repositories/employee.repo.js';
 import * as userRepo from '../repositories/user.repo.js';
 import * as contractRepo from '../repositories/contract.repo.js';
 import * as salaryRepo from '../repositories/salary.repo.js';
+import { createInvite } from './user.service.js';
 import { recordAudit } from '../middleware/audit.js';
 
 export const list = (f) => repo.listEmployees(f);
@@ -25,14 +27,22 @@ export async function create(data, { auth } = {}) {
   const payload = { ...data };
   if (!payload.employee_code) payload.employee_code = await repo.nextEmployeeCode();
   if (await repo.emailTaken(payload.work_email)) throw AppError.conflict('That work email is already used by another employee record', { code: 'EMAIL_TAKEN' });
-  return transaction(async (client) => {
+  // "Email a set-password link": nobody types a starting password, the person gets a one-time link
+  // (single-use, hashed at rest, 72h) and picks their own. The account gets a random throwaway hash
+  // until then, so there is no shared secret floating around.
+  const viaInvite = !!(payload.user && (payload.user.send_invite || (!payload.user.password && payload.user.password !== '')));
+  if (viaInvite) delete payload.user.password;
+  let invite = null;
+  const out = await transaction(async (client) => {
     const q = (sql, params) => client.query(sql, params).then((r) => ({ rows: r.rows, rowCount: r.rowCount }));
     const employee = await repo.createEmployee(payload, q);
     let user = null;
     if (payload.user) {
-      const hash = await hashPassword(payload.user.password);
+      // invite mode: a random unknown-to-everyone password + must_change — the link is the real way in
+      const secret = viaInvite ? randomBytes(18).toString('base64url') : payload.user.password;
+      const hash = await hashPassword(secret);
       user = await userRepo.createUser({ name: payload.name, work_email: payload.work_email, password_hash: hash,
-        role: payload.user.role || 'EMPLOYEE', must_change_pw: !!payload.user.must_change_pw }, q).then((u) => u);
+        role: payload.user.role || 'EMPLOYEE', must_change_pw: viaInvite ? true : !!payload.user.must_change_pw }, q).then((u) => u);
       const roles = payload.user.roles?.length ? payload.user.roles : [payload.user.role || 'EMPLOYEE'];
       await userRepo.setRoles(user.id, roles, auth?.userId, q);
       await q(`update employees set user_id = $2 where id = $1`, [employee.id, user.id]);
@@ -48,6 +58,12 @@ export async function create(data, { auth } = {}) {
     const full = await repo.getEmployee(employee.id, q);
     return { ...full, user: user ? { id: user.id, roles: (payload.user?.roles || [payload.user?.role || 'EMPLOYEE']) } : null };
   });
+  // The link is minted after the commit — an invite row for a half-made employee helps nobody.
+  if (viaInvite && out.user) {
+    try { invite = await createInvite(out.user.id, { auth, sendEmail: true }); }
+    catch (e) { invite = { error: e.message }; }
+  }
+  return invite ? { ...out, invite } : out;
 }
 export async function update(id, patch, { auth } = {}) {
   const before = await repo.getEmployeeRaw(id);

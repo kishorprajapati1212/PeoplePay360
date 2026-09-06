@@ -5,7 +5,6 @@ import { mapKeys } from './sql.js';
 // settings screen; smtp_password is accepted here and then handled as a write-only field below.
 const EDITABLE = ['company_name','legal_name','address','city','state','postal_code','country','timezone','currency','currency_symbol',
   'mail_enabled','mail_from','mail_daily_limit','smtp_host','smtp_port','smtp_secure','smtp_user','smtp_password',
-  'mail_invite_ttl_minutes',      // how long a set-password link lives, in minutes — see migration 015
   'fiscal_year_start_month','payroll_day_basis','default_hours_per_day','overtime_multiplier','overtime_round_to','overtime_min_hours',
   'round_net_to_rupee','sandwich_rule','pf_enabled','pf_employee_pct','pf_employer_pct','pf_wage_ceiling','esi_enabled','esi_employee_pct',
   'esi_employer_pct','esi_wage_limit','pt_enabled','pt_monthly','pt_annual_cap','pt_charge_slice','pt_state','advance_percentage',

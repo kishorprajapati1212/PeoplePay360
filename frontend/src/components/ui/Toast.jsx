@@ -23,12 +23,11 @@ export function ToastProvider({ children }) {
       <div className="pointer-events-none fixed bottom-5 right-5 z-50 flex w-80 flex-col gap-2">
         {items.map((t) => (
           <div key={t.id}
-               className={
-                 'pointer-events-auto rounded-lg border px-3 py-2 text-sm shadow-lg backdrop-blur ' +
-                 (t.kind === 'error' ? 'border-bad/40 bg-red-950/70 text-red-200'
-                   : t.kind === 'success' ? 'border-good/40 bg-emerald-950/70 text-emerald-200'
-                   : 'border-line bg-ink-850/90 text-slate-200')
-               }>
+               className={'pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm shadow-panel backdrop-blur ' + (t.kind === 'error' ? 'border-bad/40 bg-red-950/80 text-red-200'
+                   : t.kind === 'success' ? 'border-good/40 bg-emerald-950/80 text-emerald-200'
+                   : 'border-line bg-ink-850/90 text-slate-200')}
+               style={{ animation: 'toast-in .18s ease-out' }}>
+            <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
             {t.message}
           </div>
         ))}

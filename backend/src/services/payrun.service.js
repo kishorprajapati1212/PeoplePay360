@@ -14,20 +14,6 @@ import { logger } from '../logger.js';
 
 const FLOW = { DRAFT: 'COMPUTED', COMPUTED: 'VALIDATED', VALIDATED: 'PAID' };
 /** Wizard step 1 → step 2: the candidate table, with duplicate-period warnings already computed. */
-async function explainEmptyRun({ from, to, structure }) {
-  const { eligibilityBreakdown } = await import('../repositories/employee.repo.js');
-  const b = await eligibilityBreakdown({ periodStart: toIso(from), periodEnd: toIso(to), structureId: structure.id }).catch(() => ({}));
-  const bits = [];
-  const n = (v) => Number(v || 0);
-  if (!n(b.on_structure)) return `“${structure.name}” is not on any contract yet — assign it to people (Employees → their Salary tab) before a run can use it.`;
-  if (n(b.not_active)) bits.push(`${n(b.not_active)} of the people on it are not active`);
-  if (n(b.draft_contract)) bits.push(`${n(b.draft_contract)} still have a DRAFT contract, which payroll ignores`);
-  if (n(b.outside_period)) bits.push(`${n(b.outside_period)} have a contract that does not cover ${toIso(from)} → ${toIso(to)}`);
-  if (n(b.already_in_a_run)) bits.push(`${n(b.already_in_a_run)} are already inside a run for these dates`);
-  if (n(b.eligible)) bits.push(`${n(b.eligible)} look eligible to the database, so a filter above the list is hiding them`);
-  return `${n(b.on_structure)} contract(s) sit on “${structure.name}”. ` + (bits.length ? bits.join(', ') + '.' : 'None of them is usable for these dates.');
-}
-
 export async function preview({ salary_structure_id, period_start, period_end, pay_frequency, compute_mode, search, department_id, employee_type, page = 1, page_size = 25 }) {
   const structure = await salaryRepo.getStructure(salary_structure_id);
   if (!structure) throw AppError.badRequest('Choose a Pay Structure first', { code: 'STRUCTURE_REQUIRED' });
@@ -47,8 +33,11 @@ export async function preview({ salary_structure_id, period_start, period_end, p
     structure: { id: structure.id, name: structure.name, rules: Number(structure.rules) },
     employees: cand.rows.map((r) => ({ ...r, duplicate: dupeBy.get(r.id) || null,
       expected_days: r.expected_days, worked_hours: Number(r.worked_hours), wages: Number(r.wage) })),
-    // The list is empty: say which of the three reasons it is, in the numbers the database has.
-    why_empty: cand.total ? null : await explainEmptyRun({ from, to, structure }),
+    // `rows` is the same list under the name every other list endpoint uses — the wizard's step 2
+    // read `.rows`, this endpoint answered `.employees`, and the table stayed empty (bug: "nobody is
+    // eligible" for a payroll that had everyone). Both keys now travel so either reader works.
+    rows: cand.rows.map((r) => ({ ...r, duplicate: dupeBy.get(r.id) || null,
+      expected_days: r.expected_days, worked_hours: Number(r.worked_hours), wages: Number(r.wage) })),
     total: cand.total, page: Number(page), page_size: size,
     pages: Math.max(1, Math.ceil(cand.total / size)),
     existing_payrun: existing ? { id: existing.id, name: existing.name, status: existing.status } : null,
@@ -153,8 +142,10 @@ export async function compute(id, { auth, only = null } = {}) {
     }
   }
   // DRAFT → COMPUTED as soon as anything was computed: the run shows its warnings/errors, and
-  // VALIDATE (not COMPUTE) is the gate that refuses to move on while error_count > 0.
-  if (results.some((r) => r.ok)) await query(`update payruns set status = 'COMPUTED', computed_at = now() where id = $1 and status = 'DRAFT'`, [id]);
+  // VALIDATE (not COMPUTE) is the gate that refuses to move on while error_count > 0. The actor is
+  // stamped here because approval is maker-checker: validate() refuses this same account.
+  if (results.some((r) => r.ok)) await query(`update payruns set status = 'COMPUTED', computed_at = now(), computed_by = $2 where id = $1 and status = 'DRAFT'`, [id, auth?.userId ?? null]);
+  if (results.some((r) => r.ok) && run.status === 'COMPUTED') await query(`update payruns set computed_by = $2 where id = $1`, [id, auth?.userId ?? null]);
   await refreshTotals(id);
   const updated = await repo.getPayrun(id);
   return { payrun: updated, results, computed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, ...nextActions(updated) };
@@ -165,9 +156,13 @@ async function loadContext(run) {
 }
 async function refreshTotals(id) {
   await query(`select recalc_payrun_totals($1)`, [id]);
+  // warning_count counts the individual FLAGS summed over the run's payslips — the same rows the
+  // detail page lists under Checks and the same number payslip.warnings returns per slip. It used to
+  // count "payslips carrying ≥1 flag", so a run of 3 people with 2 flags each reported 3 while the
+  // page listed 6 — one number, one meaning now.
   await query(`update payruns set
-      warning_count = (select count(*) from payslips p where p.payrun_id = $1 and p.status <> 'VOID'
-                       and jsonb_array_length(coalesce(p.computation_summary -> 'warnings', '[]'::jsonb)) > 0),
+      warning_count = (select coalesce(sum(jsonb_array_length(coalesce(p.computation_summary -> 'warnings', '[]'::jsonb))), 0)
+                       from payslips p where p.payrun_id = $1 and p.status <> 'VOID'),
       error_count = (select count(*) from payslips p where p.payrun_id = $1 and p.status <> 'VOID'
                      and exists (select 1 from jsonb_array_elements(coalesce(p.computation_summary -> 'warnings', '[]'::jsonb)) w
                                  where w ->> 'severity' = 'ERROR'))
@@ -178,6 +173,9 @@ const transition = async (id, from, to, { auth, stamp } = {}) => {
   const run = await repo.getPayrun(id);
   if (!run) throw AppError.notFound('Payrun not found');
   if (run.status !== from) throw new AppError('WRONG_STATE', `This action needs the payrun to be ${from.toLowerCase()}, but it is ${run.status.toLowerCase()}`, { status: 409, details: { status: run.status, needs: from } });
+  // Approval stays a real step (COMPUTED → VALIDATED → PAID) and the run records who computed and who
+  // approved, but the same account may do both — a one-person payroll team is the normal case here, and
+  // employees still see nothing until the run is approved and paid (NOT_RELEASED on their side).
   return transaction(async (client) => {
     const q = (sql, params) => client.query(sql, params).then((r) => ({ rows: r.rows, rowCount: r.rowCount }));
     await client.query(`select id from payruns where id = $1 for update`, [id]);

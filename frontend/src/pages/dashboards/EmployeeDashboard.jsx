@@ -8,6 +8,7 @@ import { StatCard } from '../../components/ui/StatCard.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { ErrorPanel, EmptyState } from '../../components/ui/Feedback.jsx';
 import { date, inr, num } from '../../utils/format.js';
+import { HomeCharts } from './charts.jsx';
 
 /**
  * What an employee sees when they sign in. It used to be the HR dashboard with the payroll panels missing,
@@ -50,6 +51,10 @@ export function EmployeeDashboard({ entry, onMonthChange }) {
         <StatCard label="Overtime" value={Number(att.overtime_hours || 0).toFixed(2)} hint="hours, awaiting or already approved" tone={Number(att.overtime_hours) ? 'brand' : undefined} />
         <StatCard label="Leave pending" value={num(data?.pending_approvals)} tone={data?.pending_approvals ? 'warn' : undefined} hint="requests waiting on an approver" />
         <StatCard label="Last payslip" value={slip ? inr(slip.net) : '—'} hint={slip ? `${slip.period} · ${String(slip.status).toLowerCase()}` : 'none released yet'} tone="money" />
+      </div>
+
+      <div className="mt-4">
+        <HomeCharts attendance={att} balances={balances} monthLabel={data?.period?.label} />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">

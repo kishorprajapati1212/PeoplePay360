@@ -1,5 +1,4 @@
 import { createMailer } from './index.js';
-import { providerFor, isPlaceholderHost } from './providers.js';
 
 /**
  * Which mail settings are live, right now, in whichever process is asking.
@@ -21,24 +20,21 @@ export function resolveMailConfig(row = {}, base = {}) {
   const value = (key, v) => { const t = text(v); if (t !== null) out[key] = t; };
 
   value('SMTP_HOST', row.smtp_host);
-  value('SMTP_PORT', row.smtp_port);
   value('EMAIL_NAME', row.smtp_user);
   value('MAIL_FROM', row.mail_from);
   value('MAIL_DAILY_LIMIT', row.mail_daily_limit);
   if (text(row.smtp_password) !== null) out.EMAIL_PASSWORD = String(row.smtp_password);
 
+  // The port rides along only when the row's HOST is set too: the column defaults to 587 (migration 013),
+  // so an empty row would otherwise silently override a real SMTP_PORT from backend/.env.
+  if (text(row.smtp_host)) value('SMTP_PORT', row.smtp_port);
+
   // Only decide transport at all when the company has actually configured one; otherwise the env keeps its
-  // say (including SMTP_SECURE, which a plain env deployment may well have set by hand).
-  const provider = providerFor(text(row.smtp_user) || text(base.EMAIL_NAME));
-  const typedHost = text(row.smtp_host) && !isPlaceholderHost(row.smtp_host) ? text(row.smtp_host) : '';
-  // The TLS box is an answer about a *host*, and it is silent when the host is one the address already implies —
-  // that provider's TLS mode must survive. Writing 'false' because the box is unticked is how Gmail or Zoho on
-  // port 465 became "STARTTLS on 465", which no server on 465 accepts, and how a good App Password looked wrong.
-  const tableSpeaks = Boolean(provider) && (!typedHost || typedHost.toLowerCase() === provider.host.toLowerCase());
+  // say (including SMTP_SECURE, which a plain env deployment may well have set by hand). An explicit
+  // "implicit TLS" box means a port-465 style server: nodemailer's `service: 'gmail'` preset would silently
+  // rewrite that to STARTTLS, so the driver is pinned instead of left to auto-detection.
   if (text(row.smtp_host) || text(row.smtp_user)) {
-    if (!tableSpeaks || row.smtp_secure) out.SMTP_SECURE = row.smtp_secure ? 'true' : 'false';
-    // An explicit "implicit TLS" box means a port-465 style server: nodemailer's `service: 'gmail'` preset
-    // would silently rewrite that to STARTTLS, so the driver is pinned instead of left to auto-detection.
+    out.SMTP_SECURE = row.smtp_secure ? 'true' : 'false';
     if (row.smtp_secure) out.MAIL_DRIVER = 'smtp';
   }
   // The switch on the settings screen is the last word: off means preview, whatever the credentials say.

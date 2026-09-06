@@ -12,6 +12,8 @@ export const contractBlock = z.object({
 }).partial().extend({ wage: money, start_date: dateStr });
 export const userBlock = z.object({
   password: z.string().min(6, 'At least 6 characters for the demo account').optional(),
+  /** true = don't set a password here; mail the person a one-time set-password link instead. */
+  send_invite: z.boolean().optional(),
   role: z.enum(['EMPLOYEE', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER', 'ADMIN']).optional(),
   roles: z.array(z.enum(['EMPLOYEE', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER', 'ADMIN'])).min(1).optional(),
   must_change_pw: z.boolean().optional(),

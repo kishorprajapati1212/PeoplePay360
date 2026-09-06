@@ -49,8 +49,13 @@ export async function employeeSummary(id) {
       (select count(*) from payslips p where p.employee_id = $1 and p.period_start <= current_date and p.period_end >= current_date) as payslips_current,
       (select coalesce(sum(a.remaining_days),0) from time_off_allocations a
          where a.employee_id = $1 and a.status = 'APPROVED' and a.valid_from <= current_date and a.valid_until >= current_date) as leave_balance,
-      (select json_agg(json_build_object('type', t.type, 'allocated', t.allocated_days, 'taken', t.taken_days, 'remaining', t.remaining_days))
-         from v_timeoff_balance t where t.employee_id = $1) as balances`, [id]);
+      (select json_agg(json_build_object('type_id', b.type_id, 'type', b.type, 'allocated', b.allocated_days, 'taken', b.taken_days,
+                                          'pending', b.pending_days, 'remaining', b.remaining_days, 'windows', b.windows))
+         from (select t.id as type_id, t.name as type, sum(a.allocated_days) as allocated_days, sum(a.taken_days) as taken_days,
+                      sum(a.pending_days) as pending_days, sum(a.remaining_days) as remaining_days, count(*) as windows
+                 from time_off_allocations a join time_off_types t on t.id = a.time_off_type_id
+                where a.employee_id = $1 and a.status = 'APPROVED'
+                group by t.id, t.name order by t.name) b) as balances`, [id]);
   return rows[0];
 }
 const EMP_COLS = `employee_code, name, work_email, phone, gender, date_of_birth, address, city, state, pincode, work_location,
@@ -77,33 +82,6 @@ export const nextEmployeeCode = () => query(`select 'EMP' || lpad(nextval('emplo
 export const emailTaken = (email, exceptId) =>
   query(`select 1 from employees where lower(work_email) = lower($1) and ($2::uuid is null or id <> $2) and status <> 'TERMINATED' limit 1`, [email, exceptId || null]).then((r) => r.rowCount > 0);
 /** Employees for the payrun wizard table: worked hours + wages for the chosen period, pre-filtered. */
-/**
- * Why a period came back empty, counted instead of guessed.
- *
- * "Nobody is eligible" is true but useless: the person looking at it has to work out whether the structure, the
- * contract dates or an existing run is to blame. This answers that in one query, and only runs when the candidate
- * list is already empty, so a normal wizard step pays nothing for it.
- */
-export async function eligibilityBreakdown({ periodStart, periodEnd, structureId }) {
-  const { rows } = await query(`
-    select count(*)                                                                          as on_structure,
-           count(*) filter (where e.status <> 'ACTIVE')                                      as not_active,
-           count(*) filter (where c.status = 'DRAFT')                                        as draft_contract,
-           count(*) filter (where c.status <> 'DRAFT' and (c.start_date > $2::date
-                              or (c.end_date is not null and c.end_date < $1::date)))        as outside_period,
-           count(*) filter (where exists (select 1 from payslips p join payruns r on r.id = p.payrun_id
-                                          where p.employee_id = e.id and p.status <> 'VOID'
-                                            and r.period_start <= $2::date and r.period_end >= $1::date
-                                            and r.salary_structure_id = $3))                 as already_in_a_run,
-           count(*) filter (where e.status = 'ACTIVE' and c.status <> 'DRAFT'
-                              and c.start_date <= $2::date
-                              and (c.end_date is null or c.end_date >= $1::date))            as eligible
-    from contracts c
-    join employees e on e.id = c.employee_id
-    where c.salary_structure_id = $3::uuid`, [periodStart, periodEnd, structureId]);
-  return rows[0] || {};
-}
-
 export async function candidatesForPeriod({ periodStart, periodEnd, structureId, search, departmentId, employeeType, employeeIds, limit = 200, offset = 0 }) {
   const params = [periodStart, periodEnd, limit, offset];
   const P = (v) => { params.push(v); return `$${params.length}`; };

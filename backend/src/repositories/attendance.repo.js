@@ -3,7 +3,9 @@ import { mapKeys, like } from './sql.js';
 import { params0 } from './_helpers.js';
 
 const COLS = ['employee_id', 'day', 'check_in', 'check_out', 'worked_hours', 'net_worked_hours', 'break_minutes',
-              'expected_hours', 'overtime_hours', 'status', 'is_manual', 'manual_reason', 'overtime_approved', 'source'];
+              'expected_hours', 'overtime_hours', 'status', 'is_manual', 'manual_reason', 'overtime_approved', 'source', 'punches'];
+/** jsonb columns take a JSON string, not the array-literal pg would build for a JS array. */
+const toJSON = (d) => ({ ...d, punches: d.punches === undefined ? undefined : JSON.stringify(d.punches) });
 const SELECT = `select a.*, e.name as employee, e.employee_code, e.work_email, d.name as department,
                        m.name as manager, h.day as holiday_name
                 from attendance a
@@ -33,12 +35,15 @@ export const getAttendance = (id) =>
   query(`${SELECT} where a.id = $1`, [id]).then((r) => mapKeys(r.rows[0], ['worked_hours', 'net_worked_hours', 'overtime_hours', 'expected_hours']));
 export const byEmployeeDay = (employeeId, day, q = query) =>
   q(`select * from attendance where employee_id = $1 and day = $2`, [employeeId, day]).then((r) => r.rows[0] || null);
-export const createAttendance = (d, q = query) =>
-  q(`insert into attendance (${COLS.filter((c) => d[c] !== undefined).join(', ')})
+export const createAttendance = (d0, q = query) => {
+  const d = toJSON(d0);
+  return q(`insert into attendance (${COLS.filter((c) => d[c] !== undefined).join(', ')})
      values (${COLS.filter((c) => d[c] !== undefined).map((_, i) => `$${i + 1}`).join(', ')})
      on conflict (employee_id, day) do update set ${COLS.filter((c) => c !== 'employee_id' && c !== 'day' && d[c] !== undefined).map((c) => `${c} = excluded.${c}`).join(', ')}
      returning *`, COLS.filter((c) => d[c] !== undefined).map((c) => d[c])).then((r) => r.rows[0]);
-export const updateAttendance = (id, p, q = query) => {
+};
+export const updateAttendance = (id, p0, q = query) => {
+  const p = toJSON(p0);
   const keys = COLS.filter((k) => p[k] !== undefined);
   if (!keys.length) return getAttendance(id);
   const vals = keys.map((k) => p[k]);

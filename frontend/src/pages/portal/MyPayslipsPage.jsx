@@ -36,7 +36,7 @@ export function MyPayslipsPage() {
             { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
             { key: 'worked_days', label: 'Days', align: 'right', render: (r) => `${num(r.worked_days)}/${num(r.expected_working_days)}` },
             { key: '_a', label: '', render: (r) => (
-              <button className="btn-primary btn-sm" onClick={() => downloadSlip(r.id, r.employee_code, r.period_key).catch((e) => toast.error(e.message))}>{r.pdf_hash ? 'Download PDF' : 'Not ready'}</button>) },
+              <button className="btn-primary btn-sm" onClick={() => downloadSlip(r.id, r.employee_code, r.period_key).catch((e) => toast.error(e.message))}>Download PDF</button>) },
           ]}
           empty={<EmptyState title={`No payslips for ${year}`} hint="Try another year — the archive keeps every slip that was ever released." />} />
       </Panel>

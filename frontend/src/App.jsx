@@ -1,7 +1,9 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth/useAuth.js';
 import { AppShell } from './layout/AppShell.jsx';
 import { Spinner } from './components/ui/Spinner.jsx';
+import { landingFor } from './rbac/landing.js';
 
 // One route table, one screen per file. Anything a role cannot see is not in its nav (see src/rbac).
 import { LoginPage } from './pages/LoginPage.jsx';
@@ -36,6 +38,24 @@ import { NotFoundPage } from './pages/NotFoundPage.jsx';
 
 export default function App() {
   const { user, ready } = useAuth();
+  const navigate = useNavigate();
+
+  /* Session-change guard (the "second user lands on the first user's screen" fix).
+     While signed in, the router shows whatever path is in the address bar — which is right for a
+     refresh or a shared deep link, and wrong for a sign-in: the previous account's URL is still
+     sitting there, so an employee who followed an admin got the admin's last screen (a payrun, say)
+     and a face full of "no access". So the first hydration keeps the URL (deep links must work),
+     and every identity change after that goes where the new session belongs: a user lands on their
+     own front door, a logout lands on /login — never on the last user's page. */
+  const prevIdentity = useRef(undefined);
+  useEffect(() => {
+    if (!ready) return;
+    const identity = user?.id ?? null;
+    if (prevIdentity.current === undefined) { prevIdentity.current = identity; return; }   // first paint: keep deep links
+    if (prevIdentity.current === identity) return;
+    prevIdentity.current = identity;
+    navigate(identity ? landingFor(user) : '/login', { replace: true });
+  }, [user, ready, navigate]);
 
   if (!ready) return <Spinner fullscreen label="Loading your workspace" />;
   // An invitation arrives while the person is, by definition, not signed in yet — so this one path is
@@ -89,32 +109,5 @@ export default function App() {
   );
 }
 
-/** Where a role lands after signing in — mirrors the first menu item the backend sent. */
-/**
- * Where a signed-in person lands, one route per role.
- *
- * It used to be "the first entry of the menu", which was correct but invisible: the menu order is a layout
- * decision, so a menu edit silently moved somebody's front door. The table below is the product's answer to
- * "what is my screen", and the first menu entry is only the fallback for a role nobody listed.
- */
-const LANDING_BY_ROLE = {
-  EMPLOYEE: '/portal',                    // My Portal: their own payslips, attendance and leave in one screen
-  HR_MANAGER: '/employees',               // the list they work through all day
-  HR_PAYROLL_USER: '/payroll',            // the run they are meant to compute
-  HR_PAYROLL_MANAGER: '/payroll',
-  ADMIN: '/dashboard',                    // the overview, because an admin's job is to see everything
-};
-/** Exported so the ui-probe can assert the promise without clicking through a router. */
-export function landingFor(user) {
-  const roles = user?.roles?.length ? user.roles : [user?.role];
-  for (const role of ['ADMIN', 'HR_PAYROLL_MANAGER', 'HR_PAYROLL_USER', 'HR_MANAGER', 'EMPLOYEE']) {
-    const route = LANDING_BY_ROLE[role];
-    if (route && roles?.includes(role) && menuHas(user, route)) return route;
-  }
-  const first = (user?.menus || [])[0];
-  return first ? first.to : '/no-access';
-}
-/** Landing on a screen the role cannot open would bounce straight to NoAccess, so check the menu first. */
-function menuHas(user, route) {
-  return (user?.menus || []).some((m) => m.to === route);
-}
+/** Re-exported from its own module so the ui-probe keeps importing it from here. */
+export { landingFor } from './rbac/landing.js';

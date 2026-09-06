@@ -48,10 +48,8 @@ export const config = {
   // Sending: leave EMAIL_NAME/EMAIL_PASSWORD empty and nothing leaves the machine (.eml files in storage/mail).
   // Fill them in with your Gmail address + an App Password and real sending switches on by itself.
   mail: { driver: env('MAIL_DRIVER', ''), from: env('MAIL_FROM', ''), dailyLimit: num('MAIL_DAILY_LIMIT', 200),
-    // Several spellings are accepted on purpose — EMAIL_USER / EMAIL_PASS is what most mail guides write, and an
-    // unread variable is a silent preview driver, which reads as "the app cannot send mail".
-    name: env('EMAIL_NAME', env('EMAIL_USER', env('GMAIL_USER', env('SMTP_USER', '')))),
-    password: env('EMAIL_PASSWORD', env('EMAIL_PASS', env('GMAIL_APP_PASSWORD', env('SMTP_PASS', env('SMTP_PASSWORD', ''))))),
+    name: env('EMAIL_NAME', env('GMAIL_USER', env('SMTP_USER', ''))),
+    password: env('EMAIL_PASSWORD', env('GMAIL_APP_PASSWORD', env('SMTP_PASS', ''))),
     host: env('SMTP_HOST', ''), port: num('SMTP_PORT', 587), secure: bool('SMTP_SECURE', false) },
   queue: { concurrency: num('WORKER_CONCURRENCY', 2), stalledAfterMs: num('QUEUE_STALLED_MS', 60_000) },
   demo: { enabled: bool('SEED_DEMO', true), password: env('DEMO_PASSWORD', 'Password@123') },
@@ -67,11 +65,7 @@ export const config = {
   // An invitation is sent by the request that made it, one message per account — nobody has to wait for a
   // worker, and nothing is lost when Redis is not running. INVITE_VIA_QUEUE=true is the opposite choice:
   // hand each account its own job and let the worker dial SMTP (its retries, its rate limits).
-  // Minutes, because an invitation that lives for three days is a link in somebody's inbox for three days.
-  // `INVITE_TTL_HOURS` still works (it is a deployment that was written before this changed), and the company
-  // row beats both — that is the box in Settings → Company → E-mail delivery.
-  invite: { ttlMinutes: num('INVITE_TTL_MINUTES', 0) || num('INVITE_TTL_HOURS', 0) * 60 || 10,
-            viaQueue: bool('INVITE_VIA_QUEUE', false), bulkLimit: num('INVITE_BULK_LIMIT', 50) },
+  invite: { ttlHours: num('INVITE_TTL_HOURS', 72), viaQueue: bool('INVITE_VIA_QUEUE', false), bulkLimit: num('INVITE_BULK_LIMIT', 50) },
   features: { invite: bool('FEATURE_INVITE', true), sso: bool('FEATURE_SSO', false), kiosk: bool('FEATURE_KIOSK', true) },
 };
 Object.defineProperty(config.cors, 'origin', {

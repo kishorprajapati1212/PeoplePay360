@@ -14,13 +14,18 @@ export async function summary(employeeId, { month } = {}) {
   const from = `${anchor}-01`;
   const y = Number(anchor.slice(0, 4)); const mo = Number(anchor.slice(5, 7));
   const to = `${anchor.slice(0, 7)}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;   // last day of that month
-  const [payslips, att, balances, requests, contract, pending] = await Promise.all([
-    payslipRepo.listPayslips({ employeeId, limit: 6 }),
+  const [payslips, att, balances, requests, contract, pending, todayRow, slipStats] = await Promise.all([
+    payslipRepo.listPayslips({ employeeId, status: 'PAID', limit: 6 }), // released payslips only — approval comes before visibility
     attendanceRepo.monthlySummary(employeeId, from, to),
-    timeoffRepo.allocationsFor(employeeId),
+    timeoffRepo.balancesFor(employeeId),
     timeoffRepo.listRequests({ employeeId, limit: 10 }),
     contractRepo.contractForPeriod(employeeId, from, to),
     query(`select count(*) as n from time_off_requests where employee_id = $1 and status = 'TO_APPROVE'`, [employeeId]).then((r) => Number(r.rows[0].n)),
+    attendanceRepo.listAttendance({ employeeId, day: toIso(new Date()), limit: 1 }).then((r) => r.rows[0] || null),
+    // the stat card numbers (count / paid / YTD) — the list above is capped at six, so counting it would lie
+    query(`select count(*) as payslips, count(*) filter (where status = 'PAID') as paid,
+                  coalesce(sum(net_amount) filter (where status = 'PAID' and period_end <= current_date), 0) as ytd_net
+             from payslips where employee_id = $1`, [employeeId]).then((r) => r.rows[0]),
   ]);
   const last = payslips.rows.find((p) => p.status === 'PAID') || payslips.rows[0] || null;
   return {
@@ -29,12 +34,27 @@ export async function summary(employeeId, { month } = {}) {
                 bank: employee.bank_account_number ? `••••${String(employee.bank_account_number).slice(-4)}` : null, hours_week: employee.total_weekly_hours },
     period: { month: anchor, label: monthLabel(`${anchor}-01`), from, to },
     contract: contract ? { wage: Number(contract.wage), start: toIso(contract.start_date), end: contract.end_date ? toIso(contract.end_date) : null, status: contract.status, structure: contract.salary_structure_id } : null,
-    last_payslip: last ? { id: last.id, period: last.period_key, net: Number(last.net_amount), gross: Number(last.gross_amount), paid_on: last.released_at || last.paid_at, status: last.status, has_pdf: !!last.pdf_hash } : null,
+    // Everything the portal's "last payslip" card prints — the card used to read fields this object
+    // never had (net_amount, worked_days, …), so it always fell back to "no payslip yet".
+    last_payslip: last ? { id: last.id, period: last.period_key, period_key: last.period_key, net: Number(last.net_amount), net_amount: Number(last.net_amount),
+                gross: Number(last.gross_amount), gross_amount: Number(last.gross_amount), total_deductions: Number(last.total_deductions || 0),
+                worked_days: Number(last.worked_days || 0), overtime_hours: Number(last.overtime_hours || 0),
+                document_version: Number(last.document_version || 1), paid_on: last.released_at || last.paid_at, status: last.status, has_pdf: !!last.pdf_hash } : null,
     attendance: { ...att, expected_days: await query(`select expected_days($1, $2, $3) as d`, [employeeId, from, to]).then((r) => Number(r.rows[0].d)) },
     leave_balances: (balances || []).map((b) => ({ id: b.id, type: b.type, code: b.type_code, allocated: Number(b.allocated_days), taken: Number(b.taken_days),
-                pending: Number(b.pending_days), remaining: Number(b.remaining_days), unit: b.unit, valid_until: b.valid_until ? toIso(b.valid_until) : null })),
+                pending: Number(b.pending_days), remaining: Number(b.remaining_days), unit: b.unit, windows: Number(b.windows || 1),
+                valid_until: b.valid_until ? toIso(b.valid_until) : null })),
     requests: (requests.rows || []).map((r) => ({ id: r.id, type: r.type, from: toIso(r.start_date), to: toIso(r.end_date), days: Number(r.duration), status: r.status, approver: r.approver })),
     pending_approvals: pending,
+    stats: { payslips: Number(slipStats?.payslips || 0), paid: Number(slipStats?.paid || 0), ytd_net: Number(slipStats?.ytd_net || 0) },
+    // Today's punches for the check-in / check-out card: sessions, first in, last out, worked hours.
+    today_attendance: todayRow ? {
+      id: todayRow.id, day: toIso(todayRow.day), status: todayRow.status,
+      punches: Array.isArray(todayRow.punches) ? todayRow.punches.filter((s) => s && s.in) : [],
+      check_in: todayRow.check_in, check_out: todayRow.check_out,
+      worked_hours: Number(todayRow.worked_hours || 0), net_worked_hours: Number(todayRow.net_worked_hours || 0),
+      break_minutes: Number(todayRow.break_minutes || 0), overtime_hours: Number(todayRow.overtime_hours || 0),
+    } : null,
   };
 }
 export const myPayslips = (employeeId, f = {}) => payslipRepo.listPayslips({ ...f, employeeId });
@@ -44,7 +64,8 @@ export const myAttendance = (employeeId, { month }) => {
 };
 export const myContracts = (employeeId) => contractRepo.contractsOf(employeeId);
 export const myTimeOff = (employeeId) => timeoffRepo.listRequests({ employeeId, limit: 50 });
-export const myBalances = (employeeId) => timeoffRepo.allocationsFor(employeeId);
+/** Per-type totals — see balancesFor() for why the raw window rows are not what a person should read. */
+export const myBalances = (employeeId) => timeoffRepo.balancesFor(employeeId);
 export const myCalendar = async (employeeId, { month }) => {
   const anchor = month || new Date().toISOString().slice(0, 7);
   const rows = await attendanceRepo.listAttendance({ employeeId, month: anchor, limit: 62 });

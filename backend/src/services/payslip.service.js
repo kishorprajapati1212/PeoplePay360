@@ -7,7 +7,7 @@ import * as salaryRepo from '../repositories/salary.repo.js';
 import * as deliveryRepo from '../repositories/delivery.repo.js';
 import { computeOne, computeStructureFor } from './payroll.compute.js';
 import { renderPayslipPdf } from '../lib/pdf/index.js';
-import { resolveDriver } from '../lib/mailer/index.js';
+
 import { schedule, QUEUES } from '../queue/queues.js';
 import { logger } from '../logger.js';
 import { transaction } from '../db/tx.js';
@@ -21,10 +21,18 @@ function assertVisible(payslip, auth) {
   if (!auth) throw AppError.unauthorized();
   if (auth.scope === 'company') return;
   if (String(auth.employeeId) !== String(payslip.employee_id)) throw AppError.forbidden('This payslip belongs to another employee');
+  // Same gate as the list: own scope may only OPEN a released payslip. A computed-but-unapproved
+  // run is not the employee's business yet — not by list, not by id, not by download token.
+  if (payslip.status !== 'PAID') {
+    throw new AppError('NOT_RELEASED', 'This payslip has not been approved and released yet — it appears here on pay day.', { status: 403 });
+  }
 }
 export const list = async (f, { auth }) => {
   if (auth.scope !== 'company' && !f.employeeId) f = { ...f, employeeId: auth.employeeId };
   if (auth.scope !== 'company' && f.employeeId && String(f.employeeId) !== String(auth.employeeId)) throw AppError.forbidden('Not your payslip');
+  // Own-scope lists are PAID-only: a payslip exists as a row the moment it is computed, but the
+  // employee "has" it only after the run was approved and released. HR/payroll scope sees every status.
+  if (auth.scope !== 'company') f = { ...f, status: 'PAID' };
   return repo.listPayslips(f);
 };
 export async function read(id, { auth, withLines = true } = {}) {
@@ -222,7 +230,7 @@ export async function bulkEmail({ payslip_ids, payrun_id, period_key, employee_i
     join payruns r on r.id = p.payrun_id
     left join lateral (select * from payslip_documents x where x.payslip_id = p.id and x.kind = 'PAYSLIP'
                        order by x.version desc limit 1) d on true
-    where ${where.join(' and ')} and p.status in ('PAID','VALIDATED')
+    where ${where.join(' and ')} and p.status = 'PAID' -- approval gate: a run must be approved (validated) AND marked paid before anyone is emailed
     order by e.name limit 500`, params).then((r) => r.rows);
   const company = await companyRepo.getCompany();
   const skipped = { missing_pdf: [], missing_email: [], already_sent: [] };
@@ -249,16 +257,22 @@ export async function bulkEmail({ payslip_ids, payrun_id, period_key, employee_i
     await query(`update payslips set email_status = 'QUEUED' where id = any($1::uuid[]) and coalesce(email_status,'') <> 'QUEUED'`,
       [jobs.map((j) => j.payslip_id)]).catch(() => {});
   }
-  const mail = resolveDriver(config.mail);
+  // The sentence says WHY the driver is what it is — and it must be the LIVE driver (Settings → Company
+  // row merged over backend/.env), not an env-only guess, or it tells a configured box that it is in preview.
+  const { mailStatus } = await import('./mail.service.js');
+  const mail = await mailStatus();
   logger.info({ queued: jobs.length, matched: rows.length, by: auth?.userId }, 'bulk payslip mail queued');
+  // The sentence says WHY the driver is what it is — "no SMTP credentials" told people with a correct
+  // backend/.env that their setup was broken, when the real answer was "restart api + worker".
+  const mailSentence = mail.driver === 'preview'
+    ? `Mail is in preview mode${mail.note ? ' — ' + mail.note : ''}. Each message is written as a .eml file under backend/storage/mail, so nothing leaves this machine.`
+    : `Handed to the worker (queue "${QUEUES.email}") with the "${mail.driver}" driver${mail.note ? ` (${mail.note})` : ''}; it attaches the signed PDF and retries on its own.`;
   return {
     matched: rows.length, queued: jobs.length,
     skipped_missing_pdf: skipped.missing_pdf.length, skipped_missing_email: skipped.missing_email.length,
     already_sent: skipped.already_sent.length,
     skipped: { ...skipped, total: skipped.missing_pdf.length + skipped.missing_email.length + skipped.already_sent.length },
     jobs, mail_driver: mail.driver, mail_note: mail.note,
-    how_it_is_delivered: mail.driver === 'preview'
-      ? 'No SMTP credentials are configured, so each message is written as a .eml file under backend/storage/mail — that is the preview driver, not a failure.'
-      : `Handed to the worker (queue "${QUEUES.email}") with the "${mail.driver}" driver; it attaches the signed PDF and retries on its own.`,
+    how_it_is_delivered: mailSentence,
   };
 }

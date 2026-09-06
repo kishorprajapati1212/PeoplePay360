@@ -12,7 +12,6 @@ import { StatusChip } from '../../components/ui/StatusChip.jsx';
 import { EmptyState, Notice } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { date, num, today } from '../../utils/format.js';
-import { STATUS_LABEL, isCancellable } from '../../utils/leaveStatus.js';
 import { toRows, totalOf } from '../../utils/query.js';
 import { payoffOf } from '../../utils/leave.js';
 import { guard, missingSentence } from '../../utils/form.js';
@@ -48,7 +47,9 @@ export function MyTimeOffPage() {
   }
 
   const rows = me.data?.rows || me.data || [];
-  const cards = Array.isArray(balances.data) ? balances.data : balances.data?.balances || [];
+  // /portal/balances answers { rows: […] } (see misc.routes) — the old `.balances` key matched nothing,
+  // so the screen said "No balances have been assigned to you yet" for everyone.
+  const cards = Array.isArray(balances.data) ? balances.data : balances.data?.rows || balances.data?.balances || [];
   // Balance for the type being asked for, so "you have 2 left" is said before the request, not after
   // the refusal. The portal returns the type name; a uuid match is the allocation rows' job.
   const chosenType = typeList.find((t) => String(t.id) === String(open?.time_off_type_id));
@@ -65,10 +66,11 @@ export function MyTimeOffPage() {
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((b) => (
-          <div key={b.type || b.type_id} className="panel panel-pad">
+          <div key={b.type_id || b.type || b.code} className="panel panel-pad">
             <p className="label">{b.type || b.name}</p>
-            <p className="mt-1.5 text-2xl font-semibold text-slate-50">{num(b.remaining ?? b.remaining_days)} <span className="text-sm font-normal text-slate-500">left</span></p>
+            <p className="num mt-1.5 text-2xl font-semibold tracking-tight text-slate-50">{num(b.remaining ?? b.remaining_days)} <span className="text-sm font-normal text-slate-500">left</span></p>
             <p className="text-xs text-slate-500">{num(b.taken ?? b.taken_days)} taken of {num(b.allocated ?? b.allocated_days)}{b.pending ? ` · ${num(b.pending)} pending` : ''}</p>
+            {Number(b.windows) > 1 && <p className="mt-1 text-[11px] text-slate-600">across {b.windows} grants</p>}
           </div>
         ))}
         {!cards.length && (
@@ -96,9 +98,9 @@ export function MyTimeOffPage() {
                 {/* what the approver wrote back, if anything — a decision with a note is not a mystery */}
                 {r.decision_remark && <p className="truncate text-xs text-slate-500">Note from HR: {r.decision_remark}</p>}
               </div>) },
-            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} label={STATUS_LABEL[r.status] || null} /> },
+            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
             { key: 'approver', label: 'Decided by', render: (r) => r.approved_by_name || r.approver || '—' },
-            { key: '_a', label: '', render: (r) => isCancellable(r) && <button className="btn-ghost btn-sm" onClick={() => cancel(r)} disabled={busy === 'c' + r.id}>Cancel</button> },
+            { key: '_a', label: '', render: (r) => r.status === 'TO_APPROVE' && <button className="btn-ghost btn-sm" onClick={() => cancel(r)} disabled={busy === 'c' + r.id}>Cancel</button> },
           ]}
           empty={<EmptyState title="No leave taken yet" hint="Request a day off and it appears here with its approval status." />} />
       </Panel>

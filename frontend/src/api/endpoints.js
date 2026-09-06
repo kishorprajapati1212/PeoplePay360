@@ -47,8 +47,6 @@ export const org = {
     create: (body) => api.post('/org/working-schedules', body),
     update: (id, body) => api.patch(`/org/working-schedules/${id}`, body),
     remove: (id) => api.del(`/org/working-schedules/${id}`),
-    // one field, one endpoint: switching a schedule off must not need its week re-sent
-    setActive: (id, on) => api.patch(`/org/working-schedules/${id}/active`, { is_active: on ? 'ACTIVE' : 'INACTIVE' }),
   },
   holidays: {
     list: (query) => api.get('/org/holidays', query),

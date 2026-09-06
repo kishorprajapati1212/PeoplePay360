@@ -175,9 +175,11 @@ export function EmployeeDetailPage() {
               <div className="mt-3 space-y-1.5">
                 <p className="label">Leave balances</p>
                 {toRows(counts.balances).map((b) => (
-                  <div key={b.type} className="flex items-center justify-between rounded-lg bg-ink-850/70 px-2.5 py-1.5 text-xs">
-                    <span className="text-slate-300">{b.type}</span>
-                    <span className="text-slate-400">{b.taken} taken · <span className="text-slate-100">{b.remaining} left</span> of {b.allocated}</span>
+                  // key = the type's id: two grants of the same type used to collapse into one row here
+                  // (React duplicate keys), which is exactly why "I added 12 days and it never showed" happened.
+                  <div key={b.type_id || b.type} className="flex items-center justify-between rounded-xl bg-ink-850/70 px-2.5 py-1.5 text-xs">
+                    <span className="text-slate-300">{b.type}{Number(b.windows) > 1 && <span className="ml-1.5 text-[10px] text-slate-600">{b.windows} grants</span>}</span>
+                    <span className="text-slate-400">{num(b.taken)} taken · <span className="text-slate-100">{num(b.remaining)} left</span> of {num(b.allocated)}</span>
                   </div>
                 ))}
               </div>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { payroll, salary } from '../../api/endpoints.js';
 import { useApi, useAction } from '../../hooks/useApi.js';
@@ -39,7 +39,7 @@ export function PayrunsPage() {
   const rows = list.data?.rows || [];
   return (
     <>
-      <PageHeader title="Payruns" subtitle="One run per structure per period. Draft → Compute → Validate → PDFs → Paid → Emailed."
+      <PageHeader title="Payruns" subtitle="One run per structure per period. Draft → Compute → Approve → PDFs → Paid → Emailed."
                   actions={mayCreate && <button className="btn-primary btn-sm" onClick={() => setWizard({ step: 1, salary_structure_id: structureOptions[0]?.value || '', period_start: firstOfMonth(), period_end: '', pay_frequency: 'MONTHLY', compute_mode: 'PRO_RATA', name: '', notes: '', selected: new Set(), candidates: [] })}>+ New payrun</button>} />
 
       <Panel pad={false}>
@@ -55,7 +55,11 @@ export function PayrunsPage() {
             { key: 'name', label: 'Payrun', render: (r) => (<div><p className="text-slate-100">{r.name}</p><p className="text-xs text-slate-500">{r.salary_structure || '—'}</p></div>) },
             { key: 'period_key', label: 'Period', render: (r) => (<div><p>{periodLabel(r.period_key)}</p><p className="text-xs text-slate-500">{date(r.period_start)} – {date(r.period_end)}</p></div>) },
             { key: 'pay_frequency', label: 'Type', render: (r) => <span className="text-xs text-slate-400">{String(r.pay_frequency || '').replace('_', ' ').toLowerCase()}</span> },
-            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
+            { key: 'status', label: 'Status', render: (r) => (
+              <span title={r.status === 'COMPUTED' ? 'Computed — a different person has to approve it before anything is paid or emailed' : undefined}>
+                <StatusChip value={r.status} />
+              </span>
+            ) },
             { key: 'employee_count', label: 'People', align: 'right', render: (r) => num(r.employee_count ?? r.payslip_count) },
             { key: 'total_gross', label: 'Gross', align: 'right', render: (r) => inr(r.total_gross) },
             { key: 'total_deductions', label: 'Deductions', align: 'right', render: (r) => inr(r.total_deductions) },
@@ -65,7 +69,7 @@ export function PayrunsPage() {
             { key: 'flags', label: '', render: (r) => (Number(r.warning_count) > 0 || Number(r.error_count) > 0
                 ? <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300"
                          title="Payslips carrying at least one flag from the last compute. Open the run to read them.">
-                    {num(r.warning_count)} flagged{Number(r.error_count) ? ` · ${num(r.error_count)} blocked` : ''}</span>
+                    {num(r.warning_count)} payslip{Number(r.warning_count) === 1 ? '' : 's'} flagged{Number(r.error_count) ? ` · ${num(r.error_count)} blocked` : ''}</span>
                 : null) },
             { key: '_a', label: '', render: (r) => (r.status === 'DRAFT' && mayCreate
                 ? <button className="btn-danger btn-sm" onClick={(e) => { e.stopPropagation(); remove(r); }}>Void</button> : null) },
@@ -99,7 +103,18 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
 
   const rows = toRows(candidates.data);
   const toggle = (id) => { const next = new Set(wizard.selected); next.has(id) ? next.delete(id) : next.add(id); setWizard({ ...wizard, selected: next }); };
-  const goStep2 = () => setWizard({ ...wizard, step: 2, selected: new Set(rows.map((r) => r.id)) });
+  /* Auto-select everyone on step 2 — but only once, when the candidate list first lands. The fetch
+     only starts when the step changes, so "select all" cannot happen in the step-1 click handler
+     (rows are still [] there — that is why "Create payrun (0)" used to appear with a full table
+     above it). After this one fill, the selection belongs to the user alone. */
+  const [autoSelected, setAutoSelected] = useState(false);
+  useEffect(() => {
+    if (wizard.step === 2 && !autoSelected && rows.length && !wizard.selected.size) {
+      setAutoSelected(true);
+      setWizard({ ...wizard, selected: new Set(rows.map((r) => r.id)) });
+    }
+  }, [wizard.step, rows.length, autoSelected]);
+  const goStep2 = () => { setAutoSelected(false); setWizard({ ...wizard, step: 2, selected: new Set() }); };
 
   // The blank end date is a promise, not a gap: the API reads "no end date" as "end of that month"
   // (resolvePeriodEnd in payrun.service.js), so the wizard prints the dates it will actually send.
@@ -183,11 +198,6 @@ function PayrunWizard({ wizard, setWizard, structures, onDone }) {
                   {!rows.length && (
                     <tr><td className="td" colSpan={5}>
                       <p className="text-slate-300">Nobody is eligible for {date(wizard.period_start)} → {date(resolvedEnd)} on this structure.</p>
-                      {/* Counted by the database, not guessed here: `why_empty` comes from GET /api/payruns/employees,
-                          the same call that produced this empty list. */}
-                      {candidates.data?.why_empty && (
-                        <p className="mt-1 text-xs text-amber-200">{candidates.data.why_empty}</p>
-                      )}
                       <p className="mt-1 text-xs text-slate-500">Three things cause this: the employees are assigned to a different pay structure (Employees → their Salary tab), their contract does not cover these dates (Contracts → new/renew), or the contract is still a DRAFT. A run created with nobody in it computes to nothing, so fix one of those first.</p>
                     </td></tr>
                   )}

@@ -81,7 +81,7 @@ export function EmployeesPage() {
         />
       </Panel>
 
-      <EmployeeFormModal open={open} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); reload(); toast.success('Employee created'); }}
+      <EmployeeFormModal open={open} onClose={() => setOpen(false)} onSaved={() => { reload(); toast.success('Employee created'); }}
                          departments={deptOptions} schedules={scheduleOptions} structures={structureOptions} />
     </>
   );

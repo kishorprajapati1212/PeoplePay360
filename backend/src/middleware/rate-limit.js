@@ -6,7 +6,10 @@ export function rateLimit({ perMinute = config.rate.perMinute, key = (req) => re
   return async (req, res, next) => {
     if (!config.rate.enabled) return next();
     const bucket = Math.floor(Date.now() / 60000);
-    const k = `rl:${key(req)}:${bucket}`;
+    // The path is part of the key: without it every rate-limited route shared one counter per caller,
+    // so a burst of logins ate the (much smaller) set-password budget and the invitation flow
+    // started answering 429 in an ordinary smoke run.
+    const k = `rl:${req.path}:${key(req)}:${bucket}`;
     try {
       const n = await redis.multi().incr(k).expire(k, 70).exec();
       const count = Number(n?.[0]?.[1] ?? 1);

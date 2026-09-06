@@ -23,7 +23,7 @@ export const typeReferences = (id) =>
   query(`select (select count(*) from time_off_requests where time_off_type_id = $1) as requests,
                  (select count(*) from time_off_requests where time_off_type_id = $1 and status = 'TO_APPROVE') as pending_requests,
                  (select count(*) from time_off_allocations where time_off_type_id = $1) as allocations,
-                 (select count(distinct employee_id) from time_off_allocations where time_off_type_id = $1) as allocated_employees`)
+                 (select count(distinct employee_id) from time_off_allocations where time_off_type_id = $1) as allocated_employees`, [id])
     .then((r) => Object.fromEntries(Object.entries(r.rows[0]).map(([k, v]) => [k, Number(v)])));
 export const getType = (id) => query(`select * from time_off_types where id = $1`, [id]).then((r) => r.rows[0] || null);
 const upsertCols = (d, cols) => ({ keys: cols.filter((c) => d[c] !== undefined), vals: cols.filter((c) => d[c] !== undefined).map((c) => d[c]) });
@@ -101,6 +101,25 @@ export const allocationsFor = (employeeId, q = query) =>
   q(`select a.*, t.name as type, t.code as type_code, t.unit, t.requires_allocation, t.carry_forward
      from time_off_allocations a join time_off_types t on t.id = a.time_off_type_id
      where a.employee_id = $1 order by t.name, a.valid_from desc`, [employeeId]).then((r) => r.rows.map((x) => mapKeys(x, ['allocated_days', 'taken_days', 'pending_days', 'remaining_days'])));
+/** One row per leave type — the balance a person (and HR) should see. Windows overlap in real data
+ *  (an annual grant plus a mid-year correction, a carried-forward row, …), and the raw rows made the
+ *  granted days look missing whenever two windows shared a type: the UI keyed by type name and one of
+ *  the two never rendered. Aggregating here means "12 days added" always shows, summed with whatever
+ *  the person already had. */
+export const balancesFor = (employeeId, q = query) =>
+  q(`select t.id as type_id, t.name as type, t.code as type_code, t.unit, t.is_unpaid, t.carry_forward,
+            count(*) filter (where current_date between a.valid_from and a.valid_until)::int as active_windows,
+            count(*)::int as windows,
+            coalesce(sum(a.allocated_days), 0) as allocated_days,
+            coalesce(sum(a.taken_days), 0) as taken_days,
+            coalesce(sum(a.pending_days), 0) as pending_days,
+            coalesce(sum(a.remaining_days), 0) as remaining_days,
+            min(a.valid_from) as valid_from, max(a.valid_until) as valid_until
+     from time_off_allocations a join time_off_types t on t.id = a.time_off_type_id
+     where a.employee_id = $1 and a.status = 'APPROVED'
+     group by t.id, t.name, t.code, t.unit, t.is_unpaid, t.carry_forward
+     order by t.name`, [employeeId])
+    .then((r) => r.rows.map((x) => mapKeys(x, ['allocated_days', 'taken_days', 'pending_days', 'remaining_days', 'windows', 'active_windows'])));
 export const pickAllocation = (employeeId, typeId, fromDate, q = query) =>
   q(`select * from time_off_allocations where employee_id = $1 and time_off_type_id = $2 and status = 'APPROVED'
        and valid_from <= $3 and valid_until >= $3 order by valid_until desc limit 1`, [employeeId, typeId, fromDate]).then((r) => r.rows[0] || null);

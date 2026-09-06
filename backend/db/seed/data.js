@@ -1,47 +1,9 @@
 /**
  * Demo data for PeoplePay360. Everything here is *shape*, not money: payslip numbers are produced by the
  * payroll engine when the seeder drives the real services (see seed.js), so a rule change is immediately
- * visible in the seeded company.
- *
- * Every date is counted back from **today**, on purpose. An earlier version wrote "2026-04" into the file, and a
- * month later the demo company was a museum: the last payrun was four months old, this month had no attendance,
- * and creating a run for the current period found nobody who was on the payroll for it — which reads to a person
- * looking at the screen as "the payrun is broken". Nothing here may go stale that way again.
+ * visible in the seeded company. Dates are anchored to FY 2026-27 (1 Apr 2026) because that is "now".
  */
 export const TODAY = new Date().toISOString().slice(0, 10);
-
-/** `2026-09-06` → months, oldest first, including the current one. Used by attendance, runs and leave. */
-export function monthKeysBack(count, { includeCurrent = true } = {}) {
-  const out = [];
-  const now = new Date();
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
-  }
-  return includeCurrent ? out : out.slice(0, -1);
-}
-/** ISO date `n` days from `from` (string or Date), in UTC so a timezone cannot move a person's joining date. */
-export function shiftDays(from, n) {
-  const d = new Date(`${String(from).slice(0, 10)}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-/** Same, in months — a birthday or a joining date does not drift by a day at the end of February. */
-export function shiftMonths(from, n) {
-  const base = new Date(`${String(from).slice(0, 10)}T00:00:00Z`);
-  const day = base.getUTCDate();
-  const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + n, 1));
-  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
-  return d.toISOString().slice(0, 10);
-}
-/** The first and last day of the financial year `from` falls in, given a start month (April = 4 here). */
-export function fiscalYear(from, startMonth = 4) {
-  const y = +String(from).slice(0, 4);
-  const m = +String(from).slice(5, 7);
-  const first = m >= startMonth ? y : y - 1;
-  return { from: `${first}-${String(startMonth).padStart(2, '0')}-01`, to: shiftDays(`${first + 1}-${String(startMonth).padStart(2, '0')}-01`, -1),
-           label: `FY ${String(first).slice(2)}-${String(first + 1).slice(2)}` };
-}
 
 export const COMPANY = {
   company_name: 'OXP Pvt Ltd', legal_name: 'OXP Private Limited',
@@ -164,7 +126,6 @@ export const STRUCTURES = [
         computation_type: 'FIXED', amount: 0, is_report_only: true },
     ] },
 ];
-
 export const PT_SLABS = [
   { state: 'Gujarat', wage_from: 0, wage_to: 50000, monthly_amount: 150 },
   { state: 'Gujarat', wage_from: 50000, wage_to: null, monthly_amount: 200 },
@@ -191,7 +152,7 @@ export const USERS = [
  * `structure` is a code from STRUCTURES, `schedule` an index into SCHEDULES.
  * Wages are the monthly contract wage (the base every percentage rule reads).
  */
-const HAND_WRITTEN = [
+export const EMPLOYEES = [
   { key: 'aarav', name: 'Aarav Mehta', email: 'aarav.mehta@oxp.com', dept: 'Engineering', position: 'Senior Backend Engineer', type: 'FULL_TIME', wage: 85000, joining: '2023-06-12', schedule: 0, structure: 'STD', city: 'Ahmedabad', gender: 'Male', manager: null },
   { key: 'diya', name: 'Diya Patel', email: 'diya.patel@oxp.com', dept: 'Engineering', position: 'Frontend Engineer', type: 'FULL_TIME', wage: 62000, joining: '2024-02-04', schedule: 0, structure: 'STD', city: 'Ahmedabad', gender: 'Female', manager: 'aarav' },
   { key: 'rohan', name: 'Rohan Desai', email: 'rohan.desai@oxp.com', dept: 'People Operations', position: 'HR Executive', type: 'FULL_TIME', wage: 48000, joining: '2024-08-19', schedule: 0, structure: 'STD', city: 'Gandhinagar', gender: 'Male', manager: null },
@@ -231,203 +192,31 @@ export const LEAVE_TYPES = [
     work_entry_type: 'Paid Work Entry', description: '26 weeks, paid, no balance needed.' },
 ];
 
-/** `2026-09-06` → `2026-09`. Kept here so the data module stays importable without the rest of the app. */
-export const monthOf = (iso) => String(iso).slice(0, 7);
-/** The last day of the month a `YYYY-MM-01` falls in, as an ISO date. */
-export function monthEndOf(iso) {
-  const y = +String(iso).slice(0, 4), m = +String(iso).slice(5, 7);
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-}
-export const rng = (seed = 7) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-
-/**
- * ── The rest of the company ────────────────────────────────────────────────────────────────────────────────
- *
- * A payroll screen with thirteen people in it cannot show a payroll: the payrun wizard says "4 assigned" on one
- * structure, the attendance register is two screens long, and an approval queue has four rows in it. So the demo
- * company is grown to `HEADCOUNT` (160 unless `SEED_EMPLOYEES` says otherwise, capped at 400 so a laptop seed
- * stays a minute, not an hour), and every generated attribute is one a real record could carry:
- *
- *   · a date of birth that makes the person 22 to 58 today and never younger than 18 on their joining day;
- *   · a joining date that is never after the contract that starts with it, and for a few of them, this month —
- *     those correctly have no payrun last month and are pro-rated in this one;
- *   · a wage inside the band that matches the title, so the PF ceiling (₹15,000 of basic), the ESI limit
- *     (₹21,000 total) and the Gujarat/Maharashtra professional-tax slabs each bite where they should;
- *   · a PAN, IFSC, UAN, ESIC number, bank account, phone and pincode that pass the same shapes the employee form
- *     asks for (`PATTERNS` in frontend/src/components/crud/schemaForm.jsx) — a demo you cannot open in the edit
- *     dialog is worse than no demo;
- *   · a city inside the two states this company has PT slabs for, a bank from a short list of real ones, and a
- *     manager who is an *earlier* row, so the reporting lines cannot point at each other in a circle;
- *   · and for the few percent who left, an exit date, a contract that ends on it and an employee row that is
- *     TERMINATED — not an active employee with a past exit date, which is what this file used to produce.
- */
-export const HEADCOUNT = Math.max(HAND_WRITTEN.length, Math.min(400, Number(process.env.SEED_EMPLOYEES || 160) || 160));
-
-const MALE_NAMES = ['Aditya', 'Arjun', 'Aarav', 'Rohit', 'Kunal', 'Nikhil', 'Siddharth', 'Vivek', 'Manish', 'Gaurav',
-                    'Harsh', 'Keyur', 'Jayesh', 'Rakesh', 'Suresh', 'Devang', 'Hiten', 'Paresh', 'Ankit', 'Meet',
-                    'Rajeev', 'Sameer', 'Tushar', 'Utpal', 'Yogesh', 'Bhargav', 'Chirag', 'Dhruv', 'Falan', 'Girish'];
-const FEMALE_NAMES = ['Priya', 'Diya', 'Neha', 'Sana', 'Isha', 'Kavya', 'Meera', 'Pooja', 'Riya', 'Sneha',
-                      'Tanvi', 'Urmi', 'Vidhi', 'Ayesha', 'Bhavna', 'Chhaya', 'Disha', 'Esha', 'Farha', 'Gita',
-                      'Heena', 'Ira', 'Jiya', 'Kiran', 'Lipi', 'Manvi', 'Nidhi', 'Oorja', 'Pallavi', 'Riddhi'];
-const SURNAMES = ['Mehta', 'Patel', 'Shah', 'Desai', 'Bhatt', 'Trivedi', 'Joshi', 'Dave', 'Chauhan', 'Vyas',
-                  'Pandya', 'Thakkar', 'Modi', 'Sonar', 'Iyer', 'Nair', 'Menon', 'Reddy', 'Kulkarni', 'Jadhav',
-                  'Sharma', 'Verma', 'Mishra', 'Gupta', 'Singh', 'Kaur', 'Sheikh', 'Qureshi', 'Ansari', 'Das'];
-
-/** Only the two states `PT_SLABS` covers, so nobody is generated into a professional tax the app cannot work out. */
-const SITES = [
-  { city: 'Ahmedabad', state: 'Gujarat', pin: '3800' }, { city: 'Gandhinagar', state: 'Gujarat', pin: '3820' },
-  { city: 'Surat', state: 'Gujarat', pin: '3950' }, { city: 'Vadodara', state: 'Gujarat', pin: '3900' },
-  { city: 'Rajkot', state: 'Gujarat', pin: '3600' }, { city: 'Bhavnagar', state: 'Gujarat', pin: '3640' },
-  { city: 'Mumbai', state: 'Maharashtra', pin: '4000' }, { city: 'Pune', state: 'Maharashtra', pin: '4110' },
-  { city: 'Nashik', state: 'Maharashtra', pin: '4220' }, { city: 'Nagpur', state: 'Maharashtra', pin: '4400' },
-];
-const BANKS = [['HDFC', 'HDFC Bank'], ['ICIC', 'ICICI Bank'], ['SBIN', 'State Bank of India'],
-               ['AXIS', 'Axis Bank'], ['KKBK', 'Kotak Mahindra Bank'], ['PUNB', 'Punjab National Bank']];
-
-/** title, what it pays, and which pay structure it sits on — the three things payroll actually cares about. */
-const BANDS = [
-  { title: 'Software Engineer', dept: 'Engineering', min: 52000, max: 82000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Senior Software Engineer', dept: 'Engineering', min: 84000, max: 128000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Engineering Team Lead', dept: 'Engineering', min: 132000, max: 196000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'QA Engineer', dept: 'Engineering', min: 34000, max: 56000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'DevOps Engineer', dept: 'Engineering', min: 78000, max: 126000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Sales Executive', dept: 'Sales', min: 28000, max: 44000, structure: 'SLS', type: 'FULL_TIME', schedule: 0, incentive: true },
-  { title: 'Account Manager', dept: 'Sales', min: 46000, max: 74000, structure: 'SLS', type: 'FULL_TIME', schedule: 0, incentive: true },
-  { title: 'Inside Sales Representative', dept: 'Sales', min: 26000, max: 38000, structure: 'SLS', type: 'FULL_TIME', schedule: 0, incentive: true },
-  { title: 'Support Engineer', dept: 'Customer Support', min: 24000, max: 40000, structure: 'STD', type: 'FULL_TIME', schedule: 1 },
-  { title: 'Support Team Lead', dept: 'Customer Support', min: 46000, max: 66000, structure: 'STD', type: 'FULL_TIME', schedule: 1 },
-  { title: 'Night Shift Support Associate', dept: 'Customer Support', min: 21000, max: 30000, structure: 'STD', type: 'FULL_TIME', schedule: 1 },
-  { title: 'HR Executive', dept: 'People Operations', min: 30000, max: 48000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Talent Acquisition Partner', dept: 'People Operations', min: 38000, max: 58000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'People Operations Intern', dept: 'People Operations', min: 15000, max: 19000, structure: 'INT', type: 'INTERN', schedule: 2 },
-  { title: 'Payroll Executive', dept: 'Payroll & Finance', min: 32000, max: 50000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Financial Analyst', dept: 'Payroll & Finance', min: 52000, max: 88000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Accounts Executive', dept: 'Payroll & Finance', min: 26000, max: 36000, structure: 'STD', type: 'FULL_TIME', schedule: 0 },
-  { title: 'Backend Intern', dept: 'Engineering', min: 16000, max: 21000, structure: 'INT', type: 'INTERN', schedule: 2 },
-  { title: 'Sales Trainee', dept: 'Sales', min: 18000, max: 22000, structure: 'INT', type: 'INTERN', schedule: 2, incentive: true },
-];
-const ROUND_SALARY = 500;
-const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-/** A 10-character PAN in the shape the form accepts: five letters, four digits, one letter. */
-function panFor(given, family, n) {
-  const letters = (a, b) => String(a || 'X').charAt(0).toUpperCase() + String(b || 'Y').toUpperCase();
-  const head = (given + family).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3).padEnd(3, 'X');
-  const digits = String(1000 + (n * 37) % 8999).padStart(4, '0');
-  return `${head}${letters(family, given).slice(0, 2)}${digits}${ALPHA[(n * 7 + given.length) % 24]}`;
-}
-function digitsFrom(seed, length) {
-  let out = '';
-  let x = seed >>> 0;
-  for (let i = 0; i < length; i++) { x = (Math.imul(x, 1103515245) + 12345) >>> 0; out += String((x >>> 16) % 10); }
-  return out;
-}
-
-function generatedEmployees(count, offset) {
-  const rand = rng(20260906 + offset);
-  const used = new Set(HAND_WRITTEN.map((e) => String(e.email).toLowerCase()));
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    const n = offset + i;
-    const band = BANDS[Math.floor(rand() * BANDS.length)];
-    const gender = rand() < 0.5 ? 'Male' : 'Female';
-    const given = (gender === 'Male' ? MALE_NAMES : FEMALE_NAMES)[Math.floor(rand() * 30)];
-    const family = SURNAMES[Math.floor(rand() * SURNAMES.length)];
-    let email = `${given}.${family}`.toLowerCase().replace(/[^a-z.]/g, '') + '@oxp.com';
-    while (used.has(email)) email = `${given}.${family}${n}`.toLowerCase().replace(/[^a-z0-9.]/g, '') + '@oxp.com';
-    used.add(email);
-
-    // Tenure: most people have been here a while, a few joined last month, one in twenty starts this month.
-    const monthsBack = rand() < 0.05 ? 0 : rand() < 0.12 ? 1 : 2 + Math.floor(rand() * 58);
-    // The day is kept inside the month (February has no 30th), and nobody may have joined next week: today is
-    // the ceiling, so the newest rows are "joined this month", not "joined in the future".
-    const raw = shiftDays(shiftMonths(TODAY, -monthsBack), Math.floor(rand() * 27));
-    const joining = raw > TODAY ? TODAY : raw;
-    const seniorEnoughToLeave = monthsBack > 14 && rand() < 0.07;
-    const exit = seniorEnoughToLeave ? shiftDays(shiftMonths(TODAY, -(1 + Math.floor(rand() * 5))), Math.floor(rand() * 20) + 1) : null;
-    const age = 22 + Math.floor(rand() * 24);
-    const site = SITES[Math.floor(rand() * SITES.length)];
-    const bank = BANKS[Math.floor(rand() * BANKS.length)];
-    const wage = Math.round((band.min + rand() * (band.max - band.min)) / ROUND_SALARY) * ROUND_SALARY;
-
-    out.push({
-      key: `oxp${n}`, name: `${given} ${family}`, email, given, family, gender,
-      dept: band.dept, position: band.title, type: band.type, wage,
-      // A leaver's contract ends on the exit date below.
-      joining, exit,
-      dob: shiftDays(shiftMonths(joining, -age * 12), -(1 + Math.floor(rand() * 300))),
-      schedule: band.schedule, structure: band.structure, city: site.city, state: site.state,
-      pin: site.pin + String(15 + (n * 3) % 60).padStart(2, '0'),
-      bank_name: bank[1], bank_account: `501${digitsFrom(n * 7919, 11)}`, ifsc: `${bank[0]}0${digitsFrom(n * 104729, 6)}`,
-      pan: panFor(given, family, n), uan: `100${digitsFrom(n * 2246827, 9)}`,
-      // ESIC only exists below the insurance ceiling, and it is 17 digits.
-      esic: wage <= 21000 ? `99${digitsFrom(n * 3571, 15)}` : null,
-      phone: `${6 + (n % 4)}${digitsFrom(n * 65537, 9)}`,
-      ...(band.incentive ? { inputs: { target: 120000 + Math.floor(rand() * 30) * 10000, attainment: +(0.55 + rand() * 0.75).toFixed(2) } } : {}),
-    });
-  }
-  // One reporting line per department, aimed at someone earlier in the list so it cannot cycle.
-  const heads = {};
-  for (const hand of HAND_WRITTEN) if (!hand.manager && !heads[hand.dept]) heads[hand.dept] = hand.key;
-  for (const e of out) {
-    const head = heads[e.dept];
-    e.manager = head && head !== e.key ? head : null;
-  }
-  return out;
-}
-
-/** The hand-written people get the same identity fields, so one code path writes every row. */
-function withIdentity(e, i) {
-  const site = SITES.find((s) => s.city === e.city) || SITES[0];
-  const given = String(e.name).split(' ')[0] || 'OXP';
-  const family = String(e.name).split(' ').slice(1).join('') || 'User';
-  const digits = (len) => digitsFrom((i + 7) * 7919, len);
-  const pan = /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(e.pan_number || '')) ? e.pan_number : panFor(given, family, i + 1);
-  return {
-    ...e, given, family,
-    gender: e.gender || (i % 2 ? 'Female' : 'Male'),
-    // A generated row already carries these; this function only fills what a hand-written row left out.
-    dob: e.dob || shiftDays(shiftMonths(e.joining, -(24 * 12 + (i % 9) * 12)), -40),
-    state: e.state || site.state,
-    pin: e.pin || e.pincode || site.pin + String(15 + (i * 3) % 60).padStart(2, '0'),
-    phone: e.phone || `9${digits(9)}`,
-    pan,
-    bank_name: e.bank_name || 'HDFC Bank',
-    bank_account: e.bank_account || e.bank_account_number || `501${digits(11)}`,
-    ifsc: e.ifsc || e.bank_ifsc || `HDFC0${digits(6)}`,
-    uan: e.uan || e.uan_number || `100${digits(9)}`,
-    esic: e.esic ?? e.esi_number ?? (e.wage <= 21000 ? `99${digits(15)}` : null),
-  };
-}
-
-export const EMPLOYEES = [...HAND_WRITTEN, ...generatedEmployees(Math.max(0, HEADCOUNT - HAND_WRITTEN.length), HAND_WRITTEN.length)]
-  .map(withIdentity);
-
-/**
- * The payruns the seeder drives, built from today: the last `SEED_PAYRUN_MONTHS` full months are computed,
- * validated and paid, and the current month is left as a DRAFT with everyone in it, so the first thing a person
- * does — press Compute on a live period — has real work to do. Two months is the default because every slip is
- * produced by the engine, not written here: at 160 people that is 320 computations, and the sixth month of a
- * demo nobody reads is not worth three minutes.
- */
-export const PAYRUN_MONTHS = Math.max(1, Math.min(12, Number(process.env.SEED_PAYRUN_MONTHS || 2) || 2));
+/** Payroll runs the seeder drives — generated from *today*, so a fresh install always has live demo
+ *  data: five closed months PAID (the newest of them as an advance/true-up pair), the current month
+ *  COMPUTED and waiting to be validated, and next month sitting as a DRAFT you can press Compute on.
+ *  The old hard-coded 2026 dates aged out: a demo seeded in October had no runs for "this month". */
+const pad2 = (n) => String(n).padStart(2, '0');
+const monthKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+const lastDay = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+const shiftMonth = (n) => new Date(new Date().getFullYear(), new Date().getMonth() + n, 1);
+const span = (d) => ({ from: `${monthKey(d)}-01`, to: `${monthKey(d)}-${pad2(lastDay(d))}` });
 export const RUNS = (() => {
-  const full = monthKeysBack(PAYRUN_MONTHS + 1, { includeCurrent: false });   // +1: the newest month is dropped
-  const runs = full.map((m, i) => {
-    const from = `${m}-01`;
-    const base = { from, to: monthEndOf(from), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'PAID' };
-    // The oldest month, on a run long enough to be worth showing, is a half-month pair: 50% advance then true-up.
-    if (i === 0 && full.length >= 3) {
-      const mid = `${m}-16`;
-      return [{ ...base, to: `${m}-15`, freq: 'HALF_MONTH_FIRST', mode: 'ADVANCE_50', halves: 'H1' },
-             { ...base, from: mid, to: monthEndOf(from), freq: 'HALF_MONTH_SECOND', mode: 'ADVANCE_50', halves: 'H2' }];
-    }
-    return [base];
-  }).flat();
-  const current = monthOf(TODAY);
-  runs.push({ from: `${current}-01`, to: monthEndOf(`${current}-01`), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'DRAFT' });
+  const runs = [];
+  for (let back = 5; back >= 2; back--) {          // four closed months, monthly, paid
+    const d = shiftMonth(-back);
+    runs.push({ ...span(d), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'PAID' });
+  }
+  { // the newest closed month pays as halves: 50% advance, then the true-up (shows the half-month flow)
+    const d = shiftMonth(-1);
+    runs.push({ from: `${monthKey(d)}-01`, to: `${monthKey(d)}-15`, freq: 'HALF_MONTH_FIRST', mode: 'ADVANCE_50', status: 'PAID', halves: 'H1' });
+    runs.push({ from: `${monthKey(d)}-16`, to: `${monthKey(d)}-${pad2(lastDay(d))}`, freq: 'HALF_MONTH_SECOND', mode: 'ADVANCE_50', status: 'PAID', halves: 'H2' });
+  }
+  runs.push({ ...span(new Date()), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'COMPUTED' });   // this month: numbers ready, awaiting validate
+  runs.push({ ...span(shiftMonth(1)), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'DRAFT' });   // next month: an empty draft to press Compute on
   return runs;
 })();
-/** Attendance is written for the months a run could look at, plus two before them so history is visible. */
-export const ATTENDANCE_MONTHS = monthKeysBack(PAYRUN_MONTHS + 2);
-export const FY = fiscalYear(TODAY, 4);
+/** Attendance follows the runs: the five months that are paid plus the one being computed. */
+export const ATTENDANCE_MONTHS = Array.from({ length: 6 }, (_, k) => monthKey(shiftMonth(k - 5)));
+/** Small deterministic pseudo-random so a re-seed produces the same demo (nice for screenshots and tests). */
+export const rng = (seed = 7) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };

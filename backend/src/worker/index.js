@@ -49,18 +49,15 @@ async function main() {
     return;
   }
   const caps = await mailCapabilities().catch(() => ({ ok: true, driver: config.mail.MAIL_DRIVER }));
-  // The server is printed because "the API sends and the worker does not" is a question about which process read
-  // which settings — answered from the log line, with no shell in either container.
-  logger.info({ mail: caps.driver, mail_server: caps.server || '—', mail_inferred: caps.inferred || null,
-                mail_ok: caps.ok, pdf: config.pdf.renderer, dir: config.pdf.dir,
+  logger.info({ mail: caps.driver, mail_ok: caps.ok, pdf: config.pdf.renderer, dir: config.pdf.dir,
                 redis: `${config.redis.host}:${config.redis.port}/${config.redis.db}` }, 'worker ready');
   banner([
     ['Worker health', `http://localhost:${config.worker.port}/health`],
     ['Worker stats', `http://localhost:${config.worker.port}/stats`],
     ['API', `http://localhost:${config.worker.apiPort}/api`],
     ['Web', `http://localhost:${config.worker.webPort}`],
-  ], `PeoplePay360 worker · mail=${caps.driver}${caps.server ? ' → ' + caps.server : ' (files only)'} · pdf=${config.pdf.renderer}`);
-  if (caps.ok === false) logger.warn({ err: caps.error }, 'the mail transport could not verify — the mail account and its App Password are the only two settings that matter (Settings → Company, or EMAIL_NAME / EMAIL_PASSWORD); check the port only if you typed a host yourself');
+  ], `PeoplePay360 worker · mail=${caps.driver} · pdf=${config.pdf.renderer}`);
+  if (caps.ok === false) logger.warn({ err: caps.error }, 'the mail transport could not verify — set SMTP_*/GMAIL_* or keep MAIL_DRIVER=preview');
   await reclaimOnce({ olderThanSec: 0 }).catch(() => {});
 }
 

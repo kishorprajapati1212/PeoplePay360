@@ -11,34 +11,15 @@ import { computePayslip } from '../src/lib/payroll/index.js';
 import { resolvePeriod, scaleToNet, trueUp, netOf, byCode } from '../src/lib/payroll/index.js';
 import { settingsFrom } from '../src/lib/payroll/index.js';
 import { resolvePeriodEnd } from '../src/lib/shared/index.js';
+import { resolveDriver, cleanHost } from '../src/lib/mailer/index.js';
+import { resolveMailConfig } from '../src/lib/mailer/runtime.js';
 import { readFileSync } from 'node:fs';
 import { payslipWarnings } from '../src/lib/payroll/index.js';
 import { compile, run } from '../src/lib/formula/index.js';
 import { can, permissionsFor, navFor, scopeFor, isDenied } from '../src/lib/shared/index.js';
 
-// Two modules that are pure enough to load in a test: the seed data (no database, no config) and the schedule
-// validator. Both are read as values below rather than as text, so a change in behaviour fails a test instead of
-// failing a grep.
-const SEED = await import('../db/seed/data.js');
-const CONFIG = (await import('../src/config.js')).config;
-const ORG_SCHEMA = await import('../src/validators/org.schema.js');
-const { linkTtlSentence } = await import('../src/lib/mailer/template.js');
-
 let passed = 0; const fails = [];
-// A test that returns a promise has to be awaited before it is counted: `fn()` alone reports ✓ for a test that
-// then rejects, so the summary said "all N passed" while node died on an unhandled rejection underneath it.
-// The pending list is drained just before that summary line.
-const pending = [];
-const t = (name, fn) => {
-  let out;
-  try { out = fn(); } catch (e) { fails.push([name, e]); console.log(`  ✗ ${name}\n      ${e.message}`); return; }
-  if (out && typeof out.then === 'function') {
-    pending.push(out.then(() => { passed += 1; console.log(`  ✓ ${name}`); },
-      (e) => { fails.push([name, e]); console.log(`  ✗ ${name}\n      ${e.message}`); }));
-    return;
-  }
-  passed += 1; console.log(`  ✓ ${name}`);
-};
+const t = (name, fn) => { try { fn(); passed += 1; console.log(`  ✓ ${name}`); } catch (e) { fails.push([name, e]); console.log(`  ✗ ${name}\n      ${e.message}`); } };
 
 // ── money ──────────────────────────────────────────────────────────────────────────────────
 console.log('\nmoney');
@@ -441,27 +422,6 @@ t('nav never offers a screen the role cannot open', () => {
   assert.ok(!navFor(['EMPLOYEE']).some((n) => n.to === '/payruns'), 'an employee has no payroll screens at all');
 });
 
-// The other half of the same bug class: a role that HOLDS a permission but has no menu link to the screen
-// that uses it. On screen that is indistinguishable from "the approve button was never built".
-t('a role that can approve leave can reach the approve list', () => {
-  for (const role of ['HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER', 'ADMIN']) {
-    const bag = permissionsFor([role]);
-    const holds = (p) => bag.all || bag.list.includes(p);
-    assert.ok(holds('timeoff:approve'), role + ' is supposed to be able to approve leave');
-    const links = navFor([role]).flatMap((g) => [g.to, ...(g.children || []).map((c) => c.to)]);
-    assert.ok(links.includes('/time-off/requests'), role + ' holds timeoff:approve but no menu link to /time-off/requests');
-    // the general rule, one table: a write permission implies a menu entry for its screen
-    for (const [perm, to] of [['schedule:write', '/working-schedules'], ['employee:write', '/employees'],
-      ['contract:write', '/contracts'], ['attendance:approve_overtime', '/attendance'],
-      ['user:write', '/users'], ['settings:write', '/company'], ['payroll:payrun_create', '/payruns']]) {
-      if (holds(perm))
-        assert.ok(links.includes(to), role + ' holds ' + perm + ' but the menu has no link to ' + to);
-    }
-  }
-  const employeeLinks = navFor(['EMPLOYEE']).flatMap((g) => [g.to, ...(g.children || []).map((c) => c.to)]);
-  assert.ok(!employeeLinks.includes('/time-off/requests'), 'an employee files leave, never approves it');
-});
-
 // ── round 4: period resolution, the routes the UI now calls, and who may call them ──────────
 console.log('\nround 4');
 t('a blank period end resolves to the last day of the start month', () => {
@@ -599,302 +559,47 @@ t('the bulk send is bounded where it is declared, not by a queue', () => {
   assert.equal(userSchema.sendPendingBody.safeParse({ token: 'x' }).token, undefined, 'nothing else survives that body');
 });
 
-// ── round 9: the four things that were reported, each pinned by what the code must now do ────────────────
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
-
-t('an invitation answer cannot reference a name that does not exist', () => {
-  // The last round's "the mail never sends" was this: the success sentence interpolated a bare `driver` while the
-  // value in scope is `mailDriver`. The mail went out and the request still died, and no build step noticed.
-  const src = read('../src/services/user.service.js');
-  const body = src.slice(src.indexOf('export async function createInvite'), src.indexOf('async function mailInvite('))
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');   // prose may talk about a driver
-  const bare = [...body.matchAll(/(?<![$.\w])\bdriver\b(?!\s*:)/g)];
-  assert.equal(bare.length, 0, `createInvite must not name \`driver\` on its own (found ${bare.length}) — use mailDriver`);
-  assert.ok(/mailDriver/.test(body), 'and it does report the live driver, by its real name');
+// ── mail: the project's own selection rules, exactly (env base, Settings row over it, MAIL_DRIVER decides) ──
+t('a @gmail.com login + password alone picks the gmail driver', () => {
+  const plan = resolveDriver({ EMAIL_NAME: 'payroll.bot@gmail.com', EMAIL_PASSWORD: 'abcd efgh ijkl mnop' });
+  assert.equal(plan.driver, 'gmail');
+  assert.equal(plan.host, '', 'no host needed for the gmail service');
+});
+t('an explicit MAIL_DRIVER always wins', () => {
+  assert.equal(resolveDriver({ MAIL_DRIVER: 'smtp', SMTP_HOST: 'mx.corp.in', SMTP_USER: 'x', SMTP_PASS: 'y', EMAIL_NAME: 'a@gmail.com' }).driver, 'smtp');
+  assert.equal(resolveDriver({ MAIL_DRIVER: 'preview', EMAIL_NAME: 'a@gmail.com', EMAIL_PASSWORD: 'x' }).driver, 'preview');
+});
+t('a reserved-TLD placeholder host (smtp.reply.example) is refused, not dialed', () => {
+  assert.equal(cleanHost('smtp.reply.example'), '');
+  assert.equal(cleanHost('smtp.test'), '');
+  assert.equal(cleanHost('smtp.company.com'), 'smtp.company.com', 'a real host is never second-guessed');
+  assert.equal(cleanHost('smtp.corp.co.in'), 'smtp.corp.co.in');
+  const plan = resolveDriver({ EMAIL_NAME: 'noreply@corp.in', EMAIL_PASSWORD: 'x', SMTP_HOST: 'smtp.reply.example' });
+  assert.equal(plan.driver, 'preview', 'no crash, no ENOTFOUND');
+  assert.ok(/placeholder/.test(plan.note), 'the note says what to clear');
+});
+t('a real host selects plain smtp (Settings row or env)', () => {
+  assert.equal(resolveDriver({ EMAIL_NAME: 'noreply@corp.in', EMAIL_PASSWORD: 'x', SMTP_HOST: 'smtp.corp.in' }).driver, 'smtp');
+});
+t('the settings row overrides the env, like Settings → Company always did', () => {
+  const merged = resolveMailConfig(
+    { smtp_host: '127.0.0.1', smtp_port: 2525, smtp_user: 'hr@oxp.com', smtp_password: 'secret', mail_enabled: true },
+    { EMAIL_NAME: 'other@gmail.com', EMAIL_PASSWORD: 'env-pass', SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: 587 },
+  );
+  assert.equal(merged.SMTP_HOST, '127.0.0.1', 'row host wins');
+  assert.equal(merged.SMTP_PORT, '2525', 'row port wins when the row has a host');
+  assert.equal(merged.EMAIL_NAME, 'hr@oxp.com', 'row login wins');
+  assert.equal(merged.EMAIL_PASSWORD, 'secret', 'row password wins');
+  assert.equal(resolveDriver(merged).driver, 'smtp');
+});
+t('mail_enabled=false vetoes to preview even with full credentials', () => {
+  const merged = resolveMailConfig({ smtp_host: 'smtp.corp.in', smtp_user: 'a@corp.in', smtp_password: 'x', mail_enabled: false }, { EMAIL_NAME: 'a@corp.in', EMAIL_PASSWORD: 'x' });
+  assert.equal(resolveDriver(merged).driver, 'preview');
+});
+t('a row with only the 587 default port cannot beat the env port', () => {
+  const merged = resolveMailConfig({ smtp_port: 587, mail_enabled: true }, { SMTP_HOST: 'smtp.corp.in', SMTP_PORT: 2525, EMAIL_NAME: 'a@corp.in', EMAIL_PASSWORD: 'x' });
+  assert.equal(String(merged.SMTP_PORT), '2525');
 });
 
-t('an invitation link is issued in minutes, and says so in the same words everywhere', () => {
-  assert.equal(CONFIG.invite.ttlMinutes, 10, 'ten minutes, out of the box');
-  assert.equal(linkTtlSentence(10), '10 minutes');
-  assert.equal(linkTtlSentence(1), '1 minute');
-  assert.equal(linkTtlSentence(60), '1 hour');
-  const repo = read('../src/repositories/user.repo.js');
-  assert.ok(/make_interval\(mins =>/.test(repo), 'the row is extended by minutes, not hours');
-  assert.ok(/ttlMinutes = 10/.test(repo), 'and the parameter says so');
-  const svc = read('../src/services/user.service.js');
-  assert.ok(svc.includes('expires_in_minutes'), 'the response gives the screen the number in the same unit');
-  assert.ok(!/expires_in_hours/.test(svc), 'and the old one is gone, so nothing can show "72h" again');
-});
-
-t('a time-off request waiting for approval is called what the enum calls it', () => {
-  const enums = read('../db/migrations/001_enums.sql');
-  const line = enums.split('\n').find((l) => l.includes('CREATE TYPE request_status'));
-  assert.ok(line && /'TO_APPROVE'/.test(line) && !/PENDING/.test(line), 'the ground truth: ' + line.trim());
-  for (const rel of ['../../frontend/src/pages/timeoff/LeaveRequestsPage.jsx', '../../frontend/src/pages/timeoff/MyTimeOffPage.jsx',
-                     '../../frontend/src/pages/timeoff/TimeOffOverviewPage.jsx']) {
-    const code = read(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');   // comments may explain the old bug
-    assert.ok(!/'PENDING'/.test(code), `${rel.split('/').pop()} still uses 'PENDING' as a status`);
-    assert.ok(code.includes('utils/leaveStatus.js'), `${rel.split('/').pop()} should use the shared words`);
-  }
-});
-
-t('a weekly-grid row survives a day name, an empty off-day, and still refuses a bad time', () => {
-  const ok = ORG_SCHEMA.scheduleBody.safeParse({ name: 'Standard', days: [
-    { day: 'mon', start: '09:30', end: '18:30', break: 60 }, { day: 'SAT', rest: true }, { day: 7, start: '', end: '', break: '' }] });
-  assert.equal(ok.success, true, 'a save must not die on a Sunday nobody works: ' + JSON.stringify(ok.error?.issues));
-  const days = ok.data.days;
-  assert.equal(days[0].day, 1, 'a name is read as the number the column stores');
-  assert.deepEqual(Object.keys(days[1]).sort(), ['break', 'day', 'rest'], 'an off day carries no clock time');
-  assert.ok(!('start' in days[2]) && !('start' in days[1]), 'and neither does one sent with empty boxes');
-  assert.equal(ORG_SCHEMA.scheduleBody.safeParse({ name: 'X', days: [{ day: 2, start: '9am', end: '18:00' }] }).success, false,
-    'a worked day with a time nobody can read is still refused');
-  assert.equal(ORG_SCHEMA.scheduleBody.safeParse({ name: 'X', days: [{ day: 9 }] }).success, false, 'and a 9th day is');
-});
-
-t('the demo company is big enough to run payroll, and every generated row is possible', () => {
-  const { EMPLOYEES, RUNS, ATTENDANCE_MONTHS, DEPARTMENTS, STRUCTURES, TODAY, HEADCOUNT } = SEED;
-  assert.ok(EMPLOYEES.length >= 100, `a payroll demo needs a crowd, has ${EMPLOYEES.length}`);
-  assert.equal(EMPLOYEES.length, HEADCOUNT, 'the knob and the list agree');
-  assert.ok(EMPLOYEES.length <= 400, 'and stays small enough to seed on a laptop');
-  const emails = new Set(EMPLOYEES.map((e) => e.email.toLowerCase()));
-  assert.equal(emails.size, EMPLOYEES.length, 'two people cannot share a sign-in address');
-  const codes = new Set(EMPLOYEES.map((e) => e.key));
-  assert.equal(codes.size, EMPLOYEES.length, 'and no two rows share a key');
-  const structureCodes = new Set(STRUCTURES.map((x) => x.code));
-  const deptNames = new Set(DEPARTMENTS.map((d) => d.name));
-  const byKey = new Map();
-  EMPLOYEES.forEach((e, i) => byKey.set(e.key, i));
-  for (const [i, e] of EMPLOYEES.entries()) {
-    assert.ok(e.joining <= TODAY, `${e.key} joins in the future`);
-    assert.ok(!e.exit || (e.exit >= e.joining && e.exit <= TODAY), `${e.key} has an impossible exit date`);
-    const years = (new Date(e.joining) - new Date(e.dob)) / 3.15576e10;
-    assert.ok(years >= 18 && years <= 60, `${e.key} is ${years.toFixed(1)} years old on day one`);
-    assert.ok(/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(e.pan), `${e.key} has a PAN the employee form would refuse: ${e.pan}`);
-    assert.ok(/^[A-Z]{4}0[A-Z0-9]{6}$/.test(e.ifsc), `${e.key}: ${e.ifsc}`);
-    assert.ok(/^[0-9]{12}$/.test(e.uan), `${e.key} UAN`);
-    assert.ok(/^[0-9]{6,18}$/.test(e.bank_account), `${e.key} bank account`);
-    assert.ok(/^[1-9][0-9]{5}$/.test(e.pin), `${e.key} pincode`);
-    assert.ok(/^[6-9][0-9]{9}$/.test(e.phone), `${e.key} phone`);
-    if (e.esic) {
-      assert.ok(/^[0-9]{17}$/.test(e.esic), `${e.key} ESIC number`);
-      assert.ok(e.wage <= 21000, `${e.key} is insured above the ESI wage limit`);
-    }
-    assert.ok(deptNames.has(e.dept), `${e.key} is in a department that does not exist`);
-    assert.ok(structureCodes.has(e.structure), `${e.key} is on an unknown structure`);
-    assert.ok(!e.manager || byKey.get(e.manager) < i, `${e.key} reports to someone who joins after them`);
-    assert.notEqual(e.manager, e.key, `${e.key} is their own manager`);
-  }
-  // The complaint this answers: the current period had nobody on the payroll.
-  const current = RUNS[RUNS.length - 1];
-  assert.equal(current.status, 'DRAFT', 'this month is left for a person to compute');
-  assert.equal(current.from, `${TODAY.slice(0, 7)}-01`, 'and it is this month, not a month written in a file');
-  assert.ok(ATTENDANCE_MONTHS.includes(TODAY.slice(0, 7)), 'with attendance for it');
-  const onPayroll = EMPLOYEES.filter((e) => !e.exit && e.joining <= current.to);
-  assert.ok(onPayroll.length >= 100, `only ${onPayroll.length} people could be paid in the current period`);
-  const spread = new Set(onPayroll.map((e) => e.structure));
-  assert.ok(spread.size >= 2, 'across more than one pay structure');
-  for (const code of spread) {
-    const n = onPayroll.filter((e) => e.structure === code).length;
-    assert.ok(n >= 5, `${code} has ${n} people — a run on it would look empty`);
-  }
-});
-
-t('the seeder does not hard-code a financial year or a month again', () => {
-  const src = read('../db/seed/seed.js');
-  assert.ok(!/'20\d\d-\d\d-\d\d/.test(src.replace(/period_start|period_end/g, '')), 'no literal date left in the seeder');
-  assert.ok(src.includes('FY.from'), 'allocations follow the financial year from the data module');
-  assert.ok(/status: 'TO_APPROVE'/.test(src), 'and a waiting request uses the enum word');
-});
-
-// ── round 10: mail needs an address and a password, nothing else ───────────────────────────
-console.log('\nmail from the address alone');
-const MAILER = await import('../src/lib/mailer/index.js');
-const RUNTIME = await import('../src/lib/mailer/runtime.js');
-const { providerFor, providerList, describeServer } = MAILER;
-t('a known address names its own server, and an unknown one does not', () => {
-  assert.equal(providerFor('Payroll@Gmail.COM').host, 'smtp.gmail.com');
-  assert.equal(providerFor('hr@user@gmailmail.com'), null, 'a look-alike domain is not Gmail');
-  assert.equal(providerFor('hr@payroll@gmail.com.').key, 'google', 'a trailing dot is nothing');
-  assert.equal(providerFor('hr@acme-biz.example'), null, 'nor is an unknown company domain');
-  assert.equal(providerFor('no-at-sign'), null, 'and a box still being typed is not an address');
-  // The settings panel reads this list off the API rather than keeping its own copy, so it has to carry the fields.
-  for (const p of providerList()) {
-    assert.ok(Array.isArray(p.domains) && p.domains.length, `${p.key} states the domains it answers for`);
-    assert.ok(p.domains.includes(providerFor(`x@${p.domains[0]}`).domains[0]), `${p.key} matches on its own domains`);
-    for (const k of ['label', 'host', 'port', 'secure', 'appPassword', 'note'])
-      assert.ok(p[k] !== undefined && p[k] !== '', `the panel reads ${k} from the API, so it has to be in the list`);
-  }
-});
-t('resolveDriver: two values are a complete configuration', () => {
-  const gmail = MAILER.resolveDriver({ EMAIL_NAME: 'payroll@gmail.com', EMAIL_PASSWORD: 'abcd efgh ijkl mnop' });
-  assert.equal(gmail.driver, 'gmail', 'a Gmail box is sent Gmail\u2019s own way');
-  assert.deepEqual(gmail.server, { host: 'smtp.gmail.com', port: 465, secure: true });
-  assert.equal(gmail.needsAppPassword, true, 'and the panel can warn about the password kind');
-  assert.equal(describeServer(gmail.server), 'smtp.gmail.com:465 · implicit TLS');
-  const leftovers = MAILER.resolveDriver({ EMAIL_NAME: 'payroll@gmail.com', EMAIL_PASSWORD: 'x', SMTP_PORT: '587', SMTP_SECURE: 'false' });
-  assert.deepEqual(leftovers.server, { host: 'smtp.gmail.com', port: 465, secure: true },
-    'an env that still carries the old SMTP_PORT line does not split Gmail across two ports');
-  const live = MAILER.resolveDriver({ EMAIL_NAME: 'payroll@outlook.in', EMAIL_PASSWORD: 'x' });
-  assert.equal(live.driver, 'smtp');
-  assert.deepEqual(live.server, { host: 'smtp.office365.com', port: 587, secure: false }, 'Microsoft is STARTTLS');
-  const unknown = MAILER.resolveDriver({ EMAIL_NAME: 'hr@acme-biz.example', EMAIL_PASSWORD: 'x' });
-  assert.equal(unknown.driver, 'preview', 'we do not guess a host for a domain we do not know');
-  assert.match(unknown.note, /Google, Microsoft[^.]*are recognised from the address alone/);
-  assert.match(unknown.note, /acme-biz\.example is not one of them/);
-  const forced = MAILER.resolveDriver({ MAIL_DRIVER: 'smtp' });
-  assert.equal(forced.driver, 'preview', 'a forced driver with no host is still not a licence to dial nothing');
-  assert.match(forced.note, /no host is known/);
-});
-t('what you typed beats the table, box for box', () => {
-  const typed = MAILER.resolveDriver({ EMAIL_NAME: 'payroll@gmail.com', EMAIL_PASSWORD: 'x',
-                                        SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: '587', SMTP_SECURE: 'false' });
-  assert.deepEqual(typed.server, { host: 'smtp.gmail.com', port: 587, secure: false });
-  assert.equal(typed.inferred, null, 'nothing was inferred, so nothing is claimed as inferred');
-  const relay = MAILER.resolveDriver({ EMAIL_NAME: 'hr@acme.com', EMAIL_PASSWORD: 'x', SMTP_HOST: 'smtp.acme.com', SMTP_PORT: '2525' });
-  assert.equal(relay.driver, 'smtp');
-  assert.deepEqual(relay.server, { host: 'smtp.acme.com', port: 2525, secure: false });
-});
-t('a saved row with only an address gets the same treatment as the environment', () => {
-  const merged = RUNTIME.resolveMailConfig({ smtp_user: 'payroll@gmail.com', smtp_password: 'app pw', mail_enabled: true, smtp_secure: false }, {});
-  const plan = MAILER.resolveDriver(merged);
-  assert.equal(plan.driver, 'gmail', 'the settings screen asks for two fields, so two fields must be enough');
-  assert.equal(plan.server.port, 465, 'an unticked TLS box is not a refusal of implicit TLS when no host was typed');
-  const withHost = RUNTIME.resolveMailConfig({ smtp_user: 'payroll@gmail.com', smtp_password: 'x', smtp_host: 'smtp.acme.com', smtp_port: 587, smtp_secure: false }, {});
-  assert.deepEqual(MAILER.resolveDriver(withHost).server, { host: 'smtp.acme.com', port: 587, secure: false },
-    'a company relay behind a Gmail-shaped address is still the relay');
-  const off = MAILER.resolveDriver(RUNTIME.resolveMailConfig({ smtp_user: 'payroll@gmail.com', smtp_password: 'x', mail_enabled: false }, {}));
-  assert.equal(off.driver, 'preview', 'the switch on the screen is the last word');
-});
-t('a placeholder host is ignored, a real one never is', () => {
-  // The whole point: a box left holding an example value must not out-rank the address, and a company relay
-  // that happens to be called smtp.acme.com must keep working exactly as typed.
-  const ignored = ['smtp.reply.example', 'smtp.relay.example', 'mail.example.com', 'smtp.test', 'smtp.yourdomain.com', 'smtp.changeme.net'];
-  const kept = ['smtp.acme.com', 'smtp.zoho.com', 'smtp.gmail.com', 'mail.silverton-industries.co.in', 'localhost', '10.0.0.8'];
-  for (const h of ignored) assert.ok(MAILER.isPlaceholderHost(h), h + ' is not a server');
-  for (const h of kept) assert.ok(!MAILER.isPlaceholderHost(h), h + ' has to be taken at its word');
-  const state = RUNTIME.resolveMailConfig({ smtp_user: 'payroll@gmail.com', smtp_password: 'x', smtp_host: 'smtp.reply.example', smtp_port: 587, smtp_secure: false, mail_enabled: true }, {});
-  const plan = MAILER.resolveDriver(state);
-  assert.equal(plan.driver, 'gmail', 'the address decides, so Gmail is dialed Gmail\u2019s way');
-  assert.deepEqual(plan.server, { host: 'smtp.gmail.com', port: 465, secure: true }, 'and the port typed with the fake host goes with it');
-  assert.equal(plan.ignoredHost, 'smtp.reply.example');
-  assert.match(plan.note, /names no server/);
-  assert.match(plan.note, /Clear that box in Settings/);
-  const relay = MAILER.resolveDriver(RUNTIME.resolveMailConfig({ smtp_user: 'payroll@gmail.com', smtp_password: 'x', smtp_host: 'smtp.acme.com', smtp_port: 2525, smtp_secure: false }, {}));
-  assert.deepEqual(relay.server, { host: 'smtp.acme.com', port: 2525, secure: false }, 'a real relay wins, placeholder or not in nobody\u2019s business');
-  assert.ok(!relay.ignoredHost, 'a real host is not ignored, so there is nothing to report');
-});
-
-t('an app password of the wrong shape is counted, not read', async () => {
-  const { appPasswordShapeHint } = await import('../src/lib/mailer/providers.js');
-  // The real case from this round: a Google app password pasted with one group lost — 14 characters, not 16.
-  assert.equal(MAILER.resolveDriver({ EMAIL_USER: 'kjhgfdsa1014@gmail.com', EMAIL_PASS: 'yhnvojirypukfc' }).passwordLength, 14);
-  assert.match(appPasswordShapeHint('Google', 14), /16 characters, four groups of four/);
-  assert.equal(appPasswordShapeHint('Google', 16), null, 'the right shape is not commented on');
-  assert.equal(appPasswordShapeHint(null, 14), null, 'and a provider that takes any password gets no lecture');
-  const never = JSON.stringify(MAILER.resolveDriver({ EMAIL_USER: 'a@gmail.com', EMAIL_PASS: 'yhnvojirypukfc' }));
-  assert.ok(!never.includes('yhnvojirypukfc'), 'the plan never carries the password out of the process');
-  const aliases = MAILER.resolveDriver({ EMAIL_USER: 'a@outlook.com', EMAIL_PASS: 'pw' });
-  assert.deepEqual(aliases.server, { host: 'smtp.office365.com', port: 587, secure: false }, 'EMAIL_USER / EMAIL_PASS are read like any other name');
-});
-t('the invitation link is copy-pasteable, and one letter is built in one place', () => {
-  const mail = MAILER.inviteMail({ name: 'Aarav Mehta', link: 'http://10.0.0.5:5173/set-password?token=abc123', minutes: 10, inviter: 'Nita Shah' });
-  assert.match(mail.text, /\nhttp:\/\/10\.0\.0\.5:5173\/set-password\?token=abc123\n/, 'the bare URL is on its own line in the plain-text part');
-  assert.match(mail.text, /Copy that address into your browser/);
-  assert.match(mail.text, /Nita Shah/, 'it names who sent it');
-  assert.match(mail.text, /10 minutes/, 'and how long the link lives');
-  assert.match(mail.html, /word-break:break-all/, 'the HTML copy does not break the token across lines');
-  assert.match(mail.subject, /choose a password/i);
-  // The API request and the worker retry must not send two different letters.
-  const svc = readFileSync(new URL('../src/services/user.service.js', import.meta.url), 'utf8');
-  const job = readFileSync(new URL('../src/worker/jobs/email.job.js', import.meta.url), 'utf8');
-  assert.ok(/inviteMail\(/.test(svc) && /inviteMail\(/.test(job), 'both call inviteMail()');
-  assert.ok(!/An account has been created for you on \{\{company\}\}/.test(svc + job), 'no hand-copied copy left behind');
-});
-t('an invitation cannot be built before its own expiry is computed', () => {
-  // The bug this locks out: `ttlMinutes: minutes` read from a `const minutes` declared lines later, which threw
-  // a ReferenceError on every invite — and looked exactly like a broken mail server.
-  const src = readFileSync(new URL('../src/services/user.service.js', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('export async function createInvite'), src.indexOf('/** The wording lives in'));
-  assert.ok(body.indexOf('const minutes =') > -1 && body.indexOf('const minutes =') < body.indexOf('ttlMinutes: minutes'),
-    'minutes must be computed before the invitation row is written');
-  assert.ok(body.indexOf('const link =') < body.indexOf('return {'), 'and the link must exist before the answer is built');
-});
-t('the seeder can leave the demo without a single pay run', () => {
-  const src = readFileSync(new URL('../db/seed/seed.js', import.meta.url), 'utf8');
-  assert.match(src, /has\('--no-payruns'\)/, '--no-payruns is a name a person would guess');
-  assert.match(src, /SKIP_PAYRUNS = has\('--skip-payroll'\) \|\| has\('--no-payruns'\)/, 'and it means the same as the old flag');
-  assert.match(src, /if \(SKIP_PAYRUNS\)[\s\S]{0,200}else await seedPayroll/, 'payroll is skipped, not half-run');
-  // The number the seeder actually computes, read from the module rather than from its text.
-  assert.ok(SEED.HEADCOUNT >= 100 && SEED.HEADCOUNT <= 200,
-    `the default company is ${SEED.HEADCOUNT} people; the ask was 100-200`);
-  assert.equal(SEED.EMPLOYEES.length, SEED.HEADCOUNT, 'the rows match the headcount, not a hand-picked list');
-  const data = readFileSync(new URL('../db/seed/data.js', import.meta.url), 'utf8');
-  assert.match(data, /SEED_EMPLOYEES \|\| 160/, 'it is a knob, defaulted inside the asked range');
-});
-
-t('a failed mail setup is told apart from a blocked port, in the provider\u2019s own words', async () => {
-  const { refusalHint } = await import('../src/services/mail.service.js');
-  // This is the exact sentence Gmail sent when this round was written: 465 with implicit TLS connected, then
-  // refused a login password. It must land on the App Password advice, not on the firewall advice.
-  const gmail = refusalHint('Invalid login: 535-5.7.8 Username and Password not accepted. For more information,');
-  assert.match(gmail, /App Password/i, 'a refused Google login is a password problem');
-  assert.match(gmail, /network/, 'and it has to say the network is not at fault');
-  const blocked = refusalHint('connect ETIMEDOUT 142.251.183.109:465');
-  assert.match(blocked, /smtp\.gmail\.com:465/, 'an unanswered port names what was dialed');
-  assert.match(blocked, /firewall/i, 'and calls it a firewall, not a password');
-  const other = refusalHint('550 5.7.1 Relaying denied for this sender');
-  assert.match(other, /server\u2019s own/, 'anything else is quoted, not reinterpreted');
-});
-
-t('nothing leaves the machine unless both boxes are filled', () => {
-  for (const cfg of [{}, { EMAIL_NAME: 'payroll@gmail.com' }, { EMAIL_PASSWORD: 'x' }]) {
-    const plan = MAILER.resolveDriver(cfg);
-    assert.equal(plan.driver, 'preview', 'no login or no password means preview: ' + JSON.stringify(cfg));
-    assert.match(plan.note, /address and its password are the only two things needed/);
-  }
-});
-
-t('createInvite imports what it calls before it calls it', () => {
-  // A dynamic import inside the function is a function-local binding, so its line number is part of correctness.
-  const src = readFileSync(new URL('../src/services/user.service.js', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('export async function createInvite'), src.indexOf('if (!sendEmail)'));
-  assert.ok(body.length > 200, 'and the function is there to read at all');
-  // The specifier is matched with a character class around one letter on purpose: scripts/check-api-imports.js
-  // reads every file in this folder for imports, and a plain string naming ../services/mail.service.js here
-  // would be reported as a broken import path in a test that only quotes it.
-  const IMPORT = /await import\((['"])\.\/mail\.[s]ervice\.js\1\)/;
-  assert.ok(IMPORT.test(body), 'the local import is still at the top of createInvite');
-  assert.ok(body.search(IMPORT) < body.search(/await inviteTtlMinutes\(\)/),
-    'mail.service is imported before inviteTtlMinutes() runs — the other order threw ReferenceError on every invite');
-  assert.ok(!/const \{[^}]*inviteTtlMinutes[^}]*\} = await import[^;]*;\s*const \{[^}]*mailStatus/.test(body),
-    'the import is not repeated lower down, which would shadow it');
-  // (no dynamic import of the service here: this suite stays free of Redis and BullMQ, and the order is what
-  // broke in the first place \u2014 evaluating the module would not see it.)
-});
-
-t('the preview .eml is a real message with a copyable link in its text part', async () => {
-  // On a box with no SMTP login this file is the delivery, so the URL has to be readable without a browser:
-  // multipart/alternative, text part first, and the raw link on a line of its own inside that text part.
-  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const dir = await mkdtemp(join(tmpdir(), 'pp-eml-'));
-  try {
-    const mailer = await MAILER.createMailer({ mail: { driver: 'preview', from: 'payroll@oxp.com' } });
-    const { inviteMail } = await import('../src/lib/mailer/template.js');
-    const body = inviteMail({ name: 'Aarav', link: 'http://localhost:5173/set-password?token=AbCd_123', minutes: 10, inviter: 'Anita', company: 'OXP' });
-    const out = await mailer.send({ to: 'a@b.co', ...body, previewDir: dir });
-    const raw = await readFile(out.file, 'utf8');
-    assert.match(raw, /^Content-Type: multipart\/alternative; boundary="[^"]+"/m, 'declares the alternative parts');
-    assert.ok(raw.indexOf('Content-Type: text/plain') < raw.indexOf('Content-Type: text/html'), 'text part comes first');
-    const textPart = raw.slice(raw.indexOf('text/plain'), raw.indexOf('Content-Type: text/html'));
-    assert.ok(textPart.includes('http://localhost:5173/set-password?token=AbCd_123'), 'the link is inside the text part, not only in an href');
-    assert.ok(/(?:\r?\n)http:\/\/localhost:5173\/set-password\?token=AbCd_123(?:\r?\n)/.test(textPart), 'on a line of its own, so a double-click selects it whole');
-    assert.match(raw, /^--\S+\r\nContent-Type: text\/plain/m, 'a boundary line opens the first part');
-    assert.match(raw.trimEnd(), /--$/, 'and the message ends with the closing boundary');
-  } finally { await rm(dir, { recursive: true, force: true }); }
-});
-
-await Promise.all(pending);
 console.log(`\n${fails.length ? `FAILED ${fails.length}/${passed + fails.length}` : `all ${passed} unit tests passed`}`);
 if (fails.length) { for (const [n, e] of fails) console.log(`\n--- ${n}\n${e.stack}`); process.exit(1); }

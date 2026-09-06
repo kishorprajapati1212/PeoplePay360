@@ -4,6 +4,7 @@ import { useApi, useAction } from '../../hooks/useApi.js';
 import { useTable } from '../../hooks/useTable.js';
 import { PageHeader } from '../../layout/PageHeader.jsx';
 import { Panel } from '../../components/ui/Panel.jsx';
+import { PunchCard } from '../../components/attendance/PunchCard.jsx';
 import { DataTable } from '../../components/data/DataTable.jsx';
 import { Modal } from '../../components/ui/Modal.jsx';
 import { Field, Input, Select, Textarea } from '../../components/ui/controls.jsx';
@@ -12,7 +13,7 @@ import { SearchInput } from '../../components/ui/controls.jsx';
 import { EmptyState } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { useCan } from '../../rbac/Can.jsx';
-import { date, num, today } from '../../utils/format.js';
+import { date, num, time, today } from '../../utils/format.js';
 import { download } from '../../utils/download.js';
 import { toRows, totalOf } from '../../utils/query.js';
 
@@ -30,6 +31,7 @@ export function AttendancePage() {
   const mayReadAll = useCan('attendance:read');
   const mayWrite = useCan('attendance:write');
   const mayApprove = useCan('attendance:approve_overtime');
+  const mayClock = useCan('attendance:clock');
   const table = useTable({});
   const [entry, setEntry] = useState(null);
   const { run, busy } = useAction();
@@ -41,6 +43,9 @@ export function AttendancePage() {
     [mayReadAll, month]), [mayReadAll, month]);
   const people = useApi(useCallback(() => (mayReadAll ? employees.list({ page: 1, page_size: 300 }) : Promise.resolve(null)),
     [mayReadAll]), [mayReadAll]);
+  // The employee's own day: what the punch card at the top of the screen reads.
+  const mySummary = useApi(useCallback(() => (mayClock ? portal.summary() : Promise.resolve(null)), [mayClock]), [mayClock]);
+  const reloadMine = useCallback(() => { mySummary.reload(); list.reload(); }, [mySummary, list]);
 
   const rows = list.data?.rows || [];
   const totalHours = rows.reduce((sum, r) => sum + Number(r.net_worked_hours ?? r.worked_hours ?? 0), 0);
@@ -79,6 +84,13 @@ export function AttendancePage() {
                     {mayWrite && <button className="btn-primary btn-sm" onClick={() => setEntry({ day: today(), employee_id: '', check_in: '09:30', check_out: '18:30', reason: '' })}>+ Mark entry</button>}
                   </>} />
 
+      {/* An employee's own month starts with the punch card: the state, the hours, the next action. */}
+      {mayClock && !mayReadAll && (
+        <div className="mb-4">
+          <PunchCard today={mySummary.data?.today_attendance} onDone={reloadMine} />
+        </div>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-4">
         <Panel className="xl:col-span-3" pad={false}>
           <DataTable loading={list.loading} rows={rows} error={list.error} onRetry={list.reload}
@@ -93,8 +105,8 @@ export function AttendancePage() {
             columns={[
               { key: 'day', label: 'Day', render: (r) => date(r.day) },
               { key: 'employee', label: 'Employee', render: (r) => (<div><p className="text-slate-100">{r.employee}</p><p className="text-xs text-slate-500">{r.employee_code} · {r.department}</p></div>) },
-              { key: 'check_in', label: 'In', render: (r) => String(r.check_in || '—').slice(11, 16) },
-              { key: 'check_out', label: 'Out', render: (r) => String(r.check_out || '—').slice(11, 16) },
+              { key: 'check_in', label: 'In', render: (r) => r.check_in ? <span className="num">{time(r.check_in)}</span> : '—' },
+              { key: 'check_out', label: 'Out', render: (r) => r.check_out ? <span className="num">{time(r.check_out)}</span> : '—' },
               { key: 'break_minutes', label: 'Break', align: 'right', render: (r) => num(r.break_minutes) },
               { key: 'net_worked_hours', label: 'Worked', align: 'right', render: (r) => Number(r.net_worked_hours ?? r.worked_hours ?? 0).toFixed(2) },
               // Hours and their approval are two different facts, so they are two named columns now. "OT" for
@@ -110,7 +122,7 @@ export function AttendancePage() {
                      : mayApprove ? <button className="btn-ghost btn-sm" onClick={() => approveOvertime(r)} disabled={busy === 'ot' + r.id}>Approve</button>
                      : <span className="chip border-amber-500/30 bg-amber-500/10 text-amber-300">pending</span>)
                   : <span className="text-slate-600">—</span>) },
-              { key: '_a', label: '', render: (r) => mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEntry({ id: r.id, employee_id: r.employee_id, employee: r.employee, day: String(r.day).slice(0, 10), check_in: String(r.check_in || '').slice(11, 16) || '09:30', check_out: String(r.check_out || '').slice(11, 16) || '18:30', reason: r.manual_reason || '' })}>Edit</button> },
+              { key: '_a', label: '', render: (r) => mayWrite && <button className="btn-ghost btn-sm" onClick={() => setEntry({ id: r.id, employee_id: r.employee_id, employee: r.employee, day: String(r.day).slice(0, 10), check_in: r.check_in ? time(r.check_in) : '09:30', check_out: r.check_out ? time(r.check_out) : '18:30', reason: r.manual_reason || '' })}>Edit</button> },
             ]}
             pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
             empty={<EmptyState title="Nothing marked this month" hint="Punches land here from the kiosk, or use “Mark entry” to add a corrected day." />} />

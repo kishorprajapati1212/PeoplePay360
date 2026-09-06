@@ -103,8 +103,10 @@ async function login(email) {
 }
 console.log('\n▸ auth');
 // every login the seeder creates, and nothing else: this loop is how "the demo accounts really work" is proved
+// ('payrollAdmin' is the same HR_PAYROLL_MANAGER account as 'payroll' — the seeder renamed the old
+//  payroll-admin@oxp.com to payroll@oxp.com, and these steps still ask for it by its old role name)
 for (const [name, email] of [['admin', 'admin@oxp.com'], ['hr', 'hr@oxp.com'],
-                             ['payrollOfficer', 'hr2@oxp.com'], ['payroll', 'payroll@oxp.com'],
+                             ['payrollOfficer', 'hr2@oxp.com'], ['payroll', 'payroll@oxp.com'], ['payrollAdmin', 'payroll@oxp.com'],
                              ['employee', 'aarav.mehta@oxp.com']]) {
   tokens[name] = await login(email);
   console.log(`  ✓ signed in as ${email}`);

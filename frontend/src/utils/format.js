@@ -35,9 +35,16 @@ export function datetime(value) {
   if (Number.isNaN(dt.getTime())) return String(value);
   return `${date(value)}, ${dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
 }
+/** Punch times land as timestamptz (UTC in the ISO string); slicing them showed a time 5½ hours
+ *  early for an IST browser. Format in the browser's own zone instead — 'HH:MM' when it can, the
+ *  raw prefix when it cannot (a plain '09:30' stays untouched). */
 export function time(value) {
   if (!value) return '—';
-  return String(value).slice(0, 5);
+  const s = String(value);
+  if (!s.includes('T') && !s.includes(' ')) return s.slice(0, 5);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s.slice(0, 5);
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 /** 'HR_PAYROLL_USER' → 'Hr Payroll User', so tables stay readable without a lookup table. */
 export function human(value) {

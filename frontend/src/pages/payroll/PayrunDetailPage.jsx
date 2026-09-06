@@ -39,6 +39,10 @@ export function PayrunDetailPage() {
      lies. `pdfWatch` is on while the count below is being refreshed, and off when it reaches the slip total
      (or when you press Stop, or after 60s of nothing — a dead worker should not spin forever). */
   const [pdfWatch, setPdfWatch] = useState(false);
+  /* Watching the bulk e-mail: the send hands one job per person to the worker, so "queued" is not
+     "sent". While any message is still QUEUED/PROCESSING the ledger below is re-read every 2.5 s and
+     the progress bar moves — the user asked for exactly that ("no response while sending"). */
+  const [mailWatch, setMailWatch] = useState(false);
 
   const can = {
     compute: useCan('payroll:compute'),
@@ -48,7 +52,6 @@ export function PayrunDetailPage() {
     send: useCan('payroll:send_bulk'),
     del: useCan('payroll:payrun_delete'),
   };
-
   const load = useCallback(() => Promise.all([
     payroll.payruns.one(id),
     payroll.payruns.warnings(id).catch(() => []),
@@ -57,6 +60,9 @@ export function PayrunDetailPage() {
   ]), [id]);
   const { data, loading, error, reload } = useApi(load, [id]);
   const [run0 = {}, w = [], t = [], e = []] = data || [];
+  /* Who computed the run is shown as information (the stamp and the banner), not as a gate. */
+  const computedBy = run0.computed_by_name || null;
+
   const status = run0.status;
   const actions = run0.actions || {};
   const warnings = toRows(w); const tasks = toRows(t); const emails = toRows(e);
@@ -99,6 +105,21 @@ export function PayrunDetailPage() {
     return () => clearTimeout(t);
   }, [pdfWatch, withPdf, people.length, reload]);
 
+  // Same idea for the mail queue: keep refreshing while anything is mid-flight, stop when the ledger
+  // is quiet (or after ~3 minutes — a dead worker must not spin the page forever).
+  const pendingMail = emails.filter((x) => ['QUEUED', 'PROCESSING', 'PENDING'].includes(String(x.status).toUpperCase())).length;
+  useEffect(() => {
+    if (!mailWatch) return undefined;
+    if (!pendingMail) { setMailWatch(false); return undefined; }
+    const t = setTimeout(() => reload(), 2500);
+    return () => clearTimeout(t);
+  }, [mailWatch, pendingMail, reload]);
+  useEffect(() => {
+    if (!mailWatch) return undefined;
+    const stop = setTimeout(() => setMailWatch(false), 180000);
+    return () => clearTimeout(stop);
+  }, [mailWatch]);
+
   const act = (key, fn, message) => run(key, fn).then((out) => { toast.success(typeof message === 'function' ? message(out) : message); reload(); return out; })
     .catch((e) => { toast.error(e.message); throw e; });
 
@@ -125,6 +146,7 @@ export function PayrunDetailPage() {
       const out = await run('send', () => payroll.payruns.send(id, { force: send.force, cc_hr: send.ccHr }));
       setSend(null);
       setOutcome({ kind: 'send', ...describeSend(out) });
+      setMailWatch(true);          // the bar below starts moving until the last message lands
       reload();
     } catch (err) { toast.error(err.message); }
   }
@@ -148,11 +170,23 @@ export function PayrunDetailPage() {
         <Stat label="Gross" value={inr(run0.total_gross)} hint={`${num(run0.payslip_count)} payslips`} />
         <Stat label="Deductions" value={inr(run0.total_deductions)} hint="statutory + recoveries" />
         <Stat label="Net payable" value={inr(run0.total_net)} tone="money" hint={`employer cost ${inr(run0.employer_cost)}`} />
-        <Stat label="Checks" value={num(warnings.length) + (warnings.length === 1 ? ' flag' : ' flags')}
-              hint={`${num(run0.error_count)} payslips blocked · ${num(run0.warning_count)} payslips with a flag · ${num(people.length)} people in the run`} />
+        {/* One number, one meaning: this counts the individual FLAGS (the rows the Checks panel lists).
+            It used to show run0.warning_count — payslips carrying a flag — so the header said "3 flags"
+            and the panel below listed 6. Both counts now come from the same list. */}
+        <Stat label="Checks" value={`${num(warnings.length)} flag${warnings.length === 1 ? '' : 's'}`}
+              hint={warnings.length
+                ? `across ${num(new Set(warnings.map((x) => x.payslip_id)).size)} payslip(s) · ${num(warnings.filter((x) => x.severity === 'ERROR').length)} blocking`
+                : `${num(people.length)} people in the run · nothing flagged`} />
       </div>
 
-      <WorkflowBar status={status} can={can} busy={busy} actions={actions} run0={run0}
+      {status === 'COMPUTED' && (
+        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+          <span className="font-semibold">Ready for approval.</span>
+          {` ${computedBy ? `${computedBy} computed` : 'Computed'} this run — review the numbers below, then press “Approve & lock”. Nothing is paid, emailed or visible to employees until it is approved and marked paid.`}
+        </div>
+      )}
+
+      <WorkflowBar status={status} can={can} busy={busy} actions={actions} run0={run0} computedBy={computedBy}
                    onCompute={compute}
                    onValidate={validate}
                    onPdfs={() => generatePdfs()}
@@ -163,6 +197,9 @@ export function PayrunDetailPage() {
       <PdfPanel people={people.length} done={withPdf} watching={pdfWatch} mayWrite={can.pdf}
                 status={status} outcome={outcome?.kind === 'pdfs' ? outcome : null}
                 onGenerate={(force) => generatePdfs({ force })} onStop={() => setPdfWatch(false)} />
+
+      <MailPanel emails={emails} watching={mailWatch} onStop={() => setMailWatch(false)}
+                 outcome={outcome?.kind === 'send' ? outcome : null} />
 
       {outcome && (
         <div className={'mt-3 rounded-lg border px-3 py-2 text-sm ' + (outcome.tone === 'bad' ? 'border-red-500/40 bg-red-950/30 text-red-100'
@@ -309,8 +346,71 @@ function describeSend(out) {
   const bits = [`${queued} message${queued === 1 ? '' : 's'} queued`];
   if (out?.skipped_missing_pdf) bits.push(`${out.skipped_missing_pdf} without a PDF`);
   if (out?.skipped_missing_email) bits.push(`${out.skipped_missing_email} with no work email`);
+  if (out?.already_sent) bits.push(`${out.already_sent} already delivered (skipped)`);
+  // how_it_is_delivered says which driver carried the mail and why — "No SMTP credentials" without a
+  // reason sent people with a correct backend/.env hunting a bug that was a restart away.
   return { tone: queued ? 'good' : 'bad', text: bits.join(' · '),
-           hint: queued ? out.driver_note : 'Nothing was queued — generate the PDFs first (or send from a paid run).' };
+           hint: queued ? `${out?.how_it_is_delivered || ''}${out?.mail_note ? ` (${out.mail_note})` : ''}` : 'Nothing was queued — generate the PDFs first (or send from a paid run).' };
+}
+
+/**
+ * The bulk e-mail, made visible. The send button only queues one job per person on the worker, which
+ * used to be the last thing the screen said: green toast, then silence, and nobody knew whether 40
+ * messages went out. This panel reads the run's delivery ledger and turns it into a bar: X of Y sent,
+ * live while the worker is busy, failures named, and the mail driver spelled out (preview mode says
+ * where the .eml files landed instead of pretending they were emailed).
+ */
+function MailPanel({ emails, watching, onStop, outcome }) {
+  if (!emails.length && !outcome) return null;
+  const by = (s) => emails.filter((x) => String(x.status).toUpperCase() === s).length;
+  const sent = by('SENT') + by('COMPLETED');
+  const failed = by('FAILED') + by('DEAD');
+  const pending = by('QUEUED') + by('PROCESSING') + by('PENDING');
+  const total = emails.length;
+  const pct = total ? Math.round(((sent + failed) / total) * 100) : 0;
+  const done = !pending;
+  return (
+    <Panel className="mt-3" title="Payslip e-mail"
+           subtitle={total ? `${num(sent)} of ${num(total)} delivered${failed ? ` · ${num(failed)} failed` : ''}${pending ? ` · ${num(pending)} with the worker` : ''}`
+                           : 'No messages queued for this run yet.'}
+           actions={watching ? <button className="btn-ghost btn-sm" onClick={onStop}>Stop watching</button> : null}>
+      {total > 0 && (
+        <div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-ink-800">
+            {/* the bar only fills on a *finished* message: green for sent, red for failed — a stuck
+                worker shows an honest gap instead of a slowly-lying green line */}
+            <div className="flex h-full w-full">
+              <div className="h-full bg-emerald-500 transition-all" style={{ width: (total ? (sent / total) * 100 : 0) + '%' }} />
+              <div className="h-full bg-red-500 transition-all" style={{ width: (total ? (failed / total) * 100 : 0) + '%' }} />
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+            <span className="num">{pct}% finished</span>
+            <span className="text-emerald-300">{num(sent)} sent</span>
+            {failed > 0 && <span className="text-red-300">{num(failed)} failed</span>}
+            {pending > 0 && <span className="text-amber-300">{num(pending)} in flight</span>}
+            {watching && <span>updating every few seconds…</span>}
+            {done && !failed && <span className="text-emerald-300">✓ all messages delivered</span>}
+          </div>
+          {failed > 0 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {emails.filter((x) => ['FAILED', 'DEAD'].includes(String(x.status).toUpperCase())).slice(0, 5).map((x) => (
+                <li key={x.id} className="truncate text-red-300" title={x.error || ''}>· {x.recipient} — {x.error || 'send failed'}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {outcome && (
+        <p className={'mt-3 rounded-lg border px-3 py-2 text-xs '
+                      + (outcome.tone === 'bad' ? 'border-red-500/40 bg-red-950/30 text-red-100'
+                        : outcome.tone === 'warn' ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100')}>
+          {outcome.text}{outcome.hint ? <span className="mt-1 block opacity-80">{outcome.hint}</span> : null}
+        </p>
+      )}
+    </Panel>
+  );
 }
 
 function Stat({ label, value, hint, tone }) {
@@ -324,21 +424,21 @@ function Stat({ label, value, hint, tone }) {
 }
 
 function stampFor(status, run) {
-  if (status === 'PAID') return 'paid ' + datetime(run.paid_at);
-  if (status === 'VALIDATED') return 'locked ' + datetime(run.validated_at);
-  if (status === 'COMPUTED') return 'computed ' + datetime(run.computed_at);
-  return 'created ' + datetime(run.created_at);
+  if (status === 'PAID') return `Paid ${datetime(run.paid_at)}${run.paid_by_name ? ` by ${run.paid_by_name}` : ''}`;
+  if (status === 'VALIDATED') return `Approved ${datetime(run.validated_at)}${run.validated_by_name ? ` by ${run.validated_by_name}` : ''}`;
+  if (status === 'COMPUTED') return `Computed ${datetime(run.computed_at)}${run.computed_by_name ? ` by ${run.computed_by_name}` : ''} · awaiting approval`;
+  return 'Created ' + datetime(run.created_at);
 }
 
-function WorkflowBar({ status, can, busy, actions, run0, onCompute, onValidate, onPdfs, onPaid, onSend, onVoid }) {
+function WorkflowBar({ status, can, busy, actions, run0, computedBy, onCompute, onValidate, onPdfs, onPaid, onSend, onVoid }) {
   // The server already decides what the next legal move is (run.actions); this only explains it, so a
   // button never sits there grey with no reason next to it.
   const errs = Number(run0.error_count || 0);
   const steps = [
     { key: 'compute', label: 'Compute payslips', show: ['DRAFT', 'COMPUTED'].includes(status) && can.compute, run: onCompute,
       note: 'runs every rule, pro-rata on days worked', disabled: actions.can_compute === false, why: 'The run is in a state where recomputing is not allowed.' },
-    { key: 'validate', label: 'Validate & lock', show: status === 'COMPUTED' && can.validate, run: onValidate,
-      note: 'numbers stop moving after this', disabled: actions.can_validate === false,
+    { key: 'validate', label: 'Approve & lock', show: status === 'COMPUTED' && can.validate, run: onValidate,
+      note: 'locks the numbers: nothing moves after this', disabled: actions.can_validate === false,
       why: errs ? `${errs} payslip${errs === 1 ? '' : 's'} still ${errs === 1 ? 'has' : 'have'} an error — fix those rows first.` : 'Nothing to validate yet.' },
     // Deliberately shown as soon as payslips exist, not only after validate: "go and validate first" was a
     // dead end for anyone who only wanted the file. The run's state still decides what the worker does with it.
@@ -358,7 +458,8 @@ function WorkflowBar({ status, can, busy, actions, run0, onCompute, onValidate, 
       ))}
       {status === 'DRAFT' && can.del && <button className="btn-danger btn-sm" onClick={onVoid} disabled={!!busy}>Void this draft</button>}
       {status === 'DRAFT' && !can.compute && <p className="text-xs text-slate-500">Your role can create runs but not compute them — that is deliberate: payroll_user does the maths.</p>}
-      {status === 'COMPUTED' && !can.validate && <p className="text-xs text-slate-500">You can compute and correct, but only a manager validates and releases.</p>}
+      {status === 'COMPUTED' && !can.validate && <p className="text-xs text-slate-500">You can compute and correct, but only a payroll manager or admin approves and releases.</p>}
+      {status === 'COMPUTED' && can.validate && <p className="text-xs text-slate-500">{computedBy ? `${computedBy} computed this run. ` : ''}Review, then “Approve & lock” — employees see nothing until it is approved and paid.</p>}
     </div>
   );
 }
@@ -385,10 +486,8 @@ function PdfPanel({ people, done, watching, mayWrite, status, outcome, onGenerat
              </span>)}>
       {people > 0 && (
         <div className="mt-2">
-          {/* Squared ends for the same reason as the dashboard bars - and the track already clips, so a radius
-              on the fill only doubles it up. */}
-          <div className="h-1.5 w-full overflow-hidden rounded-sm bg-ink-800">
-            <div className="h-full bg-brand-500 transition-all" style={{ width: pct + '%' }} />
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
+            <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: pct + '%' }} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
             <span>{pct}% ready{status === 'DRAFT' && missing > 0 ? ' · this run is still a draft, so a recompute will make the files stale' : ''}</span>

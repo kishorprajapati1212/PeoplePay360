@@ -6,7 +6,6 @@
  *   node db/seed/seed.js --force         re-run the demo data over an existing company (upserts, so safe)
  *   node db/seed/seed.js --reset         truncate the app tables first (dev only, obviously)
  *   node db/seed/seed.js --skip-payroll  master data only, no payruns (fast for API smoke tests)
- *   node db/seed/seed.js --no-payruns    same, but it is the demo a trainer wants: 100-200 people, no run yet
  *   node db/seed/seed.js --if-empty      used by docker compose: same as the default, but says nothing
  *
  * Payslip money is NOT written here: the seeder drives the real services (payrun create → compute →
@@ -18,15 +17,11 @@ import { query, one, rows, pool } from '../../src/db/pool.js';
 import { hashPassword } from '../../src/middleware/auth.js';
 import { eachDay, toIso, fmtDate, periodKey, monthAnchor } from '../../src/lib/shared/index.js';
 import { COMPANY, DEPARTMENTS, SCHEDULES, HOLIDAYS, HOLIDAY_TEMPLATES, STRUCTURES, PT_SLABS, USERS, EMPLOYEES,
-         LEAVE_TYPES, RUNS, ATTENDANCE_MONTHS, PAYRUN_MONTHS, FY, TODAY, shiftDays, rng } from './data.js';
+         LEAVE_TYPES, RUNS, ATTENDANCE_MONTHS, rng } from './data.js';
 import { banner } from '../../src/utils/urls.js';
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
-// A company without a single pay run is a different demo from a company with three months of history: the
-// people, contracts, attendance and leave queues are all real, so the first run a presenter creates computes
-// properly. `--skip-payroll` is the older name for the same state and stays working.
-const SKIP_PAYRUNS = has('--skip-payroll') || has('--no-payruns') || /^(false|0|no)$/i.test(process.env.SEED_PAYRUNS || '');
 const log = (...a) => { if (!has('--quiet')) console.log(...a); };
 const step = (m) => log(`\n▸ ${m}`);
 const pad = (s, n = 22) => String(s).padEnd(n);
@@ -174,34 +169,30 @@ async function seedEmployees({ depts, schedules, structures, users }) {
     if (!userId) ({ id: userId } = await query(`insert into users (name, work_email, password_hash, role, is_active, must_change_pw)
                                values ($1,$2,$3,'EMPLOYEE',true,false) returning id`, [e.name, e.email, hash]).then((r) => r.rows[0]));
     const code = `EMP${String(i + 1).padStart(4, '0')}`;
-    const status = e.exit ? 'TERMINATED' : 'ACTIVE';
     if (emp) await query(`update employees set name=$2, work_email=$3, department_id=$4, job_position=$5, employee_type=$6, working_schedule_id=$7,
-                                 date_of_joining=$8, date_of_exit=$9, status=$10, user_id=$11, city=$12, state=$13, pincode=$14 where id=$1`,
-                         [emp.id, e.name, e.email, deptId, e.position, e.type, schedule.id, e.joining, e.exit || null, status, userId,
-                          e.city, e.state, e.pin]);
+                                 date_of_joining=$8, date_of_exit=$9, status='ACTIVE', user_id=$10 where id=$1`,
+                         [emp.id, e.name, e.email, deptId, e.position, e.type, schedule.id, e.joining, e.exit || null, userId]);
     else {
-      // Every identity field comes from the data module, where each one is built to the shape the employee form
-      // validates (PATTERNS in frontend/src/components/crud/schemaForm.jsx) — a demo that cannot be opened in the
-      // edit dialog is worse than no demo at all. `status` and `date_of_exit` agree here: nobody is "ACTIVE" with
-      // an exit date in the past, which is what this used to write.
       emp = await query(`insert into employees (employee_code, user_id, name, work_email, phone, gender, date_of_birth, address, city, state, pincode,
                                             work_location, department_id, job_position, employee_type, working_schedule_id, date_of_joining, date_of_exit, status,
                                             employment_tag, basic_salary, bank_account_number, bank_ifsc, bank_name, pan_number, uan_number, esi_number, notes)
                                      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) returning id`,
-        [code, userId, e.name, e.email, e.phone, e.gender, e.dob, `${101 + i * 3} Sadan Road`, e.city, e.state, e.pin,
-         e.city, deptId, e.position, e.type, schedule.id, e.joining, e.exit || null, status,
+        [code, userId, e.name, e.email, `98${(25000000 + i * 12345).toString().slice(0, 8)}`, e.gender,
+         `199${4 + (i % 4)}-0${(i % 8) + 1}-1${(i % 9) + 1}`, `${101 + i * 3} Sadan Road`, e.city, 'Gujarat', `3800${(15 + i).toString().padStart(2, '0')}`,
+         e.city, deptId, e.position, e.type, schedule.id, e.joining, e.exit || null, 'ACTIVE',
          e.type === 'INTERN' ? 'Internship' : e.type === 'CONTRACT' ? 'Fixed term' : 'Permanent', e.wage,
-         e.bank_account, e.ifsc, e.bank_name, e.pan, e.uan, e.esic,
+         `5${(i * 7 + 11).toString().padStart(4, '0')}${(i * 13 + 7).toString().padStart(6, '0')}`, 'HDFC0000123', 'HDFC Bank',
+         `ABCP${(1000 + i)}M`, `100${(2400000 + i * 137).toString().padStart(9, '0')}`, e.wage < 21000 ? `ESI${(400000 + i).toString().padStart(10, '0')}` : null,
          `Demo profile · ${schedule.name}`]).then((r) => r.rows[0]);
     }
     map[e.key] = { id: emp.id, code, wage: e.wage, structure: e.structure, schedule, inputs: e.inputs || null, deptId, joining: e.joining, exit: e.exit || null };
     // one primary contract that runs to the exit date (or open-ended)
     const existingId = await query(`select id from contracts where employee_id = $1 and is_primary = true`, [emp.id]).then((r) => r.rows[0]?.id);
     const c = { employee_id: emp.id, start_date: e.joining, end_date: e.exit || null, department_id: deptId, job_position: e.position,
-                wage: e.wage, salary_structure_id: structure.id, working_schedule_id: schedule.id,
-                status: e.exit ? 'EXPIRED' : 'RUNNING', is_primary: true, notes: `Seeded contract for ${e.name}` };
-    if (existingId) await query(`update contracts set end_date=$2, wage=$3, salary_structure_id=$4, working_schedule_id=$5, status=$6, department_id=$7, job_position=$8 where id=$1`,
-      [existingId, c.end_date, c.wage, c.salary_structure_id, c.working_schedule_id, c.status, c.department_id, c.job_position]);
+                wage: e.wage, salary_structure_id: structure.id, working_schedule_id: schedule.id, status: 'RUNNING', is_primary: true,
+                notes: `Seeded contract for ${e.name}` };
+    if (existingId) await query(`update contracts set end_date=$2, wage=$3, salary_structure_id=$4, working_schedule_id=$5, status='RUNNING', department_id=$6, job_position=$7 where id=$1`,
+      [existingId, c.end_date, c.wage, c.salary_structure_id, c.working_schedule_id, c.department_id, c.job_position]);
     else await query(`insert into contracts (employee_id, start_date, end_date, department_id, job_position, wage, salary_structure_id, working_schedule_id, status, is_primary, notes)
                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, Object.values(c));
     log(`  ${pad(code)} ${pad(e.name, 20)} ${pad(e.structure, 5)} ₹${String(e.wage).padStart(7)}  ${e.dept}`);
@@ -274,7 +265,8 @@ async function seedTimeOff({ empMap, auth }) {
     typeIds[t.code] = row.id;
   }
   log(`  ${LEAVE_TYPES.length} types`);
-  const fyFrom = FY.from, fyTo = FY.to;
+  const fyFrom = '2026-04-01';
+  const fyTo = '2027-03-31';
   // What to grant is read off LEAVE_TYPES, not hard-coded: every type that both needs a balance and has an
   // annual entitlement gets one, so a type added to the seed data is funded automatically instead of showing
   // up as "No leave balance yet" on someone's dashboard.
@@ -282,9 +274,9 @@ async function seedTimeOff({ empMap, auth }) {
   for (const e of Object.values(empMap)) {
     for (const [code, days] of grants) {
       await query(`insert into time_off_allocations (employee_id, time_off_type_id, allocated_days, taken_days, pending_days, remaining_days, valid_from, valid_until, status, description)
-                   values ($1,$2,$3,0,0,$3,$4,$5,'APPROVED',$6)
+                   values ($1,$2,$3,0,0,$3,$4,$5,'APPROVED','FY 2026-27 grant')
                    on conflict (employee_id, time_off_type_id, valid_from) do update set allocated_days = excluded.allocated_days, remaining_days = excluded.allocated_days - time_off_allocations.taken_days, status='APPROVED'`,
-                  [e.id, typeIds[code], days, fyFrom, fyTo, `${FY.label} grant`]);
+                  [e.id, typeIds[code], days, fyFrom, fyTo]);
     }
   }
   log(`  ${grants.length} grant(s) per employee for FY 2026-27: ${grants.map(([c, d]) => c + ' ' + d).join(', ')}`);
@@ -293,39 +285,16 @@ async function seedTimeOff({ empMap, auth }) {
   // Requests go through the service so the balance maths and the approval trail are the real thing.
   const svc = await import('../../src/services/timeoff.service.js');
   const people = Object.values(empMap);
-  // A queue of four requests in a 160-person company reads as a broken feature — this is the screen an approver
-  // lives on, so the plan is generated from the crowd instead of naming eight people: roughly one in five has
-  // something waiting this month or next, one in four has an approved day in the past, and a few were refused
-  // with the reason HR would give. Dates stay inside the financial year, because an allocation only covers that.
-  const REASONS_WAITING = ['Family function in the hometown', 'Personal work, will be reachable on phone',
-    'Wedding in the family', 'Not feeling well, doctor visit', 'Child is unwell — need the day',
-    'Planned trip booked two months back', 'Shifting flats, work at home', 'Exams at the university for my sibling'];
-  const REASONS_PAST = ['Family function in Surat', 'Fever', 'Two days after the festival', 'Dental surgery',
-    'Village visit for the harvest', 'Marriage of a cousin', 'Fever, then a rest day'];
-  const active = people.filter((e) => !e.exit && e.joining <= TODAY);
-  const inFy = (d) => d >= fyFrom && d <= fyTo;
-  // Something waiting must still be in the future — an approver who finds a request that started three weeks ago
-  // reads it as a broken queue. Past days off are for the approved ones.
-  const ahead = (i, n) => shiftDays(TODAY, 2 + ((i * 3 + n * 5) % 19));
-  const ago = (i, n) => shiftDays(TODAY, -(3 + ((i * 2 + n * 7) % 26)));
-  const plan = [];
-  active.forEach((who, i) => {
-    if (i % 5 === 0) {
-      const from = ahead(i, 2);
-      const to = shiftDays(from, i % 3);                       // 1 to 3 days, as casual leave usually is
-      if (inFy(to)) plan.push({ who, code: i % 2 ? 'CL' : 'SL', from, to, status: 'TO_APPROVE', reason: REASONS_WAITING[i % REASONS_WAITING.length] });
-    }
-    if (i % 4 === 1) {
-      const from = ago(i, 7);
-      const to = shiftDays(from, i % 2);
-      if (inFy(from)) plan.push({ who, code: i % 3 ? 'PL' : 'CL', from, to, status: 'APPROVED', reason: REASONS_PAST[i % REASONS_PAST.length] });
-    }
-    if (i % 9 === 4) {
-      const from = ahead(i, 4);
-      const to = shiftDays(from, 1);
-      if (inFy(to)) plan.push({ who, code: 'LWP', from, to, status: 'REFUSED', reason: 'Two people from the same team cannot be off in the same week' });
-    }
-  });
+  const plan = [
+    { who: people[0], code: 'CL', from: '2026-08-11', to: '2026-08-12', status: 'APPROVED', reason: 'Family function in Surat' },
+    { who: people[1], code: 'SL', from: '2026-08-19', to: '2026-08-19', status: 'APPROVED', reason: 'Fever' },
+    { who: people[3], code: 'LWP', from: '2026-09-07', to: '2026-09-08', status: 'APPROVED', reason: 'Extended travel, unpaid' },
+    { who: people[2], code: 'PL', from: '2026-10-15', to: '2026-10-20', status: 'TO_APPROVE', reason: 'Diwali with family' },
+    { who: people[5], code: 'CL', from: '2026-09-11', to: '2026-09-11', status: 'TO_APPROVE', reason: 'Client visit afterwards' },
+    { who: people[7], code: 'CL', from: '2026-09-18', to: '2026-09-19', status: 'TO_APPROVE', reason: 'Personal' },
+    { who: people[4], code: 'CL', from: '2026-08-05', to: '2026-08-06', status: 'REFUSED', reason: 'Two of us cannot be off the same day' },
+    { who: people[6], code: 'PL', from: '2026-11-30', to: '2026-12-04', status: 'TO_APPROVE', reason: 'Wedding in the family' },
+  ];
   let approved = 0;
   for (const p of plan) {
     const type = LEAVE_TYPES.find((t) => t.code === p.code);
@@ -341,13 +310,17 @@ async function seedTimeOff({ empMap, auth }) {
     if (p.status === 'APPROVED') { await svc.decide(req.id, { status: 'APPROVED' }, { auth }); approved += 1; }
     if (p.status === 'REFUSED') await svc.decide(req.id, { status: 'REFUSED', refuse_reason: p.reason }, { auth });
   }
-  const waiting = plan.filter((p) => p.status === 'TO_APPROVE').length;
-  log(`  ${plan.length} requests across ${active.length} people — ${approved} approved through the service, ${waiting} waiting for an approver`);
+  log(`  ${plan.length} requests (${approved} approved through the service, 3 waiting for HR)`);
 }
 async function seedPayroll({ empMap, structures, auth }) {
-  step(`Payroll: ${RUNS.length} runs (${PAYRUN_MONTHS} paid month(s) + this one as a draft) driven through the real services`);
+  step(`Payroll: ${RUNS.length} runs driven through the real services`);
   const payrun = await import('../../src/services/payrun.service.js');
   const payslip = await import('../../src/services/payslip.service.js');
+  // Maker-checker is real in the demo too: Meera (payroll manager) computes every run, and a
+  // DIFFERENT account approves — the admin. validate() refuses same-account approval, so the seed
+  // tells the same story the product does: one person runs the numbers, someone else signs them off.
+  const maker = { userId: auth.ids.payroll, roles: ['HR_PAYROLL_MANAGER'], scope: 'company', name: 'Meera Iyer (seed)' };
+  const checker = { userId: auth.ids.admin, roles: ['ADMIN'], scope: 'company', name: 'Seeder' };
   const byStructure = {};
   for (const [key, e] of Object.entries(empMap)) (byStructure[e.structure] ||= []).push(e);
   const created = [];
@@ -361,7 +334,7 @@ async function seedPayroll({ empMap, structures, auth }) {
         pay = await payrun.create({ salary_structure_id: structure.id, period_start: run.from, period_end: run.to,
           pay_frequency: run.freq, compute_mode: run.mode, employee_ids: eligible.map((e) => e.id),
           name: `${run.halves === 'H1' ? 'First half' : run.halves === 'H2' ? 'Second half' : new Date(`${run.from}T00:00:00Z`).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })} ${run.from.slice(0, 4)} — ${structure.name}`,
-          notes: 'Seeded demo run' }, { auth });
+          notes: 'Seeded demo run' }, { auth: maker });
       } catch (err) {
         if (err.code === 'PAYRUN_EXISTS' || err.code === 'DUPLICATE_PERIOD') { log(`  · ${structure.name} ${run.from.slice(0, 7)} already exists`); continue; }
         throw err;
@@ -378,11 +351,11 @@ async function seedPayroll({ empMap, structures, auth }) {
           }
         }
       }
-      const res = await payrun.compute(pay.id, { auth });
+      const res = run.status === 'DRAFT' ? { computed: 0, failed: 0 } : await payrun.compute(pay.id, { auth: maker });
       created.push({ id: pay.id, run, structure: structure.name, computed: res.computed, failed: res.failed });
       if (run.status === 'PAID') {
-        await payrun.validate(pay.id, { auth });
-        await payrun.markPaid(pay.id, { auth, releaseDocuments: false });
+        await payrun.validate(pay.id, { auth: checker });
+        await payrun.markPaid(pay.id, { auth: checker, releaseDocuments: false });
       }
       log(`  ${pad(run.from.slice(0, 7))} ${pad(structure.name, 24)} ${String(eligible.length).padStart(2)} slips  net ₹${(await query(`select coalesce(sum(net_amount),0) as n from payslips where payrun_id=$1`, [pay.id]).then((r) => Number(r.rows[0].n))).toLocaleString('en-IN')}`);
     }
@@ -411,16 +384,9 @@ async function seedWrinkles() {
   step('Demo wrinkles (things HR has to fix)');
   await query(`update employees set bank_account_number = null, bank_ifsc = null, bank_name = null where employee_code = 'EMP0009'`);
   log('  EMP0009 has no bank details → "missing bank" warning + report filter');
-  // The last day that has overtime for that person, not the last day of the month: pinning it to
-  // `max(day) from attendance` used to find nothing on a seed where EMP0008 had no OT that day, and the line
-  // below then announced "0 overtime rows left unapproved" for a demo that had no unapproved overtime at all.
-  const ot = await query(`update attendance set overtime_approved = false
-                          where overtime_hours > 0 and employee_id = (select id from employees where employee_code = 'EMP0008')
-                            and day = (select max(day) from attendance a2 where a2.employee_id = attendance.employee_id and a2.overtime_hours > 0)
-                          returning id`);
-  log(ot.rowCount
-    ? `  ${ot.rowCount} overtime row(s) left unapproved → they must not reach payroll`
-    : '  EMP0008 has no overtime in this seed, so there was nothing to leave unapproved');
+  const ot = await query(`update attendance set overtime_approved = false where overtime_hours > 0 and day = (select max(day) from attendance)
+                          and employee_id = (select id from employees where employee_code = 'EMP0008') returning id`);
+  log(`  ${ot.rowCount} overtime row(s) left unapproved → they must not reach payroll`);
   await query(`update contracts set notes = coalesce(notes,'') || ' · contract expiring, renewal due' where employee_id = (select id from employees where employee_code='EMP0010') and end_date is null`);
 }
 async function summary() {
@@ -468,10 +434,9 @@ async function main() {
   const empMap = await seedEmployees({ depts, schedules, structures, users });
   await seedAttendance({ empMap });
   const auth = { userId: users.ids.admin, roles: ['ADMIN'], scope: 'company', name: 'Seeder' };
+  const users_ = users; // seedPayroll needs a second account for maker-checker approval
   await seedTimeOff({ empMap, auth });
-  if (SKIP_PAYRUNS) log('\n  No pay run was created: the demo starts where you press Create, and the first'
-    + ' Compute reads the real attendance of ' + Object.keys(empMap).length + ' people.');
-  else await seedPayroll({ empMap, structures, auth });
+  if (!has('--skip-payroll')) await seedPayroll({ empMap, structures, auth: { ...auth, ids: users_.ids } });
   await seedWrinkles();
   await summary();
 }

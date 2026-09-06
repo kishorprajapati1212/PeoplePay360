@@ -152,7 +152,7 @@ export async function remove(id, { auth }) {
   if (!done) throw new AppError('LOCKED', 'Only draft, refused or cancelled requests can be deleted', { status: 409 });
   return { ok: true, id };
 }
-export const allocationsFor = (employeeId) => repo.allocationsFor(employeeId);
+export const allocationsFor = (employeeId) => repo.balancesFor(employeeId);
 export const createAllocation = (d) => repo.createAllocation(d);
 /**
  * One grant, many people. "Assign balance" on the types screen and the bulk panel on Allocations both

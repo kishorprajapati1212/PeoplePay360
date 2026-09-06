@@ -15,14 +15,17 @@ import { useCan } from '../../rbac/Can.jsx';
 import { date, num, today } from '../../utils/format.js';
 import { toRows, totalOf } from '../../utils/query.js';
 import { guard, missingSentence } from '../../utils/form.js';
-import { REQUEST_STATUS, STATUS_LABEL, STATUS_OPTIONS, isWaiting } from '../../utils/leaveStatus.js';
 import { payoffOf } from '../../utils/leave.js';
 
 /** The single approval flow from the mockup: approve or refuse, optionally with a remark. */
 export function LeaveRequestsPage() {
   const toast = useToast();
   const mayApprove = useCan('timeoff:approve');
-  const table = useTable({});
+  // The list opens on the queue that needs a decision (TO_APPROVE — the API's word for "pending");
+  // the status dropdown still reaches the history. Without this, a fresh decision scrolls out of
+  // view under months of old rows. (This value was 'PENDING' once: no such status exists, so the
+  // queue showed empty and the Approve/Refuse buttons never appeared — the leave flow looked dead.)
+  const table = useTable({ initialQuery: { status: 'TO_APPROVE' } });
   const [decision, setDecision] = useState(null);
   // The row being decided on, and what its days cost — both are read by the dialog below.
   const decisionRow = decision?.row || null;
@@ -98,7 +101,7 @@ export function LeaveRequestsPage() {
           toolbar={<>
             <SearchInput value={table.term} onChange={table.onSearch} placeholder="Employee…" />
             <Select className="w-40" value={table.query.status || ''} onChange={(v) => table.onFilter('status', v)}
-                    options={STATUS_OPTIONS} placeholder="Any status" />
+                    options={[{ value: '', label: 'All statuses' }, { value: 'TO_APPROVE', label: 'Waiting for approval' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REFUSED', label: 'Refused' }, { value: 'CANCELLED', label: 'Cancelled' }]} placeholder="Status" />
           </>}
           columns={[
             { key: 'employee', label: 'Employee', render: (r) => (<div><p className="text-slate-100">{r.employee}</p><p className="text-xs text-slate-500">{r.employee_code} · {r.department_id ? '' : ''}{r.type}</p></div>) },
@@ -108,18 +111,15 @@ export function LeaveRequestsPage() {
             { key: 'half_day_period', label: 'Part', render: (r) => r.half_day_period || '—' },
             { key: 'reason', label: 'Reason', render: (r) => <span className="text-slate-400">{r.reason || '—'}</span> },
             { key: 'is_unpaid', label: 'Pay', render: (r) => (r.is_unpaid ? <span className="chip border-red-500/30 bg-red-500/10 text-red-300">unpaid</span> : <span className="text-xs text-slate-500">paid</span>) },
-            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} label={STATUS_LABEL[r.status] || null} /> },
-            // `isWaiting`, not a literal: the enum value is TO_APPROVE (001_enums.sql), and comparing this to
-            // 'PENDING' is what made the two buttons below invisible on every row for every role.
-            { key: '_a', label: '', render: (r) => mayApprove && isWaiting(r) && (
+            { key: 'status', label: 'Status', render: (r) => <StatusChip value={r.status} /> },
+            { key: '_a', label: '', render: (r) => mayApprove && r.status === 'TO_APPROVE' && (
               <span className="flex gap-1.5">
                 <button className="btn-primary btn-sm" onClick={() => openDecision(r, 'approve')}>Approve</button>
                 <button className="btn-danger btn-sm" onClick={() => openDecision(r, 'refuse')}>Refuse</button>
               </span>) },
           ]}
           pagination={{ page: table.page, size: table.size, total: totalOf(list.data, toRows(list.data).length), onPage: table.setPage, onSize: table.setSize }}
-          empty={<EmptyState title="No requests to show"
-                              hint="Employees raise leave from their portal (and from My time off); you can raise one here with “Raise for someone”. A request appears in this list as “Waiting for approval”, and that is when Approve and Refuse appear in its row." />} />
+          empty={<EmptyState title="No requests" hint="Employees raise leave from their portal; you can also raise one here." />} />
       </Panel>
 
       <Modal open={!!decision} onClose={() => setDecision(null)} width="max-w-md"
@@ -138,6 +138,8 @@ export function LeaveRequestsPage() {
             {' · '}{decisionPayoff?.text}
             {' · '}{decision?.action === 'approve' ? `${num(days)} day(s) will be recorded against the balance`
                        : 'the balance stays as it is'}
+            {decisionRow.requires_allocation && decisionRow.allocation_remaining != null
+              && ` · ${num(Number(decisionRow.allocation_remaining))} day(s) left before this decision`}
           </p>
         )}
         {decision?.action === 'approve' && (

@@ -13,10 +13,10 @@ const KEY = 'pp360.theme';
 const listeners = new Set();
 
 const PALETTE = {
-  dark: { grid: '#1e2c45', axis: '#64748b', gross: '#6366f1', net: '#22c55e', brandSoft: '#818cf8', warn: '#f59e0b', bad: '#ef4444', surface: '#0f1828', text: '#e2e8f0' },
+  dark: { grid: '#23233d', axis: '#64748b', gross: '#8b5cf6', net: '#22c55e', brandSoft: '#a78bfa', warn: '#f59e0b', bad: '#ef4444', surface: '#0e0e1a', text: '#e2e8f0' },
   /* The light palette is off-white paper (theme.css `html.light`), so the chart is drawn on the same panel
      colour as the card around it. These are literal colours because SVG props cannot read a CSS variable. */
-  light: { grid: '#e5e0d5', axis: '#6f6862', gross: '#4f46e5', net: '#059669', brandSoft: '#818cf8', warn: '#b45309', bad: '#dc2626', surface: '#fdfcfa', text: '#3a3631' },
+  light: { grid: '#e5e0d5', axis: '#6f6862', gross: '#7c3aed', net: '#059669', brandSoft: '#8b5cf6', warn: '#b45309', bad: '#dc2626', surface: '#fdfcfa', text: '#3a3631' },
 };
 
 export function current() {

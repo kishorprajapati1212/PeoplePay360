@@ -13,9 +13,6 @@ six decisions below, plus the built / not-built inventory.
 | 03 | `03-payroll-domain-research.md` | How payroll really works: Odoo object/workflow mapping, salary-rule engine semantics, money math, proration, India statutory rules, payslip anatomy |
 | 12 | `12-ui-spec-and-structure.md` | The mockup read screen-by-screen, folder-wise structure, how RBAC reaches the client, login flow, the 160-endpoint contract |
 | 15 | `15-reading-the-code.md` | The five parts every screen is written in, where each shared piece lives, and the rules this repo keeps to |
-| 17 | `17-round-9-plan.md` | Round 9, item by item: the schedule save that could not save, the empty payrun and the 160-person seeder, the approve buttons that a wrong status word hid, and an invitation link measured in minutes |
-| 18 | `18-round-10-plan.md` | Round 10: mail from two boxes (an address and its App Password, with the server read off the domain), and which variable to change when the app runs in Docker |
-| 19 | `19-round-11-plan.md` | Round 11: the invitation link run end to end against a real database, a seeder that leaves pay runs at zero, what a 14-character App Password looks like to Google, and the three bugs only a running system would tell on |
 | 16 | `16-round-8-plan.md` | Round 8, item by item: mail transport in the product, stars that match the validators, payslip files, structures that explain themselves — each with what was verified in the code first |
 | 13 | `13-how-a-payslip-is-computed.md` | How one rule becomes one number on a slip: the four steps, a worked month, half-month factor, per-day money, caps, statutory lines, the formula variables |
 | 14 | `14-built-and-not-built.md` | The inventory: which screens are wired end to end, which API routes have no UI, what is deliberately not built and what stands in its place, and how each claim was checked |

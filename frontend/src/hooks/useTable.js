@@ -8,9 +8,11 @@ import { PAGE_SIZE } from '../config/app.js';
  *
  * Sort cycles asc → desc → off, because a user who clicked twice wants to go back.
  */
-export function useTable({ search = true, filters = {}, pageSize = PAGE_SIZE } = {}) {
+export function useTable({ search = true, filters = {}, pageSize = PAGE_SIZE, initialQuery } = {}) {
   const [term, setTerm] = useState('');
-  const [query, setQuery] = useState(() => (search ? { q: '' } : {}));
+  // initialQuery lets a screen open on its working set (the leave queue opens on PENDING) instead of
+  // every row ever recorded; the filters on screen still clear or change it like any other query.
+  const [query, setQuery] = useState(() => ({ ...(search ? { q: '' } : {}), ...initialQuery }));
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(pageSize);
   const [sort, setSort] = useState(null);

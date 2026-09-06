@@ -10,7 +10,6 @@ export const orgRoutes = bind([
   get('/working-schedules/:id', { any: ['schedule:read', 'employee:read'], params: v.idParam, h: c.schedule, read: true }),
   post('/working-schedules', { perm: 'schedule:write', body: v.scheduleBody, h: c.createSchedule }),
   patch('/working-schedules/:id', { perm: 'schedule:write', params: v.idParam, body: v.scheduleBody, h: c.updateSchedule }),
-  patch('/working-schedules/:id/active', { perm: 'schedule:write', params: v.idParam, body: v.scheduleActiveBody, h: c.setScheduleActive }),
   del('/working-schedules/:id', { perm: 'schedule:write', params: v.idParam, h: c.deleteSchedule }),
   get('/holidays', { any: ['holiday:read', 'employee:read'], query: v.holidayQuery, h: c.holidays, read: true }),
   post('/holidays', { perm: 'holiday:write', body: v.holidayBody, h: c.createHoliday }),

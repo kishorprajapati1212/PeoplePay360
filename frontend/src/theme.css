@@ -8,29 +8,29 @@
    ══════════════════════════════════════════════════════════════════════════════════════════════ */
 
 html.dark {
-  --ink-950: 8 13 22;    /* page background       */
-  --ink-900: 11 18 32;   /* panel / sidebar        */
-  --ink-850: 15 24 40;   /* inputs, recessed rows  */
-  --ink-800: 19 31 51;   /* hover                  */
-  --ink-700: 28 43 68;   /* active row             */
-  --ink-600: 42 61 92;   /* raised border          */
-  --line: 30 44 69;      /* every hairline         */
-  --brand-50: 238 242 255;
-  --brand-100: 224 231 255;
-  --brand-200: 199 210 254;
-  --brand-300: 165 180 252;
-  --brand-400: 129 140 248;
-  --brand-500: 99 102 241;
-  --brand-600: 79 70 229;
-  --brand-700: 67 56 202;
-  --brand-800: 55 48 163;
-  --brand-900: 49 46 129;
-  --brand-950: 30 27 75;
+  --ink-950: 9 9 18;     /* page background — deep blue-slate with a violet undertone */
+  --ink-900: 14 14 26;   /* panel / sidebar        */
+  --ink-850: 19 19 34;   /* inputs, recessed rows  */
+  --ink-800: 26 26 45;   /* hover                  */
+  --ink-700: 37 37 64;   /* active row             */
+  --ink-600: 55 55 92;   /* raised border          */
+  --line: 34 34 59;      /* every hairline         */
+  --brand-50: 245 243 255;
+  --brand-100: 237 233 254;
+  --brand-200: 221 214 254;
+  --brand-300: 196 181 253;
+  --brand-400: 167 139 250;
+  --brand-500: 139 92 246;
+  --brand-600: 124 58 237;
+  --brand-700: 109 40 217;
+  --brand-800: 91 33 182;
+  --brand-900: 76 29 149;
+  --brand-950: 46 16 101;
   --good: 34 197 94;
   --warn: 245 158 11;
   --bad: 239 68 68;
-  --panel-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.03) inset, 0 12px 30px -18px rgba(0, 0, 0, 0.8);
-  --scroll-thumb: 34 49 77;
+  --panel-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -24px rgba(0, 0, 0, 0.9);
+  --scroll-thumb: 45 45 78;
   --slate-50: 248 250 252;
   --slate-100: 241 245 249;
   --slate-200: 226 232 240;
@@ -99,17 +99,17 @@ html.light {
   --ink-700: 228 222 212;   /* active row / selected tab           */
   --ink-600: 199 191 178;   /* raised border                       */
   --line: 223 217 206;      /* every hairline                      */
-  --brand-50: 238 239 251;
-  --brand-100: 226 228 248;  /* tints stay pale — they sit behind text, not as text */
-  --brand-200: 55 48 163;    /* the shades used as *text* flip to dark indigo … */
-  --brand-300: 67 56 202;
-  --brand-400: 79 70 229;
-  --brand-500: 79 70 229;
-  --brand-600: 79 70 229;    /* … the one used as a fill does not: white text sits on it */
-  --brand-700: 49 46 129;
-  --brand-800: 55 48 163;
-  --brand-900: 49 46 129;
-  --brand-950: 30 27 75;
+  --brand-50: 243 240 255;
+  --brand-100: 237 233 254;  /* tints stay pale — they sit behind text, not as text */
+  --brand-200: 91 33 182;    /* the shades used as *text* flip to dark violet … */
+  --brand-300: 109 40 217;
+  --brand-400: 124 58 237;
+  --brand-500: 124 58 237;
+  --brand-600: 124 58 237;    /* … the one used as a fill does not: white text sits on it */
+  --brand-700: 91 33 182;
+  --brand-800: 76 29 149;
+  --brand-900: 46 16 101;
+  --brand-950: 46 16 101;
   --good: 22 163 74;
   --warn: 180 83 9;
   --bad: 220 38 38;
