@@ -72,9 +72,9 @@ export function AttendancePage() {
                     ? 'Marked hours per person per day. Missing punches and unapproved overtime are listed on the right, because that is what breaks a payslip.'
                     : 'Your own punches for the month. The payslip is computed from these hours, so a missing punch is worth reporting.'}
                   actions={<>
-                    <label className="mr-1 flex items-end gap-1">
-                      <span className="label">Month</span>
-                      <input type="month" className="input ml-2 w-40" value={month} onChange={(e) => table.onFilter('month', e.target.value)} />
+                    <label className="mr-1 flex items-center gap-2" title="Which month the table and export cover">
+                      <span className="text-xs text-slate-500">Month</span>
+                      <input type="month" className="input w-36" value={month} onChange={(e) => table.onFilter('month', e.target.value)} />
                     </label>
                     {mayReadAll && (
                       <button className="btn-ghost btn-sm" title="The month as the API sees it, with the same filters applied"

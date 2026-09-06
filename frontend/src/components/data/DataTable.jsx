@@ -25,7 +25,7 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
                 {columns.map((c) => (
                   // `title` is how a column explains itself when the label cannot: a header the reader could not
                   // make sense of ("OT") now says, on hover, what the number is for.
-                  <th key={c.key} title={c.title} className={'th ' + (c.align === 'right' ? 'text-right ' : '') + (c.width || '')}>
+                  <th key={c.key} title={c.title} className={'th ' + (c.align === 'right' ? 'text-right ' : '') + (c.width || '') + ' ' + (c.cellClass || '')}>
                     {c.sort ? <button className="hover:text-slate-200" onClick={() => onSort?.(c)}>{c.label} ↕</button> : c.label}
                   </th>
                 ))}
@@ -37,7 +37,7 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
                     onClick={onRowClick ? (e) => onRowClick(row, e) : undefined}
                     className={'row ' + (onRowClick ? 'cursor-pointer ' : '') + (rowClassName?.(row) || '')}>
                   {columns.map((c) => (
-                    <td key={c.key} className={'td ' + (c.align === 'right' ? 'text-right tabular-nums ' : '')}>
+                    <td key={c.key} className={'td ' + (c.align === 'right' ? 'text-right tabular-nums ' : '') + (c.cellClass || '')}>
                       {c.render ? c.render(row) : formatCell(row[c.key])}
                     </td>
                   ))}

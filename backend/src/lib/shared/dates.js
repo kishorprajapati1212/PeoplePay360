@@ -2,6 +2,9 @@ export const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oc
 const pad = (n) => String(n).padStart(2, '0');
 export const toIso = (d) => {
   if (!d) return null;
+  // A plain 'YYYY-MM-DD' is already the answer — routing it through new Date() would let the
+  // process timezone move it a day (UTC midnight is the previous evening in the Americas).
+  if (typeof d === 'string') return d.trim().slice(0, 10);
   const x = d instanceof Date ? d : new Date(d);
   return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
 };

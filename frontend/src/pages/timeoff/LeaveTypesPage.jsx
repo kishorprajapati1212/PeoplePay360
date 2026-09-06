@@ -2,7 +2,7 @@ import { timeOff } from '../../api/endpoints.js';
 import { useNavigate } from 'react-router-dom';
 import { CrudPage } from '../../components/crud/CrudPage.jsx';
 import { StatusChip } from '../../components/ui/StatusChip.jsx';
-import { num } from '../../utils/format.js';
+import { num, human } from '../../utils/format.js';
 import { usePicklists } from '../../utils/picklists.js';
 
 /**
@@ -36,19 +36,28 @@ export function LeaveTypesPage() {
         { key: 'category', label: 'Any category', options: categoryOptions },
         { key: 'pay', label: 'Paid or unpaid', options: [{ value: 'PAID', label: 'Paid leave' }, { value: 'UNPAID', label: 'Unpaid (loss of pay)' }] },
       ]}
+      // One row reads as one policy: what it is, how much of it a year holds, who clears it, and what
+      // a day of it costs. The old 12-column grid (Code, Unit, Cap, Needs balance, Approval… each in
+      // its own box) restated one sentence as six fragments — and on a laptop half the columns were
+      // crammed. Lesser columns fold away on narrow screens instead of squeezing (cellClass).
       columns={[
-        { key: 'name', label: 'Type', render: (r) => (<span className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: r.display_color || '#6366f1' }} />
-            <span className="text-slate-100">{r.name}</span></span>) },
-        { key: 'category', label: 'Category', render: (r) => (r.category ? humanCat(r.category) : <span className="text-xs text-slate-500">not set</span>) },
-        { key: 'code', label: 'Code' },
-        { key: 'unit', label: 'Unit' },
-        { key: 'max_days_per_year', label: 'Cap / yr', align: 'right', render: (r) => (r.max_days_per_year ? num(r.max_days_per_year) : '—') },
-        { key: 'requires_allocation', label: 'Needs balance', render: (r) => (r.requires_allocation ? 'Yes' : 'No') },
-        { key: 'is_unpaid', label: 'Pay effect', render: (r) => (r.is_unpaid ? <span className="chip border-red-500/30 bg-red-500/10 text-red-300">unpaid</span> : <span className="text-xs text-slate-400">paid</span>) },
-        { key: 'payslip_code', label: 'Payslip line', render: (r) => r.payslip_code || '—' },
-        { key: 'approval_route', label: 'Approval', render: (r) => r.approval_route || 'manager' },
-        { key: 'days_used', label: 'Used', align: 'right', render: (r) => num(r.days_used) },
+        { key: 'name', label: 'Type', render: (r) => (<span className="flex items-start gap-2.5">
+            <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: r.display_color || '#6366f1' }} />
+            <span className="min-w-0">
+              <span className="block truncate text-slate-100">{r.name}</span>
+              <span className="block text-xs text-slate-500">{r.code} · {String(r.unit || '—').toLowerCase()}</span>
+            </span></span>) },
+        { key: 'category', label: 'Category', cellClass: 'hidden sm:table-cell', render: (r) => (r.category
+            ? <span className="chip border-line bg-ink-850/70 text-slate-300">{humanCat(r.category)}</span>
+            : <span className="text-xs text-slate-500">not set</span>) },
+        { key: 'policy', label: 'Yearly policy', cellClass: 'hidden lg:table-cell', render: (r) => (<div>
+            <p className="text-slate-300">{r.max_days_per_year ? `${num(r.max_days_per_year)} / year` : 'no annual cap'}{r.min_notice_days ? ` · ${num(r.min_notice_days)} days notice` : ''}</p>
+            <p className="text-xs text-slate-500">{human(r.approval_route || 'MANAGER')} approval · {r.requires_allocation ? 'needs a balance' : 'no balance needed'}</p>
+          </div>) },
+        { key: 'is_unpaid', label: 'Pay effect', render: (r) => (r.is_unpaid
+            ? <span className="chip border-red-500/30 bg-red-500/10 text-red-300" title={r.payslip_code ? `Writes a ${r.payslip_code} deduction line on the payslip` : undefined}>unpaid{r.payslip_code ? ` → ${r.payslip_code}` : ''}</span>
+            : <span className="text-xs text-slate-400">paid</span>) },
+        { key: 'days_used', label: 'Used', align: 'right', cellClass: 'hidden md:table-cell', render: (r) => num(r.days_used) },
         { key: 'is_active', label: 'Status', render: (r) => <StatusChip value={String(r.is_active) === 'false' || r.is_active === false ? 'INACTIVE' : 'ACTIVE'} /> },
       ]}
       fields={[

@@ -13,6 +13,7 @@ import { wrap } from '../middleware/wrap.js';
 import { notFound, errorHandler } from '../middleware/error.js';
 import { AppError } from '../lib/shared/index.js';
 import * as payslipSvc from '../services/payslip.service.js';
+import { getCompany } from '../repositories/company.repo.js';
 import { makeZip } from '../lib/pdf/index.js';
 
 /**
@@ -44,8 +45,11 @@ export function apiRouter() {
   r.get('/meta', async (_req, res) => {
     const { INDIAN_STATES, PT_STATES } = await import('../lib/shared/index.js');
     const { LEAVE_CATEGORIES } = await import('../validators/hr.schema.js');
+    // The company's own zone rides along so the browser formats punch times the way the payslip
+    // does — a viewer in another timezone still sees 09:35 IST, not their local 04:35.
+    const company = await getCompany();
     res.json({ ok: true, ts: new Date().toISOString(),
-             states: INDIAN_STATES, pt_states: PT_STATES,
+             states: INDIAN_STATES, pt_states: PT_STATES, timezone: company?.timezone || 'Asia/Kolkata',
              leave_categories: LEAVE_CATEGORIES.map((value) => ({ value, label: humanise(value) })) });
   });
   r.use(notFound);

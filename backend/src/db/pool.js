@@ -2,6 +2,17 @@ import pg from 'pg';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 
+/**
+ * DATE columns must survive the trip to the browser as 'YYYY-MM-DD' — never as an instant.
+ * node-postgres's default turns DATE into a Date at *local* midnight; with TZ=Asia/Kolkata that is
+ * 18:30Z of the previous evening, and JSON.stringify then ships 2026-10-01 as
+ * "2026-09-30T18:30:00.000Z". Every screen that sliced that string showed dates one day early
+ * (payrun periods "30 Sep – 30 Oct 2026", attendance days, joining dates). Parsing DATE back to
+ * the plain string kills the whole class of bug at the source; timestamptz (check-in punches,
+ * created_at) is untouched and still arrives as a real instant.
+ */
+pg.types.setTypeParser(1082, (v) => v);
+
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: config.pg.max,

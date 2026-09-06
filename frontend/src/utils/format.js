@@ -29,22 +29,30 @@ export function date(value) {
   if (parts.length !== 3) return String(value);
   return `${Number(parts[2])} ${MONTHS_SHORT[Number(parts[1]) - 1]} ${parts[0]}`;
 }
+/** Punch times are shown in the COMPANY's zone (set from GET /api/meta once at startup), not the
+ *  viewer's: payroll runs in one timezone, and a browser set to UTC turning a 10:05 IST check-in
+ *  into "04:35" on the attendance screen is exactly the kind of thing that gets a screenshot filed
+ *  as a bug. Falls back to the browser zone when meta has not answered yet. */
+let COMPANY_TZ = null;
+export function setCompanyTimezone(tz) {
+  if (!tz || typeof tz !== 'string') return;
+  try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); COMPANY_TZ = tz; } catch { /* unknown zone: stay local */ }
+}
+const clockTime = (instant) => instant.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', ...(COMPANY_TZ ? { timeZone: COMPANY_TZ } : {}) });
 export function datetime(value) {
   if (!value) return '—';
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return String(value);
-  return `${date(value)}, ${dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${date(value)}, ${clockTime(dt)}`;
 }
-/** Punch times land as timestamptz (UTC in the ISO string); slicing them showed a time 5½ hours
- *  early for an IST browser. Format in the browser's own zone instead — 'HH:MM' when it can, the
- *  raw prefix when it cannot (a plain '09:30' stays untouched). */
+/** 'HH:MM' in the company zone; a plain '09:30' (schedule times have no date) stays untouched. */
 export function time(value) {
   if (!value) return '—';
   const s = String(value);
   if (!s.includes('T') && !s.includes(' ')) return s.slice(0, 5);
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s.slice(0, 5);
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return clockTime(d);
 }
 /** 'HR_PAYROLL_USER' → 'Hr Payroll User', so tables stay readable without a lookup table. */
 export function human(value) {

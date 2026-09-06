@@ -71,7 +71,7 @@ Needs Node 20+ and a local Postgres + Redis listening on the default ports (then
 ```bash
 npm run setup        # backend/ + frontend/ dependencies (that is all it does)
 npm run db:migrate   # 11 SQL migrations — needs a Postgres on :5432, which backend/.env already assumes
-npm run db:seed      # demo company: 13 employees, 5 staff logins + a login per employee, pay runs (db:reset = start over)
+npm run db:seed      # demo company: 240 employees, 5 staff logins + a login per employee, 6 months of attendance, leave and payroll history (db:reset = start over)
 npm run dev          # api :4000 + worker :4100 + web :5173 in one terminal, printing the URLs below
 ```
 

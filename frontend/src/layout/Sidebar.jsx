@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth.js';
 import { visibleNav } from '../rbac/permissions.js';
 import { APP_NAME } from '../config/app.js';
@@ -96,14 +96,14 @@ export function Sidebar() {
           return (
           <div key={item.key}>
             <div className="flex items-center">
-              <NavLink to={item.to}
+              <Link to={item.to} aria-current={active ? 'page' : undefined}
                       className={'group flex flex-1 items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors '
                         + (active ? 'bg-brand-500/15 text-brand-200' : 'text-slate-400 hover:bg-ink-800/80 hover:text-slate-200')}>
                 <span className={'grid h-[18px] w-[18px] shrink-0 place-items-center transition-colors ' + (active ? 'text-brand-300' : 'text-slate-500 group-hover:text-slate-300')}>
                   {iconFor(item.key, item.to)}
                 </span>
                 <span className="truncate">{item.label}</span>
-              </NavLink>
+              </Link>
               {item.children?.length > 0 && (
                 <button className="ml-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-ink-800 hover:text-slate-300" onClick={() => toggle(item.key)} aria-label="Toggle section">
                   <svg viewBox="0 0 24 24" className={'h-3.5 w-3.5 transition-transform ' + (open.has(item.key) ? 'rotate-90' : '')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
@@ -112,14 +112,17 @@ export function Sidebar() {
             </div>
             {item.children?.length > 0 && open.has(item.key) && (
               <div className="mt-0.5 mb-1 space-y-0.5 border-l border-line/70 pl-4 ml-6">
-                {item.children.map((child) => (
-                  <NavLink key={child.to} to={child.to}
+                {item.children.map((child) => {
+                  const on = (landing(child) ? pathname === child.to : matches(child.to, pathname)) && child.to === best;
+                  return (
+                  <Link key={child.to} to={child.to} aria-current={on ? 'page' : undefined}
                            className={'block rounded-lg px-2.5 py-1.5 text-xs transition-colors '
-                             + ((landing(child) ? pathname === child.to : matches(child.to, pathname)) && child.to === best
+                             + (on
                                ? 'bg-brand-500/15 font-medium text-brand-200' : 'text-slate-500 hover:bg-ink-800/80 hover:text-slate-300')}>
                     {child.label}
-                  </NavLink>
-                ))}
+                  </Link>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -139,15 +142,22 @@ export function MobileNav() {
   const { pathname } = useLocation();
   const menus = visibleNav(user);
   const best = bestMatch(menus, pathname);
+  // Does this group own the route we are on: its own landing page, one of its children, or a URL
+  // underneath it (a payrun detail page keeps the Payroll pill lit).
+  const owns = (item) => !!best && (best === item.to || (item.children || []).some((c) => c.to === best)
+    || (best.startsWith(item.to + '/') && !menus.some((o) => o.to !== item.to && (best === o.to || best.startsWith(o.to + '/')))));
+  // First owner in menu order wins — two groups can share a child (Structures sits under Payroll
+  // for an admin), and two lit pills would read as two places at once.
+  const lit = menus.find((m) => owns(m));
   return (
     <div className="flex gap-1 overflow-x-auto px-3 py-2 lg:hidden">
       {menus.map((item) => (
-        <NavLink key={item.to} to={item.to}
+        <Link key={item.to} to={item.to} aria-current={lit?.key === item.key ? 'page' : undefined}
                  className={'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors '
-                   + (item.to === best && !(item.children || []).some((c) => (c.to === item.to ? pathname === c.to : matches(c.to, pathname))) ? 'bg-brand-500/20 text-brand-200' : 'text-slate-400 hover:bg-ink-800 hover:text-slate-200')}>
+                   + (lit?.key === item.key ? 'bg-brand-500/20 text-brand-200' : 'text-slate-400 hover:bg-ink-800 hover:text-slate-200')}>
           <span className="h-3.5 w-3.5">{iconFor(item.key, item.to)}</span>
           {item.label}
-        </NavLink>
+        </Link>
       ))}
     </div>
   );

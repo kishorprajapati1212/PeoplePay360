@@ -5,6 +5,9 @@
  */
 export const TODAY = new Date().toISOString().slice(0, 10);
 
+/** Small deterministic pseudo-random so a re-seed produces the same demo (nice for screenshots and tests). */
+export const rng = (seed = 7) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+
 export const COMPANY = {
   company_name: 'OXP Pvt Ltd', legal_name: 'OXP Private Limited',
   address: 'Unit 402, Tower 1, Pragya I, GIFT City', city: 'Gandhinagar', state: 'Gujarat', postal_code: '382310',
@@ -168,6 +171,82 @@ export const EMPLOYEES = [
   { key: 'kabir', name: 'Kabir Kulkarni', email: 'kabir.kulkarni@oxp.com', dept: 'Customer Support', position: 'Support Engineer (Part time)', type: 'PART_TIME', wage: 21000, joining: '2025-09-15', schedule: 1, structure: 'INT', city: 'Nashik', gender: 'Male', manager: 'sana' },
 ];
 
+/**
+ * …and the rest of the company. A demo of 13 people proves the flows; a demo of ~240 proves the
+ * screens (lists paginate, search finds, dashboards aggregate). Generated once, deterministically,
+ * from the same rng as everything else — two fresh installs show the same faces.
+ *
+ * The spread mirrors a real services company: Engineering and Support carry the headcount, Sales
+ * is on the incentive structure, interns/part-timers on the stipend one, everyone else on STD.
+ * Joining dates deliberately run right up to *after* the current month's payrun window, so a
+ * handful of September/October joiners have no payslip yet — "some employees are not in a payrun"
+ * is then visible in the data instead of being a hand-wave.
+ */
+const FIRST_M = ['Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Sai', 'Reyansh', 'Krishna', 'Ishaan', 'Rudra', 'Kabir', 'Dhruv', 'Aryan', 'Yash', 'Atharv', 'Pranav', 'Ritesh', 'Siddharth', 'Harsh', 'Manav', 'Nikhil', 'Rahul', 'Karan', 'Varun', 'Tanmay', 'Omkar', 'Samar', 'Yuvraj', 'Dev', 'Abhay', 'Girish', 'Chirag', 'Nilesh', 'Paresh', 'Mehul', 'Jatin', 'Ketan', 'Sameer', 'Aakash', 'Shreyas', 'Parth', 'Nimit', 'Utsav', 'Viral', 'Jay', 'Harshil', 'Bhavin', 'Ashwin', 'Raj', 'Suraj'];
+const FIRST_F = ['Diya', 'Ananya', 'Aadhya', 'Myra', 'Saanvi', 'Ira', 'Kiara', 'Anvi', 'Navya', 'Aarohi', 'Pooja', 'Riya', 'Sneha', 'Meera', 'Kavya', 'Ishita', 'Lavanya', 'Roshni', 'Shreya', 'Tanvi', 'Nisha', 'Aisha', 'Zoya', 'Simran', 'Mansi', 'Deepa', 'Asha', 'Geeta', 'Rekha', 'Sunita', 'Jaya', 'Vidhi', 'Heena', 'Rukhsar', 'Salma', 'Nargis', 'Komal', 'Pallavi', 'Shruti', 'Akshata', 'Bhavana', 'Chhaya', 'Dimple', 'Ekta', 'Falguni', 'Gauri', 'Hiral', 'Janki', 'Krupa', 'Lata', 'Mitali'];
+const LAST = ['Mehta', 'Shah', 'Patel', 'Desai', 'Trivedi', 'Chauhan', 'Panchal', 'Joshi', 'Bhatt', 'Modi', 'Rathod', 'Solanki', 'Vaghela', 'Parmar', 'Brahmbhatt', 'Doshi', 'Jani', 'Kadia', 'Thakkar', 'Mistry', 'Bhavsar', 'Dave', 'Gandhi', 'Iyer', 'Nair', 'Menon', 'Pillai', 'Kulkarni', 'Deshpande', 'Reddy', 'Rao', 'Shetty', 'Naik', 'Kamath', 'Sharma', 'Verma', 'Gupta', 'Singh', 'Yadav', 'Mishra', 'Tiwari', 'Agrawal', 'Goel', 'Bansal', 'Saxena', 'Kapoor', 'Malhotra', 'Chopra', 'Bhatnagar', 'Qureshi', 'Sheikh', 'Ansari', 'Khan', 'Buch', 'Dhamecha', 'Gohil', 'Hathi', 'Jokhi', 'Limbasiya'];
+const CITIES = ['Ahmedabad', 'Gandhinagar', 'Surat', 'Vadodara', 'Rajkot', 'Mumbai', 'Pune', 'Nashik', 'Hyderabad', 'Bengaluru', 'Chennai', 'Kochi', 'Jaipur', 'Indore', 'Nagpur', 'Lucknow'];
+/** dept → [positions as [title, wageLow, wageHigh]] in ₹/month; `sales` routes the dept to SLS. */
+const BULK_PLAN = [
+  { dept: 'Engineering', n: 55, sales: false, positions: [['Software Engineer', 28000, 55000], ['Senior Software Engineer', 65000, 95000], ['QA Engineer', 24000, 42000], ['DevOps Engineer', 45000, 75000], ['Data Engineer', 38000, 68000], ['Engineering Manager', 90000, 130000]] },
+  { dept: 'People Operations', n: 20, sales: false, positions: [['HR Executive', 24000, 38000], ['Recruiter', 26000, 44000], ['HR Business Partner', 55000, 80000]] },
+  { dept: 'Payroll & Finance', n: 25, sales: false, positions: [['Payroll Officer', 30000, 52000], ['Accounts Executive', 24000, 40000], ['Finance Analyst', 40000, 70000]] },
+  { dept: 'Sales', n: 55, sales: true, positions: [['Sales Executive', 22000, 38000], ['Account Manager', 40000, 65000], ['Senior Account Manager', 60000, 90000]] },
+  { dept: 'Customer Support', n: 72, sales: false, positions: [['Support Engineer', 20000, 34000], ['Senior Support Engineer', 34000, 52000], ['Support Lead', 48000, 70000]] },
+];
+/** The core person each generated employee reports to (they also head the department). */
+const BULK_HEADS = { Engineering: 'aarav', 'People Operations': 'rohan', 'Payroll & Finance': 'fatima', Sales: 'neha', 'Customer Support': 'sana' };
+const isoFrom = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+export const bulkEmployees = (() => {
+  const rand = rng(20260906);
+  const out = [];
+  const today = new Date();
+  let n = 0;
+  for (const plan of BULK_PLAN) {
+    for (let k = 0; k < plan.n; k++) {
+      n += 1;
+      const female = rand() < 0.45;
+      const first = (female ? FIRST_F : FIRST_M)[Math.floor(rand() * (female ? FIRST_F : FIRST_M).length)];
+      const last = LAST[Math.floor(rand() * LAST.length)];
+      const [position, lo, hi] = plan.positions[Math.floor(rand() * plan.positions.length)];
+      // every 14th generated person is on a fixed-term contract, every 16th an intern, every 21st part-time
+      const kind = n % 16 === 0 ? 'INTERN' : n % 21 === 0 ? 'PART_TIME' : n % 14 === 0 ? 'CONTRACT' : 'FULL_TIME';
+      const wage = Math.round((lo + rand() * (hi - lo)) / 500) * 500;
+      // joining: 40% old-timers, 35% 2024-25, 20% this year, 5% mid-September onward (no payslip yet)
+      const roll = rand();
+      let joining;
+      if (roll < 0.40) joining = isoFrom(2019 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 12), 1 + Math.floor(rand() * 28));
+      else if (roll < 0.75) joining = isoFrom(2024 + Math.floor(rand() * 2), 1 + Math.floor(rand() * 12), 1 + Math.floor(rand() * 28));
+          else if (roll < 0.95) joining = isoFrom(2026, 1 + Math.floor(rand() * 9), 1 + Math.floor(rand() * 28));   // Jan–Sep: a late-September joiner shows the mid-month pro-rata
+      // the month AFTER next: past even next month's DRAFT run, so these people visibly have no
+      // payslip at all until someone creates a payrun that covers them — "some employees are not
+      // in a payrun", as asked. (getUTCMonth is 0-based: +1 is this month, +2 is next.)
+      else joining = isoFrom(today.getUTCFullYear(), today.getUTCMonth() + 3, 3 + Math.floor(rand() * 18));
+      // half the fixed-term contracts have already ended (history keeps their old payslips)
+      let exit = null;
+      if (kind === 'CONTRACT' && rand() < 0.5) {
+        const past = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1 - Math.floor(rand() * 3), 1 + Math.floor(rand() * 27)));
+        exit = past.toISOString().slice(0, 10);
+        if (exit <= joining) exit = null;
+      }
+      out.push({
+        key: `g${n}`, name: `${first} ${last}`,
+        email: `${first}.${last}${n}`.toLowerCase().replace(/[^a-z0-9._@]/g, '') + '@oxp.com',
+        dept: plan.dept, position: kind === 'INTERN' ? `${position} (Intern)` : kind === 'CONTRACT' ? `${position} (Contract)` : position,
+        type: kind, wage,
+        joining, exit,
+        schedule: plan.dept === 'Customer Support' && kind !== 'INTERN' ? 1 : kind === 'INTERN' ? 2 : 0,
+        structure: plan.sales && kind === 'FULL_TIME' ? 'SLS' : (kind === 'INTERN' || kind === 'PART_TIME') ? 'INT' : 'STD',
+        city: CITIES[Math.floor(rand() * CITIES.length)], gender: female ? 'Female' : 'Male',
+        manager: BULK_HEADS[plan.dept],
+        ...(plan.sales && kind === 'FULL_TIME' ? { inputs: { target: Math.round(wage * 5 / 10000) * 10000, attainment: Math.round((0.5 + rand() * 0.85) * 100) / 100 } } : {}),
+      });
+    }
+  }
+  return out;
+})();
+export const EMPLOYEES_ALL = [...EMPLOYEES, ...bulkEmployees];
+
 export const LEAVE_TYPES = [
   { name: 'Casual Leave', code: 'CL', category: 'CASUAL', unit: 'DAYS', requires_allocation: true, max_days_per_year: 12, approval_route: 'MANAGER',
     is_unpaid: false, payslip_code: 'CL', carry_forward: false, sandwich_rule: false, min_notice_days: 0, display_color: 'Blue',
@@ -193,9 +272,19 @@ export const LEAVE_TYPES = [
 ];
 
 /** Payroll runs the seeder drives — generated from *today*, so a fresh install always has live demo
- *  data: five closed months PAID (the newest of them as an advance/true-up pair), the current month
- *  COMPUTED and waiting to be validated, and next month sitting as a DRAFT you can press Compute on.
- *  The old hard-coded 2026 dates aged out: a demo seeded in October had no runs for "this month". */
+ *  data: four closed months PAID (the newest of them, on the standard structure, as an advance/
+ *  true-up pair), the current month COMPUTED and waiting to be validated, and next month sitting as
+ *  a DRAFT you can press Compute on.
+ *
+ *  Not every structure gets every run, ON PURPOSE. A payrun is one structure × one period, and the
+ *  API rightly refuses a second run for a pair that already exists — a demo where every structure
+ *  already has a run for every recent month leaves "New payrun" nowhere to go, and the guard reads
+ *  as a bug ("it says a payrun for August already exists!"). So:
+ *    STD  — the full story, all seven runs (it is the structure the halves demo needs).
+ *    INT  — stops at July: August and next month are free, and the current month is only COMPUTED.
+ *    SLS  — stops at June: July, August and everything after is the user's to create.
+ *  Fresh joiners (September onward) are in no run at all yet, for the same reason.
+ */
 const pad2 = (n) => String(n).padStart(2, '0');
 const monthKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 const lastDay = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
@@ -203,20 +292,18 @@ const shiftMonth = (n) => new Date(new Date().getFullYear(), new Date().getMonth
 const span = (d) => ({ from: `${monthKey(d)}-01`, to: `${monthKey(d)}-${pad2(lastDay(d))}` });
 export const RUNS = (() => {
   const runs = [];
-  for (let back = 5; back >= 2; back--) {          // four closed months, monthly, paid
+  for (let back = 5; back >= 2; back--) {          // four closed months, monthly, paid — every structure
     const d = shiftMonth(-back);
-    runs.push({ ...span(d), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'PAID' });
+    runs.push({ ...span(d), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'PAID', structures: ['STD', 'SLS', 'INT'] });
   }
-  { // the newest closed month pays as halves: 50% advance, then the true-up (shows the half-month flow)
+  { // the newest closed month pays as halves on STD only: 50% advance, then the true-up
     const d = shiftMonth(-1);
-    runs.push({ from: `${monthKey(d)}-01`, to: `${monthKey(d)}-15`, freq: 'HALF_MONTH_FIRST', mode: 'ADVANCE_50', status: 'PAID', halves: 'H1' });
-    runs.push({ from: `${monthKey(d)}-16`, to: `${monthKey(d)}-${pad2(lastDay(d))}`, freq: 'HALF_MONTH_SECOND', mode: 'ADVANCE_50', status: 'PAID', halves: 'H2' });
+    runs.push({ from: `${monthKey(d)}-01`, to: `${monthKey(d)}-15`, freq: 'HALF_MONTH_FIRST', mode: 'ADVANCE_50', status: 'PAID', halves: 'H1', structures: ['STD'] });
+    runs.push({ from: `${monthKey(d)}-16`, to: `${monthKey(d)}-${pad2(lastDay(d))}`, freq: 'HALF_MONTH_SECOND', mode: 'ADVANCE_50', status: 'PAID', halves: 'H2', structures: ['STD'] });
   }
-  runs.push({ ...span(new Date()), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'COMPUTED' });   // this month: numbers ready, awaiting validate
-  runs.push({ ...span(shiftMonth(1)), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'DRAFT' });   // next month: an empty draft to press Compute on
+  runs.push({ ...span(new Date()), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'COMPUTED', structures: ['STD', 'INT'] });   // this month: numbers ready, awaiting validate
+  runs.push({ ...span(shiftMonth(1)), freq: 'MONTHLY', mode: 'PRO_RATA', status: 'DRAFT', structures: ['STD'] });          // next month: an empty draft to press Compute on
   return runs;
 })();
 /** Attendance follows the runs: the five months that are paid plus the one being computed. */
 export const ATTENDANCE_MONTHS = Array.from({ length: 6 }, (_, k) => monthKey(shiftMonth(k - 5)));
-/** Small deterministic pseudo-random so a re-seed produces the same demo (nice for screenshots and tests). */
-export const rng = (seed = 7) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };

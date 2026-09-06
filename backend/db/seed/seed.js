@@ -17,7 +17,7 @@ import { query, one, rows, pool } from '../../src/db/pool.js';
 import { hashPassword } from '../../src/middleware/auth.js';
 import { eachDay, toIso, fmtDate, periodKey, monthAnchor } from '../../src/lib/shared/index.js';
 import { COMPANY, DEPARTMENTS, SCHEDULES, HOLIDAYS, HOLIDAY_TEMPLATES, STRUCTURES, PT_SLABS, USERS, EMPLOYEES,
-         LEAVE_TYPES, RUNS, ATTENDANCE_MONTHS, rng } from './data.js';
+         EMPLOYEES_ALL, LEAVE_TYPES, RUNS, ATTENDANCE_MONTHS, rng } from './data.js';
 import { banner } from '../../src/utils/urls.js';
 
 const argv = process.argv.slice(2);
@@ -160,7 +160,7 @@ async function seedEmployees({ depts, schedules, structures, users }) {
   step('Employees + contracts');
   const hash = users.hash;
   const map = {};
-  for (const [i, e] of EMPLOYEES.entries()) {
+  for (const [i, e] of EMPLOYEES_ALL.entries()) {
     const deptId = depts[e.dept];
     const schedule = schedules[e.schedule] || schedules[0];
     const structure = structures[e.structure];
@@ -178,7 +178,7 @@ async function seedEmployees({ depts, schedules, structures, users }) {
                                             employment_tag, basic_salary, bank_account_number, bank_ifsc, bank_name, pan_number, uan_number, esi_number, notes)
                                      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) returning id`,
         [code, userId, e.name, e.email, `98${(25000000 + i * 12345).toString().slice(0, 8)}`, e.gender,
-         `199${4 + (i % 4)}-0${(i % 8) + 1}-1${(i % 9) + 1}`, `${101 + i * 3} Sadan Road`, e.city, 'Gujarat', `3800${(15 + i).toString().padStart(2, '0')}`,
+         `199${4 + (i % 4)}-0${(i % 8) + 1}-1${(i % 9) + 1}`, `${101 + (i % 80) * 3} Sadan Road`, e.city, 'Gujarat', `3800${(15 + (i % 80)).toString().padStart(2, '0')}`,
          e.city, deptId, e.position, e.type, schedule.id, e.joining, e.exit || null, 'ACTIVE',
          e.type === 'INTERN' ? 'Internship' : e.type === 'CONTRACT' ? 'Fixed term' : 'Permanent', e.wage,
          `5${(i * 7 + 11).toString().padStart(4, '0')}${(i * 13 + 7).toString().padStart(6, '0')}`, 'HDFC0000123', 'HDFC Bank',
@@ -195,12 +195,13 @@ async function seedEmployees({ depts, schedules, structures, users }) {
       [existingId, c.end_date, c.wage, c.salary_structure_id, c.working_schedule_id, c.department_id, c.job_position]);
     else await query(`insert into contracts (employee_id, start_date, end_date, department_id, job_position, wage, salary_structure_id, working_schedule_id, status, is_primary, notes)
                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, Object.values(c));
-    log(`  ${pad(code)} ${pad(e.name, 20)} ${pad(e.structure, 5)} ₹${String(e.wage).padStart(7)}  ${e.dept}`);
+    if (i < EMPLOYEES.length) log(`  ${pad(code)} ${pad(e.name, 20)} ${pad(e.structure, 5)} ₹${String(e.wage).padStart(7)}  ${e.dept}`);
   }
+  log(`  …plus ${EMPLOYEES_ALL.length - EMPLOYEES.length} generated colleagues (deterministic names, wages and joining dates)`);
   // reporting lines + department heads once everyone exists
-  for (const e of EMPLOYEES) if (e.manager && map[e.manager]) await query(`update employees set manager_id = $2 where id = $1`, [map[e.key].id, map[e.manager].id]);
+  for (const e of EMPLOYEES_ALL) if (e.manager && map[e.manager]) await query(`update employees set manager_id = $2 where id = $1`, [map[e.key].id, map[e.manager].id]);
   for (const d of DEPARTMENTS) {
-    const head = EMPLOYEES.find((e) => e.dept === d.name && !e.manager);
+    const head = EMPLOYEES.find((e) => e.dept === d.name && !e.manager);  // heads stay the curated core
     if (head && depts[d.name] && map[head.key]?.id) await query(`update departments set manager_id = $2 where id = $1`, [depts[d.name], map[head.key].id]);
   }
   return map;
@@ -298,7 +299,6 @@ async function seedTimeOff({ empMap, auth }) {
   let approved = 0;
   for (const p of plan) {
     const type = LEAVE_TYPES.find((t) => t.code === p.code);
-    if (!type.requires_allocation && p.status === 'TO_APPROVE') { /* fine */ }
     let req;
     try {
       req = await svc.createRequest({ employee_id: p.who.id, time_off_type_id: typeIds[p.code], start_date: p.from, end_date: p.to, reason: p.reason, status: 'TO_APPROVE' }, { auth });
@@ -310,7 +310,48 @@ async function seedTimeOff({ empMap, auth }) {
     if (p.status === 'APPROVED') { await svc.decide(req.id, { status: 'APPROVED' }, { auth }); approved += 1; }
     if (p.status === 'REFUSED') await svc.decide(req.id, { status: 'REFUSED', refuse_reason: p.reason }, { auth });
   }
-  log(`  ${plan.length} requests (${approved} approved through the service, 3 waiting for HR)`);
+  log(`  ${plan.length} curated requests (${approved} approved through the service, 3 waiting for HR)`);
+
+  // ── the volume: most of the company has taken leave this year. Same service, same balance
+  // maths, one deterministic roll per person: past requests arrive already decided (that is what
+  // the balances' "taken" column counts), future ones sit in the HR queue.
+  const rand = rng(4242);
+  const iso2 = (offsetDays) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + offsetDays); return d.toISOString().slice(0, 10); };
+  const REASONS = ['Family function', 'Fever', 'Personal work', 'Travel out of station', 'Wedding in the family', 'Home repairs', 'Bank and paperwork', 'Child unwell', 'Festival at home', 'Doctor follow-up'];
+  const PAST_TYPES = [['CL', 0.50], ['SL', 0.22], ['LWP', 0.13], ['COMP_OFF', 0.15]];   // notice-free types only: PL wants 3 days notice
+  const FUTURE_TYPES = [['CL', 0.40], ['PL', 0.32], ['SL', 0.13], ['LWP', 0.15]];
+  const pick = (table) => { let r = rand(); for (const [code, w] of table) { if ((r -= w) <= 0) return code; } return table[0][0]; };
+  let made = 0, pending = 0, skipped = 0;
+  for (const [idx, person] of people.entries()) {
+    if (idx < plan.length) continue;                       // the curated eight are already above
+    const rolls = rand() < 0.60 ? 1 : rand() < 0.45 ? 2 : 0;
+    for (let r = 0; r < rolls; r++) {
+      const future = rand() < 0.30;
+      const code = pick(future ? FUTURE_TYPES : PAST_TYPES);
+      const type = LEAVE_TYPES.find((t) => t.code === code);
+      const days = 1 + Math.floor(rand() * (code === 'LWP' ? 2 : 3));
+      const anchor = future ? 7 + Math.floor(rand() * 40) : -(8 + Math.floor(rand() * 120));
+      const from = iso2(anchor);
+      const d = new Date(from + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days - 1);
+      const to = d.toISOString().slice(0, 10);
+      const reason = REASONS[Math.floor(rand() * REASONS.length)];
+      let req;
+      try {
+        req = await svc.createRequest({ employee_id: person.id, time_off_type_id: typeIds[code], start_date: from, end_date: to, reason, status: 'TO_APPROVE' }, { auth });
+      } catch (err) {
+        const expected = ['NO_ALLOCATION', 'NOTICE_REQUIRED', 'MAX_DAYS_EXCEEDED', 'INSUFFICIENT_BALANCE', 'DUPLICATE_PERIOD', 'OVERLAPPING_REQUEST'];
+        if (expected.includes(err.code)) { skipped += 1; continue; }
+        throw err;
+      }
+      made += 1;
+      if (!future) {
+        const verdict = rand() < 0.95 ? 'APPROVED' : 'REFUSED';
+        await svc.decide(req.id, verdict === 'APPROVED' ? { status: 'APPROVED' } : { status: 'REFUSED', refuse_reason: 'Team coverage — pick another window' }, { auth });
+        if (verdict === 'APPROVED') approved += 1;
+      } else pending += 1;
+    }
+  }
+  log(`  ${made} generated requests (${approved} approved in total, ${pending} waiting for HR, ${skipped} skipped by policy guards)`);
 }
 async function seedPayroll({ empMap, structures, auth }) {
   step(`Payroll: ${RUNS.length} runs driven through the real services`);
@@ -326,6 +367,7 @@ async function seedPayroll({ empMap, structures, auth }) {
   const created = [];
   for (const run of RUNS) {
     for (const [code, list] of Object.entries(byStructure)) {
+      if (run.structures && !run.structures.includes(code)) continue;   // deliberate gaps: room to create payruns in the UI
       const structure = structures[code];
       const eligible = list.filter((e) => (!e.exit || e.exit >= run.to) && e.joining <= run.to);
       if (!eligible.length) continue;
@@ -384,23 +426,28 @@ async function seedWrinkles() {
   step('Demo wrinkles (things HR has to fix)');
   await query(`update employees set bank_account_number = null, bank_ifsc = null, bank_name = null where employee_code = 'EMP0009'`);
   log('  EMP0009 has no bank details → "missing bank" warning + report filter');
-  const ot = await query(`update attendance set overtime_approved = false where overtime_hours > 0 and day = (select max(day) from attendance)
-                          and employee_id = (select id from employees where employee_code = 'EMP0008') returning id`);
-  log(`  ${ot.rowCount} overtime row(s) left unapproved → they must not reach payroll`);
+  const ot = await query(`update attendance set overtime_approved = false
+                          where id = (select id from attendance where employee_id = (select id from employees where employee_code = 'EMP0008')
+                                      and overtime_hours > 0 order by day desc limit 1) returning id, day`);
+  log(`  ${ot.rowCount} overtime row(s) left unapproved (day ${ot.rows[0] ? String(ot.rows[0].day).slice(0, 10) : '—'}) → they must not reach payroll`);
   await query(`update contracts set notes = coalesce(notes,'') || ' · contract expiring, renewal due' where employee_id = (select id from employees where employee_code='EMP0010') and end_date is null`);
 }
 async function summary() {
   const s = await query(`select (select count(*) from employees) as employees, (select count(*) from users) as users,
                                  (select count(*) from contracts) as contracts, (select count(*) from attendance) as attendance,
-                                 (select count(*) from payruns) as payruns, (select count(*) from payslips where status='PAID') as paid_slips,
+                                 (select count(*) from payruns) as payruns, (select count(*) from payslips) as payslips,
+                                 (select count(*) from payslips where status='PAID') as paid_slips,
                                  (select coalesce(sum(net_amount),0) from payslips where status='PAID') as paid_net,
+                                 (select count(*) from time_off_requests) as leave_requests,
                                  (select count(*) from time_off_requests where status='TO_APPROVE') as pending_leave,
+                                 (select count(*) from employees e where not exists (select 1 from payslips p where p.employee_id = e.id)) as never_paid,
                                  (select count(*) from salary_rules) as rules`);
   const r = s.rows[0];
   console.log('\n┌─ Seeded ─────────────────────────────────────────────┐');
   for (const [k, v] of Object.entries({ employees: r.employees, users: r.users, contracts: r.contracts, attendance: r.attendance,
-    'salary rules': r.rules, payruns: r.payruns, 'paid payslips': r.paid_slips, 'net paid': `₹${Number(r.paid_net).toLocaleString('en-IN')}`,
-    'leave awaiting HR': r.pending_leave })) console.log(`│ ${pad(k, 20)} ${String(v).padStart(12)} │`);
+    'salary rules': r.rules, payruns: r.payruns, payslips: r.payslips, 'paid payslips': r.paid_slips, 'net paid': `₹${Number(r.paid_net).toLocaleString('en-IN')}`,
+    'leave requests': r.leave_requests, 'leave awaiting HR': r.pending_leave,
+    'never in a payrun': r.never_paid })) console.log(`│ ${pad(k, 20)} ${String(v).padStart(12)} │`);
   console.log('└────────────────────────────────────────────────────────┘');
   printLogins();
 }

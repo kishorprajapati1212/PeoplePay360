@@ -24,6 +24,11 @@
            placeholder:text-slate-500 outline-none transition-all duration-150
            focus:border-brand-500/70 focus:bg-ink-900 focus:ring-4 focus:ring-brand-500/15;
   }
+  /* Native month/date pickers size themselves ~2px taller than text inputs, so a toolbar row of
+     filters sat visibly staggered. One fixed height for every input-like control (the custom
+     Select's trigger is a button.input); textareas keep their own height. */
+  input.input, button.input { height: 38px; padding-top: 0; padding-bottom: 0; }
+
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium
            transition-all duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/30

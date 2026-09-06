@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
+import { setCompanyTimezone } from './format.js';
 
 /**
  * States and leave categories come from GET /api/meta, which answers from the same arrays the API's own
@@ -12,7 +13,7 @@ export function picklists() {
   if (cached) return Promise.resolve(cached);
   if (!pending) {
     pending = api.get('/meta')
-      .then((out) => { cached = normalise(out); return cached; })
+      .then((out) => { setCompanyTimezone(out && out.timezone); cached = normalise(out); return cached; })
       .catch((e) => { pending = null; throw e; });
   }
   return pending;
